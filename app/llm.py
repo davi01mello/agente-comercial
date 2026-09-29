@@ -1,7 +1,7 @@
 """Camada única de acesso ao Claude. Todo o resto do app chama SÓ este arquivo.
 
 TODO(T2): implementar `perguntar_claude`.
-TODO(T5): implementar `curar_insight` (texto solto -> InsightCreate estruturado).
+TODO(T4): implementar `curar_insight` (texto solto -> InsightCreate estruturado).
 TODO(T7): implementar `consultar` (pergunta + playbook -> resposta com fontes).
 """
 from pathlib import Path
