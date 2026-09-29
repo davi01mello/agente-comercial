@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Segredos e dados locais (NUNCA versionar)
+.env
+data/*.db
+data/*.sqlite
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
