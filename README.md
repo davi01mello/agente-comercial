@@ -35,7 +35,9 @@ copy .env.example .env        # depois edite o .env e coloque a GEMINI_API_KEY
 uvicorn app.main:app --reload
 ```
 
-Abra http://127.0.0.1:8000 (página inicial) e http://127.0.0.1:8000/docs (documentação automática da API).
+Abra http://127.0.0.1:8000 (chat com o consultor) e http://127.0.0.1:8000/docs (documentação automática da API).
+
+Se mudar o `.env`, reinicie o servidor (o `--reload` só observa arquivos `.py`).
 
 Testes: `pytest`
 
@@ -49,8 +51,10 @@ app/
   models.py      tabelas (espelha docs/playbook-modelo.md)
   schemas.py     formato dos dados que entram/saem da API
   llm.py         ÚNICO lugar que fala com o modelo (Gemini)
+  knowledge.py   lê a base de conhecimento (knowledge/*.md)
   prompts/       prompts em arquivos .md (versionados no Git)
   templates/     páginas HTML
+knowledge/       base de conhecimento v0 em .md (exemplos.md é FICTÍCIO, só para teste)
 docs/            ideia, modelo do playbook, arquitetura, perguntas-teste
 tests/           testes automáticos
 data/            banco SQLite local (não vai pro Git)
