@@ -5,12 +5,136 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ titulo }}</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 3rem auto; padding: 0 1rem; color: #1a1a1a; }
-    code { background: #f2f2f2; padding: 2px 6px; border-radius: 4px; }
+    :root {
+      --fundo: #f7f7f8; --painel: #ffffff; --texto: #1a1a1a; --suave: #6b6b6b;
+      --borda: #e2e2e5; --user: #1f4fd1; --user-texto: #ffffff; --erro: #b42318; --erro-fundo: #fdecea;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fundo: #141416; --painel: #1e1e21; --texto: #ececef; --suave: #9a9aa2;
+        --borda: #2e2e33; --user: #3b6cf0; --user-texto: #ffffff; --erro: #ff8a80; --erro-fundo: #3a1a18;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--fundo); color: var(--texto);
+      font: 16px/1.5 system-ui, -apple-system, sans-serif;
+      display: flex; flex-direction: column; height: 100vh;
+    }
+    header { padding: 1rem; border-bottom: 1px solid var(--borda); background: var(--painel); }
+    header h1 { margin: 0; font-size: 1.15rem; }
+    header p { margin: .25rem 0 0; color: var(--suave); font-size: .875rem; }
+    #mensagens {
+      flex: 1; overflow-y: auto; padding: 1rem;
+      display: flex; flex-direction: column; gap: .75rem;
+      width: 100%; max-width: 760px; margin: 0 auto;
+    }
+    .msg {
+      padding: .75rem 1rem; border-radius: 12px; max-width: 85%;
+      white-space: pre-wrap; overflow-wrap: anywhere;
+    }
+    .msg.user { align-self: flex-end; background: var(--user); color: var(--user-texto); }
+    .msg.model { align-self: flex-start; background: var(--painel); border: 1px solid var(--borda); }
+    .msg.erro { align-self: flex-start; background: var(--erro-fundo); color: var(--erro); }
+    .msg.pensando { align-self: flex-start; color: var(--suave); font-style: italic; }
+    #vazio { color: var(--suave); text-align: center; margin-top: 2rem; }
+    form {
+      display: flex; gap: .5rem; padding: 1rem;
+      width: 100%; max-width: 760px; margin: 0 auto;
+    }
+    textarea {
+      flex: 1; resize: none; min-height: 3rem; max-height: 10rem;
+      padding: .75rem; border: 1px solid var(--borda); border-radius: 10px;
+      background: var(--painel); color: var(--texto); font: inherit;
+    }
+    button {
+      padding: 0 1.25rem; border: 0; border-radius: 10px;
+      background: var(--user); color: var(--user-texto); font: inherit; cursor: pointer;
+    }
+    button:disabled { opacity: .5; cursor: wait; }
   </style>
 </head>
 <body>
-  <h1>{{ titulo }}</h1>
-  <p>O app está no ar. Próximos passos estão no <code>README.md</code>.</p>
+  <header>
+    <h1>{{ titulo }}</h1>
+    <p>Consultor comercial: responde com base na base de conhecimento, citando as fontes.</p>
+  </header>
+
+  <main id="mensagens">
+    <p id="vazio">Pergunte algo, por exemplo: "Vou apresentar proposta pra uma rede de hotelaria, como conduzo?"</p>
+  </main>
+
+  <form id="form">
+    <textarea id="entrada" placeholder="Sua pergunta (Enter envia, Shift+Enter quebra linha)" required></textarea>
+    <button id="enviar" type="submit">Enviar</button>
+  </form>
+
+  <script>
+    // Histórico da conversa. Vai inteiro a cada pergunta: é assim que o modelo "lembra".
+    const historico = [];
+
+    const mensagens = document.getElementById("mensagens");
+    const form = document.getElementById("form");
+    const entrada = document.getElementById("entrada");
+    const enviar = document.getElementById("enviar");
+
+    // Cria um balão na tela. textContent (nunca innerHTML): o texto é mostrado como texto,
+    // então nada que venha do usuário ou do modelo vira HTML/script na página (proteção contra XSS).
+    function mostrar(texto, tipo) {
+      document.getElementById("vazio")?.remove();
+      const div = document.createElement("div");
+      div.className = "msg " + tipo;
+      div.textContent = texto;
+      mensagens.appendChild(div);
+      mensagens.scrollTop = mensagens.scrollHeight;
+      return div;
+    }
+
+    form.addEventListener("submit", async (evento) => {
+      evento.preventDefault(); // impede o formulário de recarregar a página
+      const mensagem = entrada.value.trim();
+      if (!mensagem) return;
+
+      mostrar(mensagem, "user");
+      entrada.value = "";
+      enviar.disabled = true;
+      const pensando = mostrar("pensando...", "pensando");
+
+      try {
+        const resp = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mensagem, historico }),
+        });
+        const dados = await resp.json();
+        pensando.remove();
+
+        if (!resp.ok) {
+          // 502 traz a mensagem amigável em "detail"; 422 traz uma lista de erros de validação.
+          const detalhe = typeof dados.detail === "string" ? dados.detail : "Pergunta inválida.";
+          mostrar(detalhe, "erro");
+          return;
+        }
+
+        mostrar(dados.resposta, "model");
+        // Só entra no histórico o que deu certo: pergunta e resposta, em par.
+        historico.push({ role: "user", text: mensagem }, { role: "model", text: dados.resposta });
+      } catch (erro) {
+        pensando.remove();
+        mostrar("Não consegui falar com o servidor. Ele está rodando?", "erro");
+      } finally {
+        enviar.disabled = false;
+        entrada.focus();
+      }
+    });
+
+    // Enter envia; Shift+Enter quebra linha.
+    entrada.addEventListener("keydown", (evento) => {
+      if (evento.key === "Enter" && !evento.shiftKey) {
+        evento.preventDefault();
+        form.requestSubmit();
+      }
+    });
+  </script>
 </body>
 </html>
