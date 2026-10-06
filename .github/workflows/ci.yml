@@ -33,5 +33,5 @@ jobs:
       - name: Migrações batem com app/models.py
         run: alembic check
 
-      - name: Testes (pytest, sem chamar a API)
-        run: pytest -q
+      - name: Testes (pytest, sem chamar a API) + 100% de cobertura do domínio
+        run: pytest -q --cov=app.dominio --cov-report=term-missing --cov-fail-under=100
