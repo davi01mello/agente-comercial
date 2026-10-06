@@ -27,5 +27,11 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
+      - name: Migrações sobem do zero (SQLite vazio)
+        run: alembic upgrade head
+
+      - name: Migrações batem com app/models.py
+        run: alembic check
+
       - name: Testes (pytest, sem chamar a API)
         run: pytest -q
