@@ -1,0 +1,31 @@
+# Roda em todo PR (e em todo push na main): lint + testes.
+# O nome do job ("CI") é o que a branch protection da main vai exigir verde.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v7
+
+      - name: Instalar Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Testes (pytest, sem chamar a API)
+        run: pytest -q

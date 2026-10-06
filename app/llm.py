@@ -53,9 +53,15 @@ def _traduzir_erro(e: errors.APIError) -> str:
     if e.code == 404:
         return f"O modelo '{settings.model_consultor}' não foi encontrado. Confira MODEL_CONSULTOR no .env."
     if e.code == 429:
-        return "Limite de uso do Gemini atingido. Espere um minuto ou troque o modelo para gemini-3.5-flash-lite no .env."
+        return (
+            "Limite de uso do Gemini atingido. "
+            "Espere um minuto ou troque o modelo para gemini-3.5-flash-lite no .env."
+        )
     if e.code == 503:
-        return "O Gemini está sobrecarregado agora. Tente de novo em alguns instantes (ou use gemini-3.5-flash-lite no .env)."
+        return (
+            "O Gemini está sobrecarregado agora. "
+            "Tente de novo em alguns instantes (ou use gemini-3.5-flash-lite no .env)."
+        )
     return f"O Gemini devolveu um erro ({e.code}). Tente de novo em instantes."
 
 

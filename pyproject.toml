@@ -1,0 +1,10 @@
+# Configuração de ferramentas do projeto (por enquanto só o ruff).
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# E/F: erros e problemas reais (pyflakes/pycodestyle) · I: ordem dos imports
+# B: armadilhas comuns de Python (bugbear) · UP: sintaxe moderna para Python 3.11
+select = ["E", "F", "I", "B", "UP"]

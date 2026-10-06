@@ -6,9 +6,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from app import llm
+from app import llm, models  # noqa: F401  (importar models registra as tabelas)
 from app.db import Base, engine
-from app import models  # noqa: F401  (registra as tabelas)
 from app.schemas import ChatIn, ChatOut
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
