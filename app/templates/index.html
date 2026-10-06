@@ -70,8 +70,11 @@
   </form>
 
   <script>
-    // Histórico da conversa. Vai inteiro a cada pergunta: é assim que o modelo "lembra".
+    // Histórico da conversa. Vai a cada pergunta: é assim que o modelo "lembra".
     const historico = [];
+    // O servidor aceita no máximo 30 mensagens (ChatIn). Mandamos só as mais recentes;
+    // como o histórico é sempre em pares (pergunta + resposta), 30 começa numa pergunta.
+    const MAX_HISTORICO = 30;
 
     const mensagens = document.getElementById("mensagens");
     const form = document.getElementById("form");
@@ -104,7 +107,7 @@
         const resp = await fetch("/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mensagem, historico }),
+          body: JSON.stringify({ mensagem, historico: historico.slice(-MAX_HISTORICO) }),
         });
         const dados = await resp.json();
         pensando.remove();

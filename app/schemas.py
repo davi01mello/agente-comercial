@@ -33,28 +33,15 @@ class InsightOut(InsightCreate):
 class MensagemHistorico(BaseModel):
     """Uma mensagem já trocada no chat. No Gemini, os papéis são "user" e "model"."""
     role: Literal["user", "model"]
-    text: str
+    text: str = Field(max_length=8000)
 
 
 class ChatIn(BaseModel):
     """O que o navegador manda para POST /chat."""
     mensagem: str = Field(min_length=1, max_length=4000)
-    historico: list[MensagemHistorico] = []
+    historico: list[MensagemHistorico] = Field(default=[], max_length=30)
 
 
 class ChatOut(BaseModel):
     """O que POST /chat devolve."""
     resposta: str
-
-class MensagemHistorico(BaseModel):
-    role: Literal["user", "model"]
-    text: str
-
-class ChatIn(BaseModel):
-    mensagem: str = Field(min_length=1, max_length=4000)
-    historico: list[MensagemHistorico] = []
-
-class ChatOut(BaseModel):
-    resposta: str
-
-    
