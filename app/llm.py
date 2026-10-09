@@ -2,6 +2,7 @@
 
 TODO(T4): implementar `curar_insight` (texto solto -> InsightCreate estruturado).
 """
+import time
 from pathlib import Path
 
 import httpx
@@ -12,6 +13,11 @@ from app.config import settings
 from app.knowledge import carregar_base
 
 PROMPTS = Path(__file__).parent / "prompts"
+
+TENTATIVAS = 3  # incluindo a primeira
+ESPERA_INICIAL_S = 1.0  # depois dobra: 1s, 2s, 4s...
+CODIGOS_TEMPORARIOS = {429, 503}  # limite e sobrecarga: costumam passar sozinhos
+_dormir = time.sleep  # os testes trocam por uma função que não espera de verdade
 
 
 class ErroLLM(Exception):
@@ -47,10 +53,34 @@ def _traduzir_erro(e: errors.APIError) -> str:
     if e.code == 404:
         return f"O modelo '{settings.model_consultor}' não foi encontrado. Confira MODEL_CONSULTOR no .env."
     if e.code == 429:
-        return "Limite de uso do Gemini atingido. Espere um minuto ou troque o modelo para gemini-3.5-flash-lite no .env."
+        return (
+            "Limite de uso do Gemini atingido. "
+            "Espere um minuto ou troque o modelo para gemini-3.5-flash-lite no .env."
+        )
     if e.code == 503:
-        return "O Gemini está sobrecarregado agora. Tente de novo em alguns instantes (ou use gemini-3.5-flash-lite no .env)."
+        return (
+            "O Gemini está sobrecarregado agora. "
+            "Tente de novo em alguns instantes (ou use gemini-3.5-flash-lite no .env)."
+        )
     return f"O Gemini devolveu um erro ({e.code}). Tente de novo em instantes."
+
+
+def _vale_tentar_de_novo(e: Exception) -> bool:
+    """Só erros temporários: limite (429), sobrecarga (503) e rede/timeout. 401/404 não mudam repetindo."""
+    if isinstance(e, errors.APIError):
+        return e.code in CODIGOS_TEMPORARIOS
+    return isinstance(e, httpx.TransportError)
+
+
+def _gerar_com_retry(client: genai.Client, **kwargs):
+    """Chama generate_content; em erro temporário espera (1s, 2s...) e tenta de novo, até TENTATIVAS."""
+    for tentativa in range(1, TENTATIVAS + 1):
+        try:
+            return client.models.generate_content(**kwargs)
+        except (errors.APIError, httpx.TransportError) as e:
+            if tentativa == TENTATIVAS or not _vale_tentar_de_novo(e):
+                raise
+            _dormir(ESPERA_INICIAL_S * 2 ** (tentativa - 1))
 
 
 def consultar(mensagem: str, historico: list[dict]) -> str:
@@ -69,7 +99,8 @@ def consultar(mensagem: str, historico: list[dict]) -> str:
 
     client = _client()  # guardar numa variável: se o cliente for descartado, a conexão fecha no meio
     try:
-        resp = client.models.generate_content(
+        resp = _gerar_com_retry(
+            client,
             model=settings.model_consultor,
             contents=contents,
             config=types.GenerateContentConfig(

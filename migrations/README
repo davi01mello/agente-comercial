@@ -1,0 +1,2 @@
+Migrações do banco (Alembic). Cada arquivo em versions/ é um passo, encadeado pelo down_revision.
+Nunca edite uma migração que já foi para a main: crie uma nova. Comandos em alembic.ini.

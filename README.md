@@ -20,6 +20,7 @@ python3.11 -m venv .venv      # use python3.11 explícito: o python3 do Mac cost
 source .venv/bin/activate     # o terminal passa a mostrar (.venv)
 pip install -r requirements.txt
 cp .env.example .env          # depois edite o .env e coloque a GEMINI_API_KEY
+alembic upgrade head          # cria/atualiza as tabelas do banco
 uvicorn app.main:app --reload
 ```
 
@@ -32,6 +33,7 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env        # depois edite o .env e coloque a GEMINI_API_KEY
+alembic upgrade head          # cria/atualiza as tabelas do banco
 uvicorn app.main:app --reload
 ```
 
@@ -39,7 +41,9 @@ Abra http://127.0.0.1:8000 (chat com o consultor) e http://127.0.0.1:8000/docs (
 
 Se mudar o `.env`, reinicie o servidor (o `--reload` só observa arquivos `.py`).
 
-Testes: `pytest`
+Testes: `pytest` (cada execução cria um banco temporário novo pelas migrações). Lint: `ruff check .`
+
+**Banco e migrações (Alembic):** as tabelas não são mais criadas pelo app. Mudou `app/models.py`? Gere a migração com `alembic revision --autogenerate -m "o que mudou"`, revise o arquivo gerado em `migrations/versions/` e rode `alembic upgrade head`. Nunca edite uma migração que já foi para a main. No SQLite o app liga as chaves estrangeiras (`PRAGMA foreign_keys=ON`, em `app/db.py`), como o Postgres faz: relação para insight inexistente dá erro também no dev. Se uma migração futura precisar recriar uma tabela (batch), teste `upgrade`, `downgrade` e `upgrade` de novo antes do PR.
 
 ## Estrutura
 
@@ -57,6 +61,7 @@ app/
 knowledge/       base de conhecimento v0 em .md (exemplos.md é FICTÍCIO, só para teste)
 docs/            ideia, modelo do playbook, arquitetura, perguntas-teste
 tests/           testes automáticos
+migrations/      migrações do banco (Alembic); versions/ = histórico do schema
 data/            banco SQLite local (não vai pro Git)
 ```
 
