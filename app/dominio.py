@@ -45,7 +45,11 @@ _ALGUM_DIGITO = re.compile(r"\d")
 
 
 def tem_numero(texto: str | None) -> bool:
-    """True se o texto tem pelo menos um algarismo (ex.: "caiu de 9 para 4 minutos")."""
+    """True se o texto tem pelo menos um algarismo (ex.: "caiu de 9 para 4 minutos").
+
+    É uma heurística: "melhorou no Q3" também passa. Ela barra o resultado sem número nenhum, não garante que
+    o número seja uma medição de verdade. Quem revisa na Fila continua sendo o humano.
+    """
     return bool(texto and _ALGUM_DIGITO.search(texto))
 
 
@@ -75,6 +79,8 @@ def detectar_dados_pessoais(**campos: str | None) -> list[str]:
 
     Uso: detectar_dados_pessoais(descricao=..., contexto_cliente=...)
     O aviso diz o tipo e o campo, mas nunca repete o dado encontrado (ele não deve se espalhar).
+    Limitação conhecida: os padrões são só de formato (não conferem dígito verificador), então um número qualquer
+    de 11 dígitos (ex.: id de pedido) pode ser apontado como CPF. É aviso para o humano, nunca bloqueio.
     """
     avisos = []
     for campo, texto in campos.items():
