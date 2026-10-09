@@ -15,3 +15,7 @@ data/*.sqlite
 .idea/
 .DS_Store
 Thumbs.db
+
+# Relatórios de cobertura (pytest-cov)
+.coverage
+htmlcov/
