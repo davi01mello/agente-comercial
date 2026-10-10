@@ -2,18 +2,37 @@
 
 As tabelas do banco são criadas e atualizadas pelas migrações: rode `alembic upgrade head` antes.
 """
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
-from app import llm
-from app.schemas import ChatIn, ChatOut
+from app import dominio, llm
+from app.db import get_db
+from app.models import HistoricoStatus, Insight, Relacao
+from app.schemas import (
+    ChatIn,
+    ChatOut,
+    FiltroInsights,
+    InsightCreate,
+    InsightOut,
+    ListaInsights,
+    RelacaoOut,
+)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 app = FastAPI(title="Cérebro Comercial CITi")
+
+# "Esta rota precisa de uma sessão do banco": o FastAPI abre uma por requisição (get_db) e fecha no fim.
+Db = Annotated[Session, Depends(get_db)]
+
+JANELA_DUPLO_CLIQUE = timedelta(seconds=60)
 
 
 @app.get("/health")
@@ -36,7 +55,91 @@ def chat(dados: ChatIn):
         raise HTTPException(status_code=502, detail=str(e)) from e
     return ChatOut(resposta=resposta)
 
-# TODO(T3): POST /insights e GET /insights
-# TODO(T4): POST /chat/registrar  (curador)
-# TODO(T6): GET /playbook e aprovar/rejeitar
-# TODO(T7): consultor sobre o playbook real (hoje o POST /chat usa a base de exemplo)
+
+# --- insights -------------------------------------------------------------------------------
+
+@app.post("/insights", response_model=InsightOut, status_code=201)
+def criar_insight(dados: InsightCreate, db: Db):
+    """Grava um item confirmado pela pessoa. Ele SEMPRE nasce `proposto` e só vale depois de aprovado na Fila."""
+    try:
+        dominio.validar_insight(dados.tipo, dados.evidencia, dados.resultado)
+    except dominio.RegraDeNegocio as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    if _acabou_de_ser_criado(db, dados):
+        raise HTTPException(
+            status_code=409,
+            detail="Este item acabou de ser registrado (mesmo autor, título e data). Confira a Fila antes de repetir.",
+        )
+
+    pares = sorted({(r.relacionado_id, r.tipo) for r in dados.relacoes})  # set: tira repetidos
+    ids = {relacionado_id for relacionado_id, _ in pares}
+    existentes = set(db.scalars(select(Insight.id).where(Insight.id.in_(ids)))) if ids else set()
+    if faltando := sorted(ids - existentes):
+        lista = ", ".join(f"INS-{i}" for i in faltando)
+        raise HTTPException(status_code=422, detail=f"Relação com item que não existe: {lista}.")
+
+    item = Insight(**dados.model_dump(exclude={"relacoes"}), status="proposto")
+    db.add(item)
+    db.flush()  # manda o INSERT agora para o banco gerar o item.id (ainda dá para desfazer tudo)
+    relacoes = [Relacao(insight_id=item.id, relacionado_id=i, tipo=tipo) for i, tipo in pares]
+    db.add_all(relacoes)
+    db.add(HistoricoStatus(insight_id=item.id, de=None, para="proposto", por_quem=dados.autor))
+    db.commit()  # item + relações + histórico entram juntos (ou nada entra)
+
+    avisos = dominio.detectar_dados_pessoais(descricao=dados.descricao, contexto_cliente=dados.contexto_cliente)
+    return _para_saida(item, relacoes, avisos)
+
+
+@app.get("/insights", response_model=ListaInsights)
+def listar_insights(filtro: Annotated[FiltroInsights, Query()], db: Db):
+    """Lista com filtros e paginação. Ex.: /insights?status=proposto&limit=20&offset=20 (2ª página)."""
+    consulta = select(Insight)
+    if filtro.status:
+        consulta = consulta.where(Insight.status == filtro.status)
+    if filtro.secao:
+        consulta = consulta.where(Insight.secao == filtro.secao)
+    if filtro.segmento:
+        consulta = consulta.where(Insight.segmento == filtro.segmento)
+
+    total = db.scalar(select(func.count()).select_from(consulta.subquery()))
+    itens = list(db.scalars(consulta.order_by(Insight.id.desc()).limit(filtro.limit).offset(filtro.offset)))
+
+    # Relações de todos os itens da página numa consulta só (e não uma por item)
+    relacoes_por_item: dict[int, list[Relacao]] = {}
+    if itens:
+        for r in db.scalars(select(Relacao).where(Relacao.insight_id.in_([i.id for i in itens]))):
+            relacoes_por_item.setdefault(r.insight_id, []).append(r)
+
+    return ListaInsights(
+        itens=[_para_saida(i, relacoes_por_item.get(i.id, [])) for i in itens],
+        total=total,
+        limit=filtro.limit,
+        offset=filtro.offset,
+    )
+
+
+def _acabou_de_ser_criado(db: Session, dados: InsightCreate) -> bool:
+    """Duplo clique: o mesmo autor + título + data_evento gravado nos últimos 60 segundos.
+
+    O banco grava criado_em em UTC (CURRENT_TIMESTAMP), então o limite também é calculado em UTC.
+    Com datetime.now() (hora do Brasil, 3h atrás do UTC) a "janela" viraria 3 horas e 1 minuto.
+    """
+    limite = datetime.now(UTC).replace(tzinfo=None) - JANELA_DUPLO_CLIQUE
+    consulta = select(Insight.id).where(
+        Insight.autor == dados.autor,
+        Insight.titulo == dados.titulo,
+        Insight.data_evento == dados.data_evento,  # com None, o SQLAlchemy gera "IS NULL"
+        Insight.criado_em >= limite,
+    )
+    return db.scalar(consulta.limit(1)) is not None
+
+
+def _para_saida(item: Insight, relacoes: list[Relacao], avisos: list[str] | None = None) -> InsightOut:
+    saida = InsightOut.model_validate(item)
+    saida.relacoes = [RelacaoOut.model_validate(r) for r in relacoes]
+    saida.avisos = avisos or []
+    return saida
+
+# TODO(T3, PR 2): POST /registrar/propor (curador)
+# TODO(T3, PR 3): aprovar/rejeitar, abas Registrar/Fila/Playbook, consultor lendo o banco
