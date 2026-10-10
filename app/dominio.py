@@ -23,7 +23,7 @@ class EvidenciaInvalida(RegraDeNegocio):
 
 
 # Ciclo de vida: de cada status, para quais se pode ir. Qualquer outra mudança é inválida.
-# historico_a_validar (fonte antiga) segue o mesmo caminho de proposto: decisão a confirmar com o Davi.
+# historico_a_validar (fonte antiga) segue o mesmo caminho de proposto (confirmado pelo Davi no PR 1).
 TRANSICOES: dict[str, set[str]] = {
     "proposto": {"validado", "obsoleto"},
     "historico_a_validar": {"validado", "obsoleto"},
