@@ -118,3 +118,86 @@ def test_chave_vazia_nem_chama_a_api(monkeypatch, esperas):
     with pytest.raises(llm.ErroLLM, match="não está configurada"):
         llm.consultar("oi", [])
     assert cliente.chamadas == []
+
+# --- curador: JSON estruturado ---------------------------------------------------------------
+
+PROPOSTA_OK = (
+    '{"insight": {"titulo": "Abrir com diagnóstico", "tipo": "aprendizado", "secao": "reuniao_diagnostico",'
+    ' "descricao": "O cliente se abriu.", "evidencia": 2}, "perguntas": [], "avisos": []}'
+)
+
+
+def test_curar_json_valido(monkeypatch, esperas):
+    cliente = usar(monkeypatch, ClienteFalso(PROPOSTA_OK))
+
+    proposta = llm.curar("abri com diagnóstico", [], turno=1, ultimo_turno=False)
+
+    assert proposta.insight.tipo == "aprendizado"
+    chamada = cliente.chamadas[0]
+    assert chamada["config"].response_schema is llm.PropostaLLM
+    assert chamada["config"].temperature == 0
+
+
+def test_curar_embrulha_o_texto_do_usuario_como_dado(monkeypatch, esperas):
+    cliente = usar(monkeypatch, ClienteFalso(PROPOSTA_OK))
+    conversa = [{"role": "user", "text": "texto 1"}, {"role": "model", "text": "Qual foi o resultado?"}]
+
+    llm.curar("caiu 30%", conversa, turno=2, ultimo_turno=False)
+
+    textos = [c.parts[0].text for c in cliente.chamadas[0]["contents"]]
+    assert textos[0] == "<texto_do_usuario>\ntexto 1\n</texto_do_usuario>"
+    assert textos[1] == "Qual foi o resultado?"  # a fala do modelo não é embrulhada
+    assert textos[2].startswith("<texto_do_usuario>\ncaiu 30%\n</texto_do_usuario>")
+
+
+def test_curar_no_ultimo_turno_avisa_o_modelo(monkeypatch, esperas):
+    cliente = usar(monkeypatch, ClienteFalso(PROPOSTA_OK))
+
+    llm.curar("x", [], turno=3, ultimo_turno=True)
+
+    assert "ÚLTIMO. Não faça perguntas" in cliente.chamadas[0]["contents"][-1].parts[0].text
+
+
+@pytest.mark.parametrize("ruim", [
+    "isso não é json",
+    '{"insight": {"titulo": "x"}, "perguntas": [], "avisos": []}',  # faltam campos
+    PROPOSTA_OK.replace('"aprendizado"', '"dica"'),  # tipo fora da lista
+])
+def test_curar_json_invalido_tenta_de_novo_mostrando_o_erro(monkeypatch, esperas, ruim):
+    cliente = usar(monkeypatch, ClienteFalso(ruim, PROPOSTA_OK))
+
+    proposta = llm.curar("x", [], turno=1, ultimo_turno=False)
+
+    assert proposta.insight.titulo == "Abrir com diagnóstico"
+    assert len(cliente.chamadas) == 2
+    segunda = cliente.chamadas[1]["contents"]
+    assert segunda[-2].role == "model" and segunda[-2].parts[0].text == ruim  # o modelo vê o que mandou
+    assert "não seguiu o schema" in segunda[-1].parts[0].text  # e o que estava errado
+
+
+def test_curar_json_invalido_duas_vezes_vira_erro_amigavel(monkeypatch, esperas):
+    cliente = usar(monkeypatch, ClienteFalso("lixo", "lixo de novo"))
+
+    with pytest.raises(llm.ErroLLM, match="fora do formato duas vezes"):
+        llm.curar("x", [], turno=1, ultimo_turno=False)
+    assert len(cliente.chamadas) == 2
+
+
+def test_curar_usa_o_modelo_do_curador_e_o_retry(monkeypatch, esperas):
+    monkeypatch.setattr(llm.settings, "model_curador", "modelo-do-curador")
+    cliente = usar(monkeypatch, ClienteFalso(erro_api(503), PROPOSTA_OK))
+
+    llm.curar("x", [], turno=1, ultimo_turno=False)
+
+    assert [c["model"] for c in cliente.chamadas] == ["modelo-do-curador"] * 2
+    assert esperas == [1.0]
+
+
+def test_relacionar(monkeypatch, esperas):
+    cliente = usar(monkeypatch, ClienteFalso('{"relacoes": [{"id": 3, "tipo": "reforca"}]}'))
+
+    resposta = llm.relacionar("item novo", "[INS-3] outro | aprendizado | evid 2")
+
+    assert [(r.id, r.tipo) for r in resposta.relacoes] == [(3, "reforca")]
+    pedido = cliente.chamadas[0]["contents"][0].parts[0].text
+    assert "<itens_existentes>\n[INS-3] outro" in pedido
