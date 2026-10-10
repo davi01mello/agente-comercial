@@ -114,3 +114,60 @@ class ChatIn(BaseModel):
 class ChatOut(BaseModel):
     """O que POST /chat devolve."""
     resposta: str
+
+
+# --- curador --------------------------------------------------------------------------------
+# Dois níveis: o que o MODELO devolve (classes ...LLM, ainda não conferidas) e o que a API devolve
+# (PropostaCuradoria, já corrigida pelo código em app/curadoria.py). Nos schemas ...LLM, nenhum campo tem
+# valor padrão além de None: o schema vai para o Gemini, e quanto mais simples, menos ele recusa.
+
+class InsightLLM(BaseModel):
+    """O item como o modelo propõe. Sem `autor` e sem `status`: esses quem decide é o código."""
+
+    titulo: str = Field(min_length=1, max_length=200)
+    tipo: Tipo
+    secao: Secao
+    descricao: str = Field(min_length=1, max_length=4000)
+    segmento: str | None = Field(default=None, max_length=100)
+    servico: str | None = Field(default=None, max_length=100)
+    o_que_foi_feito: str | None = Field(default=None, max_length=4000)
+    resultado: str | None = Field(default=None, max_length=2000)
+    evidencia: int = Field(ge=1, le=4)
+    contexto_cliente: str | None = Field(default=None, max_length=2000)
+    data_evento: str | None = Field(default=None, description="Data do acontecimento em AAAA-MM-DD, se o texto disser")
+
+
+class PropostaLLM(BaseModel):
+    """1ª chamada do curador: estruturar o texto (e perguntar o que faltou)."""
+
+    insight: InsightLLM
+    perguntas: list[str]
+    avisos: list[str]
+
+
+class RelacaoLLM(BaseModel):
+    id: int
+    tipo: TipoRelacao
+
+
+class RelacoesLLM(BaseModel):
+    """2ª chamada (só se houver candidatos): como o item novo se relaciona com os que já existem."""
+
+    relacoes: list[RelacaoLLM]
+
+
+class RegistrarIn(BaseModel):
+    """Body de POST /registrar/propor. Como no /chat, o navegador reenvia a conversa inteira a cada turno."""
+
+    texto: str = Field(min_length=1, max_length=8000)
+    autor: str = Field(min_length=1, max_length=100)
+    conversa: list[MensagemHistorico] = Field(default=[], max_length=10)
+
+
+class PropostaCuradoria(BaseModel):
+    """Resposta de POST /registrar/propor: um RASCUNHO para a pessoa revisar. Nada foi gravado ainda."""
+
+    insight: InsightBase
+    relacoes: list[RelacaoIn] = []
+    perguntas: list[str] = Field(default=[], max_length=2)
+    avisos: list[str] = []
