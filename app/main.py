@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import dominio, llm
+from app import curadoria, dominio, llm
 from app.db import get_db
 from app.models import HistoricoStatus, Insight, Relacao
 from app.schemas import (
@@ -22,6 +22,8 @@ from app.schemas import (
     InsightCreate,
     InsightOut,
     ListaInsights,
+    PropostaCuradoria,
+    RegistrarIn,
     RelacaoOut,
 )
 
@@ -141,5 +143,18 @@ def _para_saida(item: Insight, relacoes: list[Relacao], avisos: list[str] | None
     saida.avisos = avisos or []
     return saida
 
-# TODO(T3, PR 2): POST /registrar/propor (curador)
+
+# --- curador --------------------------------------------------------------------------------
+
+@app.post("/registrar/propor", response_model=PropostaCuradoria)
+def registrar_propor(dados: RegistrarIn, db: Db):
+    """Curador: texto solto -> proposta estruturada para a pessoa revisar.
+
+    NÃO grava nada. Quem grava é o POST /insights, depois que a pessoa confere e confirma.
+    """
+    try:
+        return curadoria.propor(dados.texto, dados.autor, dados.conversa, db)
+    except llm.ErroLLM as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
 # TODO(T3, PR 3): aprovar/rejeitar, abas Registrar/Fila/Playbook, consultor lendo o banco
