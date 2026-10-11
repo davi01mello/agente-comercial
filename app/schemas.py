@@ -2,8 +2,9 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 
+from app import dominio
 from app.models import FONTES, SECOES, STATUS, TIPOS, TIPOS_RELACAO
 
 # Valores permitidos: a lista mora em app/models.py (fonte única). Valor fora da lista -> 422 automático.
@@ -13,8 +14,13 @@ Status = Literal[*STATUS]
 Fonte = Literal[*FONTES]
 TipoRelacao = Literal[*TIPOS_RELACAO]
 
-# Segmento é texto livre, mas sempre minúsculo: "Hotelaria" e "hotelaria" precisam bater na busca por relações.
-Segmento = Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True, max_length=100)]
+# Segmento é texto livre, mas gravado numa forma única: "Saúde", "saude" e " SAUDE " viram "saúde", e assim batem
+# na busca por relações e nos filtros (regras em dominio.normalizar_segmento; decisão no ADR-003).
+Segmento = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, max_length=100),
+    AfterValidator(dominio.normalizar_segmento),
+]
 
 
 # --- insights --------------------------------------------------------------------------------

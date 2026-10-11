@@ -3,7 +3,11 @@
 Aqui mora só a conversa com o modelo (montar a chamada, repetir, traduzir erros, conferir o formato).
 As regras de negócio sobre o que o modelo devolve ficam em app/curadoria.py e app/dominio.py.
 """
+import re
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import TypeVar
 
@@ -22,12 +26,51 @@ TENTATIVAS = 3  # incluindo a primeira
 ESPERA_INICIAL_S = 1.0  # depois dobra: 1s, 2s, 4s...
 CODIGOS_TEMPORARIOS = {429, 503}  # limite e sobrecarga: costumam passar sozinhos
 _dormir = time.sleep  # os testes trocam por uma função que não espera de verdade
+_agora = time.monotonic  # idem: os testes trocam por um relógio falso
 
 M = TypeVar("M", bound=BaseModel)  # "algum schema Pydantic": _gerar_json devolve o mesmo tipo que recebeu
 
 
 class ErroLLM(Exception):
     """Falha ao falar com o modelo. A mensagem já vem pronta para mostrar ao usuário."""
+
+
+# --- prazo total ----------------------------------------------------------------------------
+# Sem isto, o pior caso do curador passava de 5 minutos (2 chamadas × 2 respostas × 3 tentativas × 30s + esperas).
+# O prazo vale para o PEDIDO inteiro do usuário, não por chamada: quem abre é `com_prazo`, e todas as chamadas
+# feitas lá dentro dividem o mesmo relógio. O prazo é conferido ANTES de cada tentativa e de cada espera; uma
+# chamada já em andamento não é cortada (ela tem o próprio LLM_TIMEOUT_S), então o limite pode estourar por até isso.
+
+_fim_do_prazo: ContextVar[float | None] = ContextVar("fim_do_prazo", default=None)
+
+
+@contextmanager
+def com_prazo() -> Iterator[None]:
+    """Abre o prazo total (LLM_PRAZO_TOTAL_S) para tudo que for chamado dentro. Se já houver um aberto, reaproveita."""
+    if _fim_do_prazo.get() is not None:
+        yield
+        return
+    token = _fim_do_prazo.set(_agora() + settings.llm_prazo_total_s)
+    try:
+        yield
+    finally:
+        _fim_do_prazo.reset(token)
+
+
+def _segundos_restantes() -> float | None:
+    """None se não há prazo aberto (chamada solta, ex.: nos testes)."""
+    fim = _fim_do_prazo.get()
+    return None if fim is None else fim - _agora()
+
+
+def _checar_prazo(espera: float = 0.0) -> None:
+    """Levanta ErroLLM se o prazo acabou, ou se acabaria durante a espera de `espera` segundos."""
+    restante = _segundos_restantes()
+    if restante is not None and restante - espera <= 0:
+        raise ErroLLM(
+            f"O Gemini demorou mais de {settings.llm_prazo_total_s} segundos e eu parei de esperar. "
+            "Tente de novo; se repetir, encurte o texto ou troque o modelo para gemini-3.5-flash-lite no .env."
+        )
 
 
 def carregar_prompt(nome: str) -> str:
@@ -79,14 +122,17 @@ def _vale_tentar_de_novo(e: Exception) -> bool:
 
 
 def _gerar_com_retry(client: genai.Client, **kwargs):
-    """Chama generate_content; em erro temporário espera (1s, 2s...) e tenta de novo, até TENTATIVAS."""
+    """Chama generate_content; em erro temporário espera (1s, 2s...) e tenta de novo, até TENTATIVAS ou o prazo."""
     for tentativa in range(1, TENTATIVAS + 1):
+        _checar_prazo()
         try:
             return client.models.generate_content(**kwargs)
         except (errors.APIError, httpx.TransportError) as e:
             if tentativa == TENTATIVAS or not _vale_tentar_de_novo(e):
                 raise
-            _dormir(ESPERA_INICIAL_S * 2 ** (tentativa - 1))
+            espera = ESPERA_INICIAL_S * 2 ** (tentativa - 1)
+            _checar_prazo(espera)  # se esperar já estoura o prazo, não adianta esperar
+            _dormir(espera)
 
 
 def _chamar(client: genai.Client, **kwargs):
@@ -118,15 +164,16 @@ def consultar(mensagem: str, historico: list[dict]) -> str:
     contents.append(_mensagem("user", mensagem))
 
     client = _client()  # guardar numa variável: se o cliente for descartado, a conexão fecha no meio
-    resp = _chamar(
-        client,
-        model=settings.model_consultor,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=_system_consultor(),
-            temperature=0.3,
-        ),
-    )
+    with com_prazo():
+        resp = _chamar(
+            client,
+            model=settings.model_consultor,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=_system_consultor(),
+                temperature=0.3,
+            ),
+        )
     if not resp.text:
         raise ErroLLM("O Gemini não devolveu texto. Tente reformular a pergunta.")
     return resp.text
@@ -155,29 +202,42 @@ def _gerar_json(schema: type[M], system: str, contents: list[types.Content]) -> 
     )
     client = _client()
 
-    resp = _chamar(client, model=settings.model_curador, contents=contents, config=config)
-    try:
-        return schema.model_validate_json(resp.text or "")
-    except ValidationError as e:
-        # 2ª e última chance: o modelo vê a resposta dele e o que estava errado nela
-        contents = [
-            *contents,
-            _mensagem("model", resp.text or ""),
-            _mensagem("user", f"Seu JSON não seguiu o schema ({_resumo_do_erro(e)}). Devolva o JSON corrigido."),
-        ]
+    with com_prazo():  # se quem chamou (curadoria.propor) já abriu o prazo, as duas chamadas dividem o mesmo
+        resp = _chamar(client, model=settings.model_curador, contents=contents, config=config)
+        try:
+            return schema.model_validate_json(resp.text or "")
+        except ValidationError as e:
+            # 2ª e última chance: o modelo vê a resposta dele e o que estava errado nela
+            contents = [
+                *contents,
+                _mensagem("model", resp.text or ""),
+                _mensagem("user", f"Seu JSON não seguiu o schema ({_resumo_do_erro(e)}). Devolva o JSON corrigido."),
+            ]
 
-    resp = _chamar(client, model=settings.model_curador, contents=contents, config=config)
-    try:
-        return schema.model_validate_json(resp.text or "")
-    except ValidationError as e:
-        raise ErroLLM(
-            "O curador devolveu uma resposta fora do formato duas vezes. Tente de novo ou reescreva o texto."
-        ) from e
+        resp = _chamar(client, model=settings.model_curador, contents=contents, config=config)
+        try:
+            return schema.model_validate_json(resp.text or "")
+        except ValidationError as e:
+            raise ErroLLM(
+                "O curador devolveu uma resposta fora do formato duas vezes. Tente de novo ou reescreva o texto."
+            ) from e
+
+
+# As marcas que NÓS usamos para embrulhar dados. Se o texto de fora trouxer uma delas, ele poderia "fechar" o bloco
+# e fazer o que vem depois parecer instrução nossa. Por isso o "<" inicial vira "&lt;" (o modelo ainda lê a
+# marca, mas ela não fecha nada).
+_MARCAS = ("texto_do_usuario", "item_novo", "itens_existentes")
+_MARCA_NO_TEXTO = re.compile(rf"<(\s*/?\s*(?:{'|'.join(_MARCAS)})\b)", re.IGNORECASE)
+
+
+def _neutralizar(texto: str) -> str:
+    """Desarma marcas de embrulho que apareçam dentro de um texto que não é nosso."""
+    return _MARCA_NO_TEXTO.sub(r"&lt;\1", texto)
 
 
 def _como_dado(texto: str) -> str:
     """Embrulha o texto do usuário como DADO. O prompt diz que instruções aqui dentro não valem."""
-    return f"<texto_do_usuario>\n{texto}\n</texto_do_usuario>"
+    return f"<texto_do_usuario>\n{_neutralizar(texto)}\n</texto_do_usuario>"
 
 
 def curar(texto: str, conversa: list[dict], turno: int, ultimo_turno: bool) -> PropostaLLM:
@@ -201,5 +261,9 @@ def curar(texto: str, conversa: list[dict], turno: int, ultimo_turno: bool) -> P
 
 def relacionar(item_novo: str, candidatos: str) -> RelacoesLLM:
     """2ª chamada do curador: como o item novo se relaciona com os candidatos (itens que já existem)."""
-    pedido = f"<item_novo>\n{item_novo}\n</item_novo>\n\n<itens_existentes>\n{candidatos}\n</itens_existentes>"
+    # item_novo veio do modelo (a partir do texto do usuário) e candidatos vêm do banco: nenhum dos dois é confiável
+    pedido = (
+        f"<item_novo>\n{_neutralizar(item_novo)}\n</item_novo>\n\n"
+        f"<itens_existentes>\n{_neutralizar(candidatos)}\n</itens_existentes>"
+    )
     return _gerar_json(RelacoesLLM, carregar_prompt("relacoes"), [_mensagem("user", pedido)])

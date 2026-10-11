@@ -1,5 +1,11 @@
 # Configuração de ferramentas do projeto (por enquanto só o ruff).
 
+[project]
+name = "agente-comercial"
+version = "0.1.0"
+# O código usa Literal[*TIPOS] (3.11+) e datetime.UTC (3.11+): em Python 3.10 ele nem importa.
+requires-python = ">=3.11"
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"

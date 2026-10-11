@@ -2,7 +2,7 @@
 import pytest
 
 from app import dominio
-from app.dominio import EvidenciaInvalida, MotivoObrigatorio, TransicaoInvalida
+from app.dominio import DadoPessoalNaEntrada, EvidenciaInvalida, MotivoObrigatorio, TransicaoInvalida
 
 # --- ciclo de vida -------------------------------------------------------------------------
 
@@ -40,7 +40,7 @@ def test_obsoleto_sem_motivo(motivo):
 
 
 def test_toda_regra_de_negocio_herda_da_base():
-    for erro in (TransicaoInvalida, MotivoObrigatorio, EvidenciaInvalida):
+    for erro in (TransicaoInvalida, MotivoObrigatorio, EvidenciaInvalida, DadoPessoalNaEntrada):
         assert issubclass(erro, dominio.RegraDeNegocio)
 
 
@@ -120,3 +120,48 @@ def test_aviso_nao_repete_o_dado_e_indica_o_campo():
 
 def test_campos_vazios_nao_geram_aviso():
     assert dominio.detectar_dados_pessoais(descricao=None, contexto_cliente="") == []
+
+
+# --- dado pessoal que BLOQUEIA (antes de o texto ir ao modelo) ---------------------------------
+
+def test_exigir_sem_dados_pessoais_deixa_passar_texto_limpo():
+    dominio.exigir_sem_dados_pessoais(texto="o check-in caiu de 9 para 4 minutos", vazio=None)
+
+
+def test_exigir_sem_dados_pessoais_barra_e_explica_sem_repetir_o_dado():
+    with pytest.raises(DadoPessoalNaEntrada) as e:
+        dominio.exigir_sem_dados_pessoais(
+            texto="falar com ana@cliente.com",
+            **{"relato anterior 1": "ligar (81) 99876-5432"},
+        )
+
+    mensagem = str(e.value)
+    assert "e-mail em 'texto'" in mensagem
+    assert "telefone em 'relato anterior 1'" in mensagem
+    assert "Nada foi enviado ao modelo" in mensagem
+    assert "ana@cliente.com" not in mensagem and "99876" not in mensagem
+
+
+# --- segmento -------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("entrada, esperado", [
+    ("saude", "saúde"),
+    ("saúde", "saúde"),
+    ("  SAÚDE ", "saúde"),
+    ("Educacao", "educação"),
+    ("industria", "indústria"),
+    ("Setor   Publico", "setor público"),
+    ("hotelaria", "hotelaria"),
+    ("Padaria Artesanal", "padaria artesanal"),  # fora da lista: continua livre, só arrumado
+    ("  Logística ", "logística"),
+    ("", ""),
+])
+def test_normalizar_segmento(entrada, esperado):
+    assert dominio.normalizar_segmento(entrada) == esperado
+
+
+def test_normalizar_segmento_e_idempotente():
+    for s in [*dominio.SEGMENTOS_CONHECIDOS, "saude", "Padaria  Nova"]:
+        uma_vez = dominio.normalizar_segmento(s)
+        assert dominio.normalizar_segmento(uma_vez) == uma_vez
+

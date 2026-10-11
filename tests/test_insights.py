@@ -79,6 +79,22 @@ def test_dado_pessoal_grava_mas_avisa(client):
     ]
 
 
+@pytest.mark.parametrize("digitado", ["saude", "Saúde", " SAUDE "])
+def test_segmento_com_ou_sem_acento_vira_o_mesmo(client, digitado):
+    r = client.post("/insights", json=novo(segmento=digitado))
+    assert r.status_code == 201
+    assert r.json()["segmento"] == "saúde"
+
+
+def test_filtro_por_segmento_ignora_acento_e_caixa(client):
+    titulo = f"seg-{uuid.uuid4().hex[:8]}"
+    id_ = client.post("/insights", json=novo(titulo=titulo, segmento="Saúde")).json()["id"]
+
+    ids = [i["id"] for i in client.get("/insights", params={"segmento": "SAUDE", "limit": 100}).json()["itens"]]
+
+    assert id_ in ids
+
+
 def test_segmento_e_gravado_em_minusculo(client):
     r = client.post("/insights", json=novo(segmento="  Hotelaria "))
 

@@ -4,6 +4,7 @@
 Quem usa (API, curador) só chama estas funções e traduz as exceções para a sua linguagem (409, 422, aviso...).
 """
 import re
+import unicodedata
 
 
 class RegraDeNegocio(Exception):
@@ -20,6 +21,10 @@ class MotivoObrigatorio(RegraDeNegocio):
 
 class EvidenciaInvalida(RegraDeNegocio):
     """Evidência fora da escala, ou fraca demais para o que se afirma."""
+
+
+class DadoPessoalNaEntrada(RegraDeNegocio):
+    """Texto que ainda vai para o modelo contém dado pessoal. Barrado ANTES de sair do nosso servidor."""
 
 
 # Ciclo de vida: de cada status, para quais se pode ir. Qualquer outra mudança é inválida.
@@ -74,6 +79,18 @@ PADROES_DADO_PESSOAL: dict[str, re.Pattern[str]] = {
 }
 
 
+def _achar_dados_pessoais(campos: dict[str, str | None]) -> list[tuple[str, str]]:
+    """Pares (campo, tipo do dado) encontrados. Nunca guarda o dado em si."""
+    achados = []
+    for campo, texto in campos.items():
+        if not texto:
+            continue
+        for nome, padrao in PADROES_DADO_PESSOAL.items():
+            if padrao.search(texto):
+                achados.append((campo, nome))
+    return achados
+
+
 def detectar_dados_pessoais(**campos: str | None) -> list[str]:
     """Procura e-mail, CNPJ, CPF e telefone nos campos. NÃO bloqueia: devolve avisos para o humano revisar.
 
@@ -81,12 +98,51 @@ def detectar_dados_pessoais(**campos: str | None) -> list[str]:
     O aviso diz o tipo e o campo, mas nunca repete o dado encontrado (ele não deve se espalhar).
     Limitação conhecida: os padrões são só de formato (não conferem dígito verificador), então um número qualquer
     de 11 dígitos (ex.: id de pedido) pode ser apontado como CPF. É aviso para o humano, nunca bloqueio.
+    (Antes de chamar o modelo, o bloqueio é `exigir_sem_dados_pessoais`: lá o dado ainda não saiu do servidor.)
     """
-    avisos = []
-    for campo, texto in campos.items():
-        if not texto:
-            continue
-        for nome, padrao in PADROES_DADO_PESSOAL.items():
-            if padrao.search(texto):
-                avisos.append(f"Possível {nome} em '{campo}': dado pessoal de cliente não deve entrar na base (LGPD).")
-    return avisos
+    return [
+        f"Possível {nome} em '{campo}': dado pessoal de cliente não deve entrar na base (LGPD)."
+        for campo, nome in _achar_dados_pessoais(campos)
+    ]
+
+
+def exigir_sem_dados_pessoais(**campos: str | None) -> None:
+    """Levanta DadoPessoalNaEntrada se algum campo tiver dado pessoal. Usada ANTES de mandar texto ao modelo.
+
+    Aqui bloquear é certo: a camada gratuita do Gemini pode usar e revisar o que enviamos, então o dado não pode
+    sair daqui. Falso positivo custa reescrever o trecho; falso negativo vaza dado de cliente.
+    A mensagem diz onde e o quê, mas nunca repete o dado.
+    """
+    achados = _achar_dados_pessoais(campos)
+    if not achados:
+        return
+    onde = "; ".join(f"{nome} em '{campo}'" for campo, nome in achados)
+    raise DadoPessoalNaEntrada(
+        f"Encontrei possível dado pessoal: {onde}. Por LGPD, e porque o texto é enviado ao Gemini, ele não pode "
+        "entrar. Troque por algo genérico (\"o cliente\", \"[e-mail]\") e envie de novo. Nada foi enviado ao modelo."
+    )
+
+
+# Segmentos que a tela sugere. A forma canônica (com acento) é a daqui: é ela que fica gravada e que a tela compara.
+SEGMENTOS_CONHECIDOS = [
+    "hotelaria", "varejo", "saúde", "educação", "indústria", "setor público", "startups", "terceiro setor", "outros",
+]
+
+
+def _chave(texto: str) -> str:
+    """Forma de comparar: sem acento, minúsculo, espaços únicos. 'Saúde ' e 'saude' dão a mesma chave."""
+    sem_acento = "".join(c for c in unicodedata.normalize("NFD", texto) if not unicodedata.combining(c))
+    return " ".join(sem_acento.lower().split())
+
+
+_CANONICO = {_chave(s): s for s in SEGMENTOS_CONHECIDOS}
+
+
+def normalizar_segmento(texto: str) -> str:
+    """Forma única de gravar e de comparar um segmento.
+
+    Segmento da lista conhecida (em qualquer grafia: 'SAUDE', 'saúde ', 'Setor  Publico') vira a forma com
+    acento da lista. Segmento novo continua livre, só em minúsculo e com espaços arrumados (acento mantido).
+    """
+    chave = _chave(texto)
+    return _CANONICO.get(chave) or " ".join(texto.lower().split())

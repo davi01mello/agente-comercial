@@ -39,6 +39,19 @@ uvicorn app.main:app --reload
 
 Abra http://127.0.0.1:8000 (chat com o consultor) e http://127.0.0.1:8000/docs (documentação automática da API).
 
+### Interface
+
+A página inicial tem cinco telas: **Conversar** (consultor), **Registrar** (curador e rascunho), **Fila** (aprovar ou
+rejeitar), **Playbook** (itens validados na ordem do funil) e **Briefing** (prévia da T9). Fica tudo em
+`app/templates/index.html`, `app/static/cerebro.css` e `app/static/cerebro.js`, sem framework e sem build.
+
+- Com o servidor no ar, a interface usa a API de verdade (selo **Ao vivo** no topo).
+- Sem servidor, ou com `?demo` na URL (`http://127.0.0.1:8000/?demo`), entra no modo **Demonstração**, com a base de
+  exemplo fictícia e respostas simuladas. Serve para mostrar o produto sem chave do Gemini.
+- Aprovar e rejeitar chamam `POST /insights/{id}/aprovar` (corpo `{"por_quem"}`) e `POST /insights/{id}/rejeitar`
+  (corpo `{"por_quem", "motivo"}`). Esses endpoints chegam na PR 3; até lá a tela avisa que a ação ainda não existe.
+- Todo texto do usuário ou do modelo entra na página como texto, nunca como HTML (há um teste que garante isso).
+
 Se mudar o `.env`, reinicie o servidor (o `--reload` só observa arquivos `.py`).
 
 Testes: `pytest` (cada execução cria um banco temporário novo pelas migrações). Lint: `ruff check .`
@@ -57,7 +70,8 @@ app/
   llm.py         ÚNICO lugar que fala com o modelo (Gemini)
   knowledge.py   lê a base de conhecimento (knowledge/*.md)
   prompts/       prompts em arquivos .md (versionados no Git)
-  templates/     páginas HTML
+  templates/     página da interface (index.html)
+  static/        CSS e JS da interface
 knowledge/       base de conhecimento v0 em .md (exemplos.md é FICTÍCIO, só para teste)
 docs/            ideia, modelo do playbook, arquitetura, perguntas-teste
 tests/           testes automáticos

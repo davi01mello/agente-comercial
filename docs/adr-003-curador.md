@@ -142,6 +142,50 @@ entrada por proposta, tenha a base 50 ou 5.000 itens. Quem cresce é o **consult
 o Drive entrar (Fase 2, com documentos longos de cases e propostas), precisamos de RAG: buscar só os itens
 relevantes para cada pergunta, em vez de mandar todos.
 
+## 5. Ajustes pós-PR 2 (revisão do Davi, 2026-10-10)
+
+Cinco pontos que a revisão da PR 2 deixou em aberto. O Davi implementou todos; aqui estão as decisões.
+
+**5.1 Dado pessoal é barrado antes do modelo, não só avisado depois.**
+- `curadoria.propor` roda `dominio.exigir_sem_dados_pessoais` no texto novo e nos relatos anteriores do usuário.
+  Achou e-mail, CPF, CNPJ ou telefone: levanta `DadoPessoalNaEntrada`, a rota devolve **422** e o modelo **nem é
+  chamado**. A mensagem diz o tipo e onde, nunca repete o dado, e diz o que fazer (trocar por "o cliente").
+- Por quê: a camada gratuita do Gemini pode usar e revisar o que enviamos. Avisar depois (o que `detectar_dados_
+  pessoais` ainda faz na proposta devolvida) já é tarde: o dado saiu do servidor.
+- O preço: falso positivo (número de 11 dígitos que não é CPF) obriga a reescrever o trecho. Aceito: o contrário
+  é vazar dado de cliente. As falas do **modelo** na conversa não são conferidas (nasceram de textos que já
+  passaram pela checagem, e o usuário não teria como corrigi-las).
+- Fora do escopo: `POST /chat` (o consultor) ainda não tem essa barreira. Entra com o PR 3.
+
+**5.2 O delimitador não pode ser fechado de dentro.** Um texto com `</texto_do_usuario>` fecharia o bloco de
+dados e faria o que vem depois parecer instrução. `_neutralizar` troca o `<` inicial de qualquer marca nossa
+(`texto_do_usuario`, `item_novo`, `itens_existentes`, em qualquer caixa e com espaços) por `&lt;`: o modelo ainda
+lê a marca, mas ela não fecha nada. Vale também para `item_novo` e `candidatos` na 2ª chamada, que vêm do modelo e do
+banco. Continua sendo defesa em profundidade: o que protege de verdade é o código decidir status, autor e evidência.
+
+**5.3 Segmento: lista aberta, grafia única.**
+- Decisão: **não** virou lista fechada. Segmentos novos devem nascer do uso real do comercial; lista fechada
+  exigiria um deploy a cada segmento novo, e um segmento fora da lista cairia num "outros" que esconde informação.
+- O que muda: `dominio.normalizar_segmento` dá uma forma única. Os 9 segmentos da tela (`SEGMENTOS_CONHECIDOS`) casam
+  em qualquer grafia (`saude`, `SAÚDE `, `Setor  Publico`) e ficam gravados **com a grafia da lista** ("saúde"),
+  que é a que a tela compara. Segmento novo fica livre, em minúsculo e com espaços arrumados.
+- Vale na gravação, no filtro `GET /insights?segmento=` e na busca de candidatos (tudo passa pelo `Segmento` do
+  `schemas.py`).
+- Limite conhecido: dois segmentos **novos** que só diferem no acento ("logistica"/"logística") ainda são
+  diferentes. Rever quando o primeiro aparecer: aí vale fechar a lista ou gravar uma coluna `segmento_chave`.
+- Itens já gravados não foram migrados (só há dados fictícios de teste). Se algum item tiver "saude" gravado,
+  basta salvar de novo.
+
+**5.4 Prazo total por pedido (`LLM_PRAZO_TOTAL_S`, padrão 60).** O pior caso do curador passava de 5 minutos:
+2 chamadas × até 2 respostas (JSON inválido) × 3 tentativas × 30 s, mais as esperas. Agora `llm.com_prazo()` abre
+um relógio para o pedido inteiro e todas as chamadas dentro dividem ele. O prazo é conferido antes de cada tentativa
+e antes de cada espera (se a espera já estoura, nem dorme). Estourou: `ErroLLM` com mensagem amigável (a rota
+devolve 502). Limite honesto: uma chamada em andamento não é cortada, então o total pode passar até
+`LLM_TIMEOUT_S` (30 s) do prazo, ou seja, no máximo ~90 s com os padrões, contra mais de 300 s antes.
+
+**5.5 `requires-python >= 3.11`.** O código usa `Literal[*TIPOS]` e `datetime.UTC`, que só existem no 3.11+; em
+3.10 ele nem importa. O `pyproject.toml` agora declara isso (o CI e o README já usavam 3.11).
+
 ## Consequências
 
 **Fica mais fácil:**
@@ -151,7 +195,8 @@ relevantes para cada pergunta, em vez de mandar todos.
 - manter o custo do curador previsível, porque a 2ª chamada só acontece com candidatos e tem limite de 30.
 
 **Fica mais difícil / custa:**
-- cada proposta pode fazer até 2 chamadas ao modelo (até 4, se o JSON vier inválido);
+- cada proposta pode fazer até 2 chamadas ao modelo (até 4, se o JSON vier inválido), sempre dentro do prazo total;
+- texto com dado pessoal (inclusive falso positivo) precisa ser reescrito antes de o curador responder;
 - as relações entre seções e com itens ainda na Fila dependem do revisor humano.
 
 **Rever quando:**
