@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from app import curadoria, llm
+from app import curadoria, dominio, llm
 from app.db import SessionLocal
 from app.main import app
 from app.models import Insight
@@ -201,6 +201,67 @@ def test_id_alucinado_e_repetido_sao_descartados(monkeypatch, db):
     p = propor(db)
 
     assert [(r.relacionado_id, r.tipo) for r in p.relacoes] == [(existente, "reforca")]
+
+
+# --- dado pessoal: barrado ANTES do modelo ----------------------------------------------------
+
+def test_dado_pessoal_no_texto_barra_sem_chamar_o_modelo(monkeypatch, db):
+    falso = usar(monkeypatch, CuradorFalso(proposta()))
+
+    with pytest.raises(dominio.DadoPessoalNaEntrada, match="e-mail em 'texto'"):
+        propor(db, texto="o diretor (joao@hotelx.com.br) topou o diagnóstico")
+
+    assert falso.curar_chamadas == [] and falso.relacionar_chamadas == []  # o texto nem saiu do servidor
+
+
+def test_dado_pessoal_num_relato_anterior_tambem_barra(monkeypatch, db):
+    falso = usar(monkeypatch, CuradorFalso(proposta()))
+    conversa = [
+        MensagemHistorico(role="user", text="liguei para (81) 99876-5432"),
+        MensagemHistorico(role="model", text="Qual foi o resultado?"),
+    ]
+
+    with pytest.raises(dominio.DadoPessoalNaEntrada, match="telefone em 'relato anterior 1'"):
+        propor(db, texto="caiu 30%", conversa=conversa)
+
+    assert falso.curar_chamadas == []
+
+
+def test_fala_do_modelo_nao_e_conferida(monkeypatch, db):
+    """Só o que o usuário escreveu é checado: a fala do modelo já nasceu de um texto que passou pela checagem."""
+    usar(monkeypatch, CuradorFalso(proposta()))
+    conversa = [MensagemHistorico(role="user", text="abri com diagnóstico"),
+                MensagemHistorico(role="model", text="Pedido 12345678901: qual foi o resultado?")]
+
+    assert propor(db, conversa=conversa).insight.titulo
+
+
+def test_rota_dado_pessoal_vira_422_com_explicacao(monkeypatch):
+    falso = usar(monkeypatch, CuradorFalso(proposta()))
+
+    with TestClient(app) as client:
+        r = client.post("/registrar/propor", json={"texto": "CNPJ 12.345.678/0001-90 fechou", "autor": "Rafael"})
+
+    assert r.status_code == 422
+    assert "CNPJ em 'texto'" in r.json()["detail"]
+    assert "12.345.678" not in r.json()["detail"]
+    assert falso.curar_chamadas == []
+
+
+# --- segmento: grafias diferentes são o mesmo segmento ------------------------------------------
+
+@pytest.mark.parametrize("do_modelo", ["saude", "Saúde", " SAUDE "])
+def test_segmento_do_modelo_e_normalizado_e_acha_candidatos(monkeypatch, db, do_modelo):
+    existente = gravar(db, secao="reuniao_diagnostico", segmento="saúde")
+    falso = usar(monkeypatch, CuradorFalso(
+        proposta(segmento=do_modelo), [RelacaoLLM(id=existente, tipo="reforca")],
+    ))
+
+    p = propor(db)
+
+    assert p.insight.segmento == "saúde"
+    assert f"[INS-{existente}]" in falso.relacionar_chamadas[0]
+    assert [r.relacionado_id for r in p.relacoes] == [existente]
 
 
 # --- rota POST /registrar/propor ------------------------------------------------------------

@@ -19,10 +19,32 @@ MAX_RELACOES = 10  # o mesmo limite de InsightCreate.relacoes
 
 
 def propor(texto: str, autor: str, conversa: list[MensagemHistorico], db: Session) -> PropostaCuradoria:
-    """Roda o curador e devolve um rascunho para a pessoa revisar. Levanta llm.ErroLLM se o modelo falhar."""
+    """Roda o curador e devolve um rascunho para a pessoa revisar.
+
+    Levanta dominio.DadoPessoalNaEntrada (sem chamar o modelo) se o relato tiver dado pessoal,
+    e llm.ErroLLM se o modelo falhar ou passar do prazo total.
+    """
+    _barrar_dado_pessoal(texto, conversa)  # ANTES do modelo: depois que o texto sai daqui, não volta
+
     turno = 1 + sum(1 for m in conversa if m.role == "user")
     ultimo_turno = turno >= MAX_TURNOS
 
+    with llm.com_prazo():  # as duas chamadas ao modelo (curar + relacionar) dividem o mesmo prazo
+        return _propor(texto, autor, conversa, turno, ultimo_turno, db)
+
+
+def _barrar_dado_pessoal(texto: str, conversa: list[MensagemHistorico]) -> None:
+    """Confere o texto novo e o que o usuário já disse nos turnos anteriores (as respostas do modelo não: foram
+    geradas de textos que já passaram por aqui)."""
+    campos = {"texto": texto}
+    relatos = [m.text for m in conversa if m.role == "user"]
+    campos |= {f"relato anterior {i}": t for i, t in enumerate(relatos, start=1)}
+    dominio.exigir_sem_dados_pessoais(**campos)
+
+
+def _propor(
+    texto: str, autor: str, conversa: list[MensagemHistorico], turno: int, ultimo_turno: bool, db: Session
+) -> PropostaCuradoria:
     proposta = llm.curar(texto, [m.model_dump() for m in conversa], turno, ultimo_turno)
     avisos = list(proposta.avisos)
 

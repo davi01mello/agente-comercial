@@ -158,6 +158,8 @@ def registrar_propor(dados: RegistrarIn, db: Db):
     """
     try:
         return curadoria.propor(dados.texto, dados.autor, dados.conversa, db)
+    except dominio.RegraDeNegocio as e:  # dado pessoal no relato: barrado antes de chamar o modelo
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except llm.ErroLLM as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
