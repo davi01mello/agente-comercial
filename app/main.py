@@ -8,6 +8,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -30,6 +31,9 @@ from app.schemas import (
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 app = FastAPI(title="Cérebro Comercial CITi")
+
+# Interface: CSS, JS e o que mais a página precisar ficam em app/static (sem build, servidos como estão).
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 # "Esta rota precisa de uma sessão do banco": o FastAPI abre uma por requisição (get_db) e fecha no fim.
 Db = Annotated[Session, Depends(get_db)]

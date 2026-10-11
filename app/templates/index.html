@@ -2,142 +2,158 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{{ titulo }}</title>
-  <style>
-    :root {
-      --fundo: #f7f7f8; --painel: #ffffff; --texto: #1a1a1a; --suave: #6b6b6b;
-      --borda: #e2e2e5; --user: #1f4fd1; --user-texto: #ffffff; --erro: #b42318; --erro-fundo: #fdecea;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --fundo: #141416; --painel: #1e1e21; --texto: #ececef; --suave: #9a9aa2;
-        --borda: #2e2e33; --user: #3b6cf0; --user-texto: #ffffff; --erro: #ff8a80; --erro-fundo: #3a1a18;
-      }
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; background: var(--fundo); color: var(--texto);
-      font: 16px/1.5 system-ui, -apple-system, sans-serif;
-      display: flex; flex-direction: column; height: 100vh;
-    }
-    header { padding: 1rem; border-bottom: 1px solid var(--borda); background: var(--painel); }
-    header h1 { margin: 0; font-size: 1.15rem; }
-    header p { margin: .25rem 0 0; color: var(--suave); font-size: .875rem; }
-    #mensagens {
-      flex: 1; overflow-y: auto; padding: 1rem;
-      display: flex; flex-direction: column; gap: .75rem;
-      width: 100%; max-width: 760px; margin: 0 auto;
-    }
-    .msg {
-      padding: .75rem 1rem; border-radius: 12px; max-width: 85%;
-      white-space: pre-wrap; overflow-wrap: anywhere;
-    }
-    .msg.user { align-self: flex-end; background: var(--user); color: var(--user-texto); }
-    .msg.model { align-self: flex-start; background: var(--painel); border: 1px solid var(--borda); }
-    .msg.erro { align-self: flex-start; background: var(--erro-fundo); color: var(--erro); }
-    .msg.pensando { align-self: flex-start; color: var(--suave); font-style: italic; }
-    #vazio { color: var(--suave); text-align: center; margin-top: 2rem; }
-    form {
-      display: flex; gap: .5rem; padding: 1rem;
-      width: 100%; max-width: 760px; margin: 0 auto;
-    }
-    textarea {
-      flex: 1; resize: none; min-height: 3rem; max-height: 10rem;
-      padding: .75rem; border: 1px solid var(--borda); border-radius: 10px;
-      background: var(--painel); color: var(--texto); font: inherit;
-    }
-    button {
-      padding: 0 1.25rem; border: 0; border-radius: 10px;
-      background: var(--user); color: var(--user-texto); font: inherit; cursor: pointer;
-    }
-    button:disabled { opacity: .5; cursor: wait; }
-  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Martian+Mono:wght@400;500;600&family=Onest:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/static/cerebro.css">
 </head>
 <body>
-  <header>
-    <h1>{{ titulo }}</h1>
-    <p>Consultor comercial: responde com base na base de conhecimento, citando as fontes.</p>
-  </header>
+<!-- corpo:inicio -->
+<canvas id="cena" aria-hidden="true"></canvas>
+<div class="veu" aria-hidden="true"></div>
 
-  <main id="mensagens">
-    <p id="vazio">Pergunte algo, por exemplo: "Vou apresentar proposta pra uma rede de hotelaria, como conduzo?"</p>
+<div class="app">
+  <nav class="trilho" aria-label="Seções">
+    <a class="marca" href="#conversar" aria-label="Cérebro Comercial, voltar para a conversa">
+      <span class="marca-orbe" data-orbe="mini"></span>
+      <b>CITi</b>
+    </a>
+    <div class="nav">
+      <a href="#conversar" data-tela="conversar">
+        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/><path d="M8.5 9.5h7M8.5 12.5h4"/></svg>
+        <span>Conversar</span>
+      </a>
+      <a href="#registrar" data-tela="registrar">
+        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/><path d="M18 15.5v4M16 17.5h4"/></svg>
+        <span>Registrar</span>
+      </a>
+      <a href="#fila" data-tela="fila">
+        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-7.5h11L20 13v5.5A1.5 1.5 0 0 1 18.5 20h-13A1.5 1.5 0 0 1 4 18.5z"/><path d="M4 13h4.5l1.5 2.5h4l1.5-2.5H20"/></svg>
+        <span>Fila</span>
+        <b class="contador" id="contador-fila" hidden>0</b>
+      </a>
+      <a href="#playbook" data-tela="playbook">
+        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A1.5 1.5 0 0 1 6.5 4H19v14H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19"/><path d="M9 8h6M9 11h4"/></svg>
+        <span>Playbook</span>
+      </a>
+      <a href="#briefing" data-tela="briefing">
+        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>
+        <span>Briefing</span>
+      </a>
+    </div>
+  </nav>
+
+  <main class="principal">
+    <header class="topo vidro">
+      <div class="ident" id="ident"></div>
+      <div class="acoes">
+        <span class="modo" id="modo" data-modo="demo">Conectando…</span>
+        <div class="voce">
+          <label for="autor">Você</label>
+          <input id="autor" autocomplete="name" placeholder="Seu nome" maxlength="100">
+        </div>
+      </div>
+    </header>
+
+    <div class="telas">
+      <section class="tela tela-conversar" data-tela="conversar" aria-label="Conversar com o Cérebro">
+        <div class="conversa">
+          <div class="mensagens" id="mensagens" aria-live="polite"></div>
+          <form class="doca" id="form-chat">
+            <div class="entrada">
+              <a class="btn-icone" href="#registrar" title="Registrar um insight" aria-label="Registrar um insight">
+                <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              </a>
+              <label class="sr" for="campo-chat">Sua pergunta</label>
+              <textarea class="campo-msg" id="campo-chat" rows="1" maxlength="4000" placeholder="Pergunte ao Cérebro…"></textarea>
+              <button class="enviar" id="enviar-chat" type="submit" aria-label="Enviar pergunta">
+                <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 11.5L20 4l-6.5 16-2.5-6.5z"/><path d="M11 13.5L20 4"/></svg>
+              </button>
+            </div>
+            <div class="atalhos" id="atalhos-chat"></div>
+          </form>
+        </div>
+        <aside class="palco" aria-label="O que o Cérebro sabe hoje">
+          <div class="orbe-grande" data-orbe="grande"></div>
+          <div class="ficha vidro">
+            <h2>O que eu sei hoje</h2>
+            <div class="numeros">
+              <div><b id="n-playbook">0</b><span>no playbook</span></div>
+              <div><b id="n-fila">0</b><span>na fila</span></div>
+              <div><b id="n-hipoteses">0</b><span>hipóteses abertas</span></div>
+            </div>
+            <p class="rodape" id="rodape-base"></p>
+          </div>
+        </aside>
+      </section>
+
+      <section class="tela tela-registrar" data-tela="registrar" aria-label="Registrar um insight" hidden>
+        <div class="painel vidro registrar-chat">
+          <div class="cab">
+            <span class="av" data-orbe="mini"></span>
+            <div><h2>Curador</h2><p>Organiza o seu relato e pergunta o que faltou</p></div>
+          </div>
+          <div class="mensagens" id="mensagens-reg" aria-live="polite"></div>
+          <form class="doca" id="form-reg">
+            <div class="entrada">
+              <label class="sr" for="campo-reg">O que aconteceu</label>
+              <textarea class="campo-msg" id="campo-reg" rows="1" maxlength="8000" placeholder="Conte o que aconteceu…"></textarea>
+              <button class="enviar" id="enviar-reg" type="submit" aria-label="Enviar relato">
+                <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 11.5L20 4l-6.5 16-2.5-6.5z"/><path d="M11 13.5L20 4"/></svg>
+              </button>
+            </div>
+          </form>
+        </div>
+        <form class="painel vidro rascunho" id="rascunho" novalidate aria-label="Rascunho do item"></form>
+      </section>
+
+      <section class="tela tela-lista" data-tela="fila" aria-label="Fila de curadoria" hidden>
+        <div class="lista" id="lista-fila"></div>
+      </section>
+
+      <section class="tela tela-lista" data-tela="playbook" aria-label="Playbook" hidden>
+        <div class="funil vidro" id="funil" role="group" aria-label="Filtrar por etapa do funil"></div>
+        <div class="filtros" id="filtros"></div>
+        <div id="grupos"></div>
+      </section>
+
+      <section class="tela tela-lista" data-tela="briefing" aria-label="Briefing de reunião" hidden>
+        <form class="painel vidro briefing-form" id="form-briefing">
+          <div class="campo">
+            <label for="b-segmento">Segmento</label>
+            <select id="b-segmento"></select>
+          </div>
+          <div class="campo">
+            <label for="b-tipo">Reunião</label>
+            <select id="b-tipo">
+              <option value="diagnostico">Diagnóstico</option>
+              <option value="proposta" selected>Proposta</option>
+              <option value="negociacao">Negociação</option>
+            </select>
+          </div>
+          <div class="campo contexto">
+            <label for="b-contexto">Contexto</label>
+            <textarea id="b-contexto" rows="2" maxlength="600">Rede com 6 hotéis no litoral, reclamam de fila no check-in na alta temporada.</textarea>
+          </div>
+          <button class="btn primario" type="submit">Montar briefing</button>
+        </form>
+        <div id="briefing-saida"></div>
+      </section>
+    </div>
   </main>
+</div>
 
-  <form id="form">
-    <textarea id="entrada" placeholder="Sua pergunta (Enter envia, Shift+Enter quebra linha)" required></textarea>
-    <button id="enviar" type="submit">Enviar</button>
-  </form>
-
-  <script>
-    // Histórico da conversa. Vai a cada pergunta: é assim que o modelo "lembra".
-    const historico = [];
-    // O servidor aceita no máximo 30 mensagens (ChatIn). Mandamos só as mais recentes;
-    // como o histórico é sempre em pares (pergunta + resposta), 30 começa numa pergunta.
-    const MAX_HISTORICO = 30;
-
-    const mensagens = document.getElementById("mensagens");
-    const form = document.getElementById("form");
-    const entrada = document.getElementById("entrada");
-    const enviar = document.getElementById("enviar");
-
-    // Cria um balão na tela. textContent (nunca innerHTML): o texto é mostrado como texto,
-    // então nada que venha do usuário ou do modelo vira HTML/script na página (proteção contra XSS).
-    function mostrar(texto, tipo) {
-      document.getElementById("vazio")?.remove();
-      const div = document.createElement("div");
-      div.className = "msg " + tipo;
-      div.textContent = texto;
-      mensagens.appendChild(div);
-      mensagens.scrollTop = mensagens.scrollHeight;
-      return div;
-    }
-
-    form.addEventListener("submit", async (evento) => {
-      evento.preventDefault(); // impede o formulário de recarregar a página
-      const mensagem = entrada.value.trim();
-      if (!mensagem) return;
-
-      mostrar(mensagem, "user");
-      entrada.value = "";
-      enviar.disabled = true;
-      const pensando = mostrar("pensando...", "pensando");
-
-      try {
-        const resp = await fetch("/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mensagem, historico: historico.slice(-MAX_HISTORICO) }),
-        });
-        const dados = await resp.json();
-        pensando.remove();
-
-        if (!resp.ok) {
-          // 502 traz a mensagem amigável em "detail"; 422 traz uma lista de erros de validação.
-          const detalhe = typeof dados.detail === "string" ? dados.detail : "Pergunta inválida.";
-          mostrar(detalhe, "erro");
-          return;
-        }
-
-        mostrar(dados.resposta, "model");
-        // Só entra no histórico o que deu certo: pergunta e resposta, em par.
-        historico.push({ role: "user", text: mensagem }, { role: "model", text: dados.resposta });
-      } catch (erro) {
-        pensando.remove();
-        mostrar("Não consegui falar com o servidor. Ele está rodando?", "erro");
-      } finally {
-        enviar.disabled = false;
-        entrada.focus();
-      }
-    });
-
-    // Enter envia; Shift+Enter quebra linha.
-    entrada.addEventListener("keydown", (evento) => {
-      if (evento.key === "Enter" && !evento.shiftKey) {
-        evento.preventDefault();
-        form.requestSubmit();
-      }
-    });
-  </script>
+<div class="fundo-gaveta" id="fundo-gaveta" hidden></div>
+<aside class="gaveta" id="gaveta" aria-label="Detalhe do item" aria-hidden="true" inert>
+  <button class="btn-icone fechar" id="fechar-gaveta" type="button" aria-label="Fechar">
+    <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+  <div id="gaveta-corpo"></div>
+</aside>
+<div class="torradas" id="torradas" aria-live="polite"></div>
+<!-- corpo:fim -->
+<script src="/static/cerebro.js" defer></script>
 </body>
 </html>
