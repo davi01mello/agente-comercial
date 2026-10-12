@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app import curadoria, dominio, llm
+from app import curadoria, dominio, knowledge, llm
 from app.db import get_db
 from app.models import HistoricoStatus, Insight, Relacao
 from app.schemas import (
@@ -54,11 +54,22 @@ def home(request: Request):
 
 
 @app.post("/chat", response_model=ChatOut)
-def chat(dados: ChatIn):
-    """Consultor: recebe a pergunta + o histórico e devolve a resposta citando a base."""
+def chat(dados: ChatIn, db: Db):
+    """Consultor: recebe a pergunta + o histórico e responde com os itens aprovados do banco, citando [INS-n]."""
+    # Dado pessoal é barrado ANTES do modelo (como no /registrar/propor): depois que o texto sai daqui, não volta.
+    # Só o que o usuário escreveu é conferido; as falas do modelo nasceram de textos que já passaram por aqui.
+    anteriores = [h.text for h in dados.historico if h.role == "user"]
+    try:
+        dominio.exigir_sem_dados_pessoais(
+            mensagem=dados.mensagem,
+            **{f"mensagem anterior {i}": texto for i, texto in enumerate(anteriores, start=1)},
+        )
+    except dominio.RegraDeNegocio as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
     historico = [h.model_dump() for h in dados.historico]
     try:
-        resposta = llm.consultar(dados.mensagem, historico)
+        resposta = llm.consultar(dados.mensagem, historico, knowledge.montar_base(db))
     except llm.ErroLLM as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     return ChatOut(resposta=resposta)

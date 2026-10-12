@@ -17,7 +17,6 @@ from google.genai import errors, types
 from pydantic import BaseModel, ValidationError
 
 from app.config import settings
-from app.knowledge import carregar_base
 from app.schemas import PropostaLLM, RelacoesLLM
 
 PROMPTS = Path(__file__).parent / "prompts"
@@ -27,6 +26,7 @@ ESPERA_INICIAL_S = 1.0  # depois dobra: 1s, 2s, 4s...
 CODIGOS_TEMPORARIOS = {429, 503}  # limite e sobrecarga: costumam passar sozinhos
 _dormir = time.sleep  # os testes trocam por uma função que não espera de verdade
 _agora = time.monotonic  # idem: os testes trocam por um relógio falso
+ERRO_DE_REDE = "Não consegui falar com o Gemini (sem internet ou demorou demais). Tente de novo."
 
 M = TypeVar("M", bound=BaseModel)  # "algum schema Pydantic": _gerar_json devolve o mesmo tipo que recebeu
 
@@ -86,12 +86,12 @@ def _client() -> genai.Client:
     )
 
 
-def _system_consultor() -> str:
-    """Camadas do agente: instruções (base + consultor) e conhecimento (a base inteira)."""
+def _system_consultor(base: str) -> str:
+    """Camadas do agente: instruções (base + consultor) e conhecimento (a base que quem chamou montou)."""
     return "\n\n".join([
         carregar_prompt("base"),
         carregar_prompt("consultor"),
-        "# BASE DE CONHECIMENTO\n\n" + carregar_base(),
+        "# BASE DE CONHECIMENTO\n\n" + base,
     ])
 
 
@@ -142,7 +142,7 @@ def _chamar(client: genai.Client, **kwargs):
     except errors.APIError as e:
         raise ErroLLM(_traduzir_erro(e, kwargs["model"])) from e
     except httpx.TransportError as e:
-        raise ErroLLM("Não consegui falar com o Gemini (sem internet ou demorou demais). Tente de novo.") from e
+        raise ErroLLM(ERRO_DE_REDE) from e
 
 
 def _checar_chave() -> None:
@@ -154,14 +154,18 @@ def _mensagem(role: str, texto: str) -> types.Content:
     return types.Content(role=role, parts=[types.Part(text=texto)])
 
 
-def consultar(mensagem: str, historico: list[dict]) -> str:
+def consultar(mensagem: str, historico: list[dict], base: str) -> str:
     """Responde como consultor, usando a base de conhecimento e lembrando da conversa.
 
     historico: mensagens anteriores, no formato [{"role": "user" ou "model", "text": "..."}].
+    base: o texto da base (knowledge.montar_base), que vai no system_instruction.
+    O que o usuário escreveu vai embrulhado como DADO (_como_dado), como no curador; as falas do modelo, não.
     """
     _checar_chave()
-    contents = [_mensagem(h["role"], h["text"]) for h in historico]
-    contents.append(_mensagem("user", mensagem))
+    contents = [
+        _mensagem(h["role"], _como_dado(h["text"]) if h["role"] == "user" else h["text"]) for h in historico
+    ]
+    contents.append(_mensagem("user", _como_dado(mensagem)))
 
     client = _client()  # guardar numa variável: se o cliente for descartado, a conexão fecha no meio
     with com_prazo():
@@ -170,13 +174,32 @@ def consultar(mensagem: str, historico: list[dict]) -> str:
             model=settings.model_consultor,
             contents=contents,
             config=types.GenerateContentConfig(
-                system_instruction=_system_consultor(),
+                system_instruction=_system_consultor(base),
                 temperature=0.3,
             ),
         )
     if not resp.text:
         raise ErroLLM("O Gemini não devolveu texto. Tente reformular a pergunta.")
     return resp.text
+
+
+def contar_tokens(texto: str) -> int:
+    """Quantos tokens o texto ocupa no modelo do consultor (client.models.count_tokens). Serve para medir a base
+    (tokens por item, no golden set e no ADR-004); não entra no caminho do /chat.
+
+    O texto vai como `contents`, sem system_instruction: na API gratuita o count_tokens recusa esse campo.
+    """
+    _checar_chave()
+    client = _client()
+    try:
+        resp = client.models.count_tokens(model=settings.model_consultor, contents=texto)
+    except errors.APIError as e:
+        raise ErroLLM(_traduzir_erro(e, settings.model_consultor)) from e
+    except httpx.TransportError as e:
+        raise ErroLLM(ERRO_DE_REDE) from e
+    if resp.total_tokens is None:
+        raise ErroLLM("O Gemini não devolveu a contagem de tokens. Tente de novo.")
+    return resp.total_tokens
 
 
 # --- curador --------------------------------------------------------------------------------
