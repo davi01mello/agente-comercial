@@ -56,6 +56,9 @@ Se mudar o `.env`, reinicie o servidor (o `--reload` só observa arquivos `.py`)
 
 Testes: `pytest` (cada execução cria um banco temporário novo pelas migrações). Lint: `ruff check .`
 
+Golden set do consultor (chama o Gemini de verdade e gasta cota, por isso fica fora do `pytest` normal e do CI):
+`pytest -m live tests/golden`. As respostas da rodada ficam em `tests/golden/ultima_execucao.md` (fora do Git).
+
 **Banco e migrações (Alembic):** as tabelas não são mais criadas pelo app. Mudou `app/models.py`? Gere a migração com `alembic revision --autogenerate -m "o que mudou"`, revise o arquivo gerado em `migrations/versions/` e rode `alembic upgrade head`. Nunca edite uma migração que já foi para a main. No SQLite o app liga as chaves estrangeiras (`PRAGMA foreign_keys=ON`, em `app/db.py`), como o Postgres faz: relação para insight inexistente dá erro também no dev. Se uma migração futura precisar recriar uma tabela (batch), teste `upgrade`, `downgrade` e `upgrade` de novo antes do PR.
 
 ## Estrutura
@@ -68,11 +71,12 @@ app/
   models.py      tabelas (espelha docs/playbook-modelo.md)
   schemas.py     formato dos dados que entram/saem da API
   llm.py         ÚNICO lugar que fala com o modelo (Gemini)
-  knowledge.py   lê a base de conhecimento (knowledge/*.md)
+  knowledge.py   monta a base do consultor: os itens aprovados do banco, um por linha ([INS-n])
   prompts/       prompts em arquivos .md (versionados no Git)
   templates/     página da interface (index.html)
   static/        CSS e JS da interface
-knowledge/       base de conhecimento v0 em .md (exemplos.md é FICTÍCIO, só para teste)
+knowledge/       exemplos.md: a base v0 da T2 (FICTÍCIA). O consultor não lê mais; o modo demonstração da tela
+                 tem uma cópia própria
 docs/            ideia, modelo do playbook, arquitetura, perguntas-teste
 tests/           testes automáticos
 migrations/      migrações do banco (Alembic); versions/ = histórico do schema
