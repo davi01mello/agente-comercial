@@ -10,13 +10,14 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app import curadoria, dominio, llm
 from app.db import get_db
 from app.models import HistoricoStatus, Insight, Relacao
 from app.schemas import (
+    AprovarIn,
     ChatIn,
     ChatOut,
     FiltroInsights,
@@ -25,6 +26,7 @@ from app.schemas import (
     ListaInsights,
     PropostaCuradoria,
     RegistrarIn,
+    RejeitarIn,
     RelacaoOut,
 )
 
@@ -163,4 +165,54 @@ def registrar_propor(dados: RegistrarIn, db: Db):
     except llm.ErroLLM as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
-# TODO(T3, PR 3): aprovar/rejeitar, abas Registrar/Fila/Playbook, consultor lendo o banco
+# --- fila -----------------------------------------------------------------------------------
+
+@app.post("/insights/{insight_id}/aprovar", response_model=InsightOut)
+def aprovar_insight(insight_id: int, dados: AprovarIn, db: Db):
+    """Fila: proposto (ou historico_a_validar) -> validado. A partir daqui o item entra na base do consultor."""
+    return _mudar_status(db, insight_id, "validado", dados.por_quem)
+
+
+@app.post("/insights/{insight_id}/rejeitar", response_model=InsightOut)
+def rejeitar_insight(insight_id: int, dados: RejeitarIn, db: Db):
+    """Fila: -> obsoleto, com motivo obrigatório. Nada é apagado: o item e o motivo ficam no histórico."""
+    return _mudar_status(db, insight_id, "obsoleto", dados.por_quem, dados.motivo)
+
+
+def _mudar_status(db: Session, insight_id: int, para: str, por_quem: str, motivo: str | None = None) -> InsightOut:
+    """Muda o status de um item seguindo o ciclo de vida do dominio e grava a mudança no histórico."""
+    item = db.get(Insight, insight_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"INS-{insight_id} não existe.")
+
+    de = item.status
+    try:
+        dominio.validar_transicao(de, para, motivo)
+    except dominio.RegraDeNegocio as e:  # transição inválida ou sem motivo: a tela mostra a mensagem do domínio
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    # O UPDATE só vale se o status no banco ainda for o que lemos acima (WHERE status = de). Se outra pessoa
+    # aprovou ou rejeitou o item nesse meio-tempo, nenhuma linha bate (rowcount 0) e respondemos 422, em vez de
+    # passar por cima da decisão dela e gravar duas mudanças no histórico.
+    valores = {"status": para}
+    if para == "obsoleto":
+        valores["motivo_obsolescencia"] = motivo
+    resultado = db.execute(
+        update(Insight)
+        .where(Insight.id == insight_id, Insight.status == de)
+        .values(**valores)
+        .execution_options(synchronize_session=False)  # o item é recarregado do banco no fim (refresh)
+    )
+    if resultado.rowcount == 0:
+        db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail=f"INS-{insight_id} acabou de ser alterado por outra pessoa. Recarregue a Fila.",
+        )
+
+    db.add(HistoricoStatus(insight_id=insight_id, de=de, para=para, por_quem=por_quem, motivo=motivo))
+    db.commit()  # status + histórico entram juntos (ou nada entra)
+
+    db.refresh(item)  # lê do banco o status novo
+    relacoes = list(db.scalars(select(Relacao).where(Relacao.insight_id == insight_id)))
+    return _para_saida(item, relacoes)
