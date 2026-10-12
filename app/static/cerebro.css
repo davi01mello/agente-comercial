@@ -65,6 +65,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   height: 100%;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 18px;
   padding: 18px;
 }
