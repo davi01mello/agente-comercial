@@ -10,7 +10,8 @@ Arquivos:
 - ultima_execucao.md: as respostas da última rodada, para a análise do ADR-004 (fora do Git).
 
 O que se confere em cada resposta:
-- nenhum id inventado: todo [INS-n] citado existe na base;
+- nenhum id inventado: todo INS-n citado existe na base;
+- uma citação por colchete ([INS-2] [INS-7]), que é o que a tela transforma em link;
 - pergunta coberta pela base: cita pelo menos um dos itens esperados;
 - pergunta sem cobertura (de propósito): admite a lacuna com a frase do prompt ("A base não cobre").
 """
@@ -29,7 +30,10 @@ from app.models import Insight
 PASTA = Path(__file__).parent
 SAIDA = PASTA / "ultima_execucao.md"
 LACUNA = "A base não cobre"  # a frase que o app/prompts/consultor.md manda usar
-CITACAO = re.compile(r"\[INS-(\d+)\]")
+# Qualquer INS-n, dentro ou fora de colchete: um id inventado num grupo ("[INS-2, INS-99]") também é pego.
+CITACAO = re.compile(r"INS-(\d+)")
+# O grupo que a tela não transforma em link (o cerebro.js só reconhece [INS-n] sozinho).
+AGRUPADA = re.compile(r"\[INS-\d+\s*[,;]")
 PAUSA_S = 6  # entre perguntas: a camada gratuita limita as chamadas por minuto
 
 pytestmark = [
@@ -88,6 +92,7 @@ def test_pergunta(caso, relatorio):
     )
 
     assert not inventados, f"citou id que não existe na base: {inventados}"
+    assert not AGRUPADA.search(resposta), "citação agrupada ([INS-2, INS-7]): a tela só faz link de [INS-n] sozinho"
     if caso["coberta"]:
         assert set(caso["esperados"]) & set(citados), f"não citou nenhum dos esperados {caso['esperados']}"
     else:
