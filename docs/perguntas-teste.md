@@ -24,7 +24,7 @@ Uso no código: `tests/perguntas.py` (a criar na T8) roda estas perguntas e salv
 20. Me ajude a preparar a reunião de amanhã com uma indústria que nunca contratou consultoria.
 
 **Origem:** 1 a 8 vêm da Fase 0, seção 6. Como a seção original não foi encontrada, 9 a 20 foram geradas no projeto
-"Agente Comercial" do claude.ai (em 12/10/2026) e **ainda precisam da validação do comercial**. Cobrem qualificação,
+"Agente Comercial" do claude.ai e **validadas pelo comercial em 12/10/2026**. Cobrem qualificação,
 diagnóstico, segmentos, pós-venda, negociação, evidência e lacunas (11, 12, 13 e 19 têm que admitir que a base não cobre).
 
 Uso no golden set (`tests/golden/`): `perguntas.json` guarda, para cada pergunta, se a base fictícia a cobre e quais
