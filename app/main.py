@@ -2,6 +2,7 @@
 
 As tabelas do banco são criadas e atualizadas pelas migrações: rode `alembic upgrade head` antes.
 """
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -29,6 +30,14 @@ from app.schemas import (
     RejeitarIn,
     RelacaoOut,
 )
+
+# Logs do app (app.llm, app.knowledge...) no terminal, ao lado dos do uvicorn. O uvicorn só configura os loggers
+# DELE: sem isto, as linhas INFO do app (ex.: uma por chamada ao modelo) não aparecem em lugar nenhum.
+_log_do_app = logging.getLogger("app")
+_log_do_app.setLevel(logging.INFO)
+_saida_do_log = logging.StreamHandler()  # escreve no terminal (stderr), como o uvicorn
+_saida_do_log.setFormatter(logging.Formatter("%(levelname)s:     [%(name)s] %(message)s"))
+_log_do_app.addHandler(_saida_do_log)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 

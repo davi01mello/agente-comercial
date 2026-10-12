@@ -3,6 +3,8 @@
 Aqui mora só a conversa com o modelo (montar a chamada, repetir, traduzir erros, conferir o formato).
 As regras de negócio sobre o que o modelo devolve ficam em app/curadoria.py e app/dominio.py.
 """
+import json
+import logging
 import re
 import time
 from collections.abc import Iterator
@@ -18,6 +20,8 @@ from pydantic import BaseModel, ValidationError
 
 from app.config import settings
 from app.schemas import PropostaLLM, RelacoesLLM
+
+logger = logging.getLogger(__name__)
 
 PROMPTS = Path(__file__).parent / "prompts"
 
@@ -121,24 +125,71 @@ def _vale_tentar_de_novo(e: Exception) -> bool:
     return isinstance(e, httpx.TransportError)
 
 
-def _gerar_com_retry(client: genai.Client, **kwargs):
-    """Chama generate_content; em erro temporário espera (1s, 2s...) e tenta de novo, até TENTATIVAS ou o prazo."""
+def _gerar_com_retry(client: genai.Client, funcao: str, **kwargs):
+    """Chama generate_content; em erro temporário espera (1s, 2s...) e tenta de novo, até TENTATIVAS ou o prazo.
+
+    Cada tentativa, com sucesso ou erro, vira uma linha de log (_registrar).
+    """
     for tentativa in range(1, TENTATIVAS + 1):
         _checar_prazo()
+        inicio = time.perf_counter()
         try:
-            return client.models.generate_content(**kwargs)
+            resp = client.models.generate_content(**kwargs)
         except (errors.APIError, httpx.TransportError) as e:
+            resultado = f"erro_{e.code}" if isinstance(e, errors.APIError) else "erro_rede"
+            _registrar(funcao, kwargs["model"], tentativa, resultado, inicio)
             if tentativa == TENTATIVAS or not _vale_tentar_de_novo(e):
                 raise
             espera = ESPERA_INICIAL_S * 2 ** (tentativa - 1)
             _checar_prazo(espera)  # se esperar já estoura o prazo, não adianta esperar
             _dormir(espera)
+        else:
+            _registrar(funcao, kwargs["model"], tentativa, "ok", inicio, resp.usage_metadata)
+            return resp
 
 
-def _chamar(client: genai.Client, **kwargs):
+def _registrar(
+    funcao: str,
+    modelo: str,
+    tentativa: int,
+    resultado: str,
+    inicio: float,
+    uso: types.GenerateContentResponseUsageMetadata | None = None,
+) -> None:
+    """Uma linha de log JSON por chamada ao modelo: o que foi chamado, quanto demorou, quantos tokens e quanto custou.
+
+    NUNCA entra a chave nem texto (do usuário, do prompt ou da resposta): só números e nomes fixos do código.
+    """
+    entrada = getattr(uso, "prompt_token_count", None)  # getattr com padrão: funciona também com uso=None
+    texto_gerado = getattr(uso, "candidates_token_count", None)
+    raciocinio = getattr(uso, "thoughts_token_count", None)
+    # O Gemini cobra o raciocínio (thoughts) como saída, então ele entra na conta da saída.
+    saida = None if texto_gerado is None and raciocinio is None else (texto_gerado or 0) + (raciocinio or 0)
+    logger.info(json.dumps({
+        "evento": "chamada_llm",
+        "funcao": funcao,
+        "modelo": modelo,
+        "tentativa": tentativa,
+        "resultado": resultado,
+        "latencia_ms": round((time.perf_counter() - inicio) * 1000),
+        "tokens_entrada": entrada,
+        "tokens_saida": saida,
+        "tokens_raciocinio": raciocinio,
+        "custo_usd": _custo(entrada, saida),
+    }))
+
+
+def _custo(entrada: int | None, saida: int | None) -> float | None:
+    """Custo estimado em US$ pelos preços do .env. Sem a contagem de tokens (ex.: erro), não há custo a estimar."""
+    if entrada is None or saida is None:
+        return None
+    return round((entrada * settings.preco_entrada_1m + saida * settings.preco_saida_1m) / 1_000_000, 6)
+
+
+def _chamar(client: genai.Client, funcao: str, **kwargs):
     """_gerar_com_retry + tradução dos erros da API e da rede para ErroLLM (mensagem pronta para o usuário)."""
     try:
-        return _gerar_com_retry(client, **kwargs)
+        return _gerar_com_retry(client, funcao, **kwargs)
     except errors.APIError as e:
         raise ErroLLM(_traduzir_erro(e, kwargs["model"])) from e
     except httpx.TransportError as e:
@@ -171,6 +222,7 @@ def consultar(mensagem: str, historico: list[dict], base: str) -> str:
     with com_prazo():
         resp = _chamar(
             client,
+            "consultar",
             model=settings.model_consultor,
             contents=contents,
             config=types.GenerateContentConfig(
@@ -210,7 +262,7 @@ def _resumo_do_erro(e: ValidationError) -> str:
     return "; ".join(linhas)
 
 
-def _gerar_json(schema: type[M], system: str, contents: list[types.Content]) -> M:
+def _gerar_json(funcao: str, schema: type[M], system: str, contents: list[types.Content]) -> M:
     """Pede ao modelo um JSON no formato `schema` e confere com o Pydantic.
 
     Se vier fora do formato, devolve o erro ao modelo e pede de novo, UMA vez. Na segunda falha, ErroLLM.
@@ -226,7 +278,7 @@ def _gerar_json(schema: type[M], system: str, contents: list[types.Content]) -> 
     client = _client()
 
     with com_prazo():  # se quem chamou (curadoria.propor) já abriu o prazo, as duas chamadas dividem o mesmo
-        resp = _chamar(client, model=settings.model_curador, contents=contents, config=config)
+        resp = _chamar(client, funcao, model=settings.model_curador, contents=contents, config=config)
         try:
             return schema.model_validate_json(resp.text or "")
         except ValidationError as e:
@@ -237,7 +289,9 @@ def _gerar_json(schema: type[M], system: str, contents: list[types.Content]) -> 
                 _mensagem("user", f"Seu JSON não seguiu o schema ({_resumo_do_erro(e)}). Devolva o JSON corrigido."),
             ]
 
-        resp = _chamar(client, model=settings.model_curador, contents=contents, config=config)
+        resp = _chamar(
+            client, f"{funcao}:correcao_json", model=settings.model_curador, contents=contents, config=config
+        )
         try:
             return schema.model_validate_json(resp.text or "")
         except ValidationError as e:
@@ -279,7 +333,7 @@ def curar(texto: str, conversa: list[dict], turno: int, ultimo_turno: bool) -> P
     )
     contents.append(_mensagem("user", f"{_como_dado(texto)}\n{aviso_turno}"))
     system = "\n\n".join([carregar_prompt("base"), carregar_prompt("curador")])
-    return _gerar_json(PropostaLLM, system, contents)
+    return _gerar_json("curar", PropostaLLM, system, contents)
 
 
 def relacionar(item_novo: str, candidatos: str) -> RelacoesLLM:
@@ -289,4 +343,4 @@ def relacionar(item_novo: str, candidatos: str) -> RelacoesLLM:
         f"<item_novo>\n{_neutralizar(item_novo)}\n</item_novo>\n\n"
         f"<itens_existentes>\n{_neutralizar(candidatos)}\n</itens_existentes>"
     )
-    return _gerar_json(RelacoesLLM, carregar_prompt("relacoes"), [_mensagem("user", pedido)])
+    return _gerar_json("relacionar", RelacoesLLM, carregar_prompt("relacoes"), [_mensagem("user", pedido)])
