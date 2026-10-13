@@ -177,3 +177,24 @@ class PropostaCuradoria(BaseModel):
     relacoes: list[RelacaoIn] = []
     perguntas: list[str] = Field(default=[], max_length=2)
     avisos: list[str] = []
+
+
+# --- fila -----------------------------------------------------------------------------------
+
+class AprovarIn(BaseModel):
+    """Body de POST /insights/{id}/aprovar. Sem login por enquanto: quem decide se identifica em texto livre
+    (quando entrar o login, na T5, passa a vir da sessão)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    por_quem: str = Field(min_length=1, max_length=100)
+
+
+class RejeitarIn(AprovarIn):
+    """Body de POST /insights/{id}/rejeitar.
+
+    O motivo é opcional AQUI de propósito: quem o exige é o dominio (MotivoObrigatorio). Assim a regra mora num
+    lugar só, e "sem motivo" e "motivo só com espaços" recebem a mesma mensagem.
+    """
+
+    motivo: str | None = Field(default=None, max_length=2000)

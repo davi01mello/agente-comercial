@@ -19,3 +19,6 @@ Thumbs.db
 # Relatórios de cobertura (pytest-cov)
 .coverage
 htmlcov/
+
+# Respostas da última rodada do golden set (geradas por pytest -m live tests/golden)
+tests/golden/ultima_execucao.md

@@ -2,6 +2,7 @@
 
 As tabelas do banco são criadas e atualizadas pelas migrações: rode `alembic upgrade head` antes.
 """
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -10,13 +11,14 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app import curadoria, dominio, llm
+from app import curadoria, dominio, knowledge, llm
 from app.db import get_db
 from app.models import HistoricoStatus, Insight, Relacao
 from app.schemas import (
+    AprovarIn,
     ChatIn,
     ChatOut,
     FiltroInsights,
@@ -25,8 +27,17 @@ from app.schemas import (
     ListaInsights,
     PropostaCuradoria,
     RegistrarIn,
+    RejeitarIn,
     RelacaoOut,
 )
+
+# Logs do app (app.llm, app.knowledge...) no terminal, ao lado dos do uvicorn. O uvicorn só configura os loggers
+# DELE: sem isto, as linhas INFO do app (ex.: uma por chamada ao modelo) não aparecem em lugar nenhum.
+_log_do_app = logging.getLogger("app")
+_log_do_app.setLevel(logging.INFO)
+_saida_do_log = logging.StreamHandler()  # escreve no terminal (stderr), como o uvicorn
+_saida_do_log.setFormatter(logging.Formatter("%(levelname)s:     [%(name)s] %(message)s"))
+_log_do_app.addHandler(_saida_do_log)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -52,11 +63,22 @@ def home(request: Request):
 
 
 @app.post("/chat", response_model=ChatOut)
-def chat(dados: ChatIn):
-    """Consultor: recebe a pergunta + o histórico e devolve a resposta citando a base."""
+def chat(dados: ChatIn, db: Db):
+    """Consultor: recebe a pergunta + o histórico e responde com os itens aprovados do banco, citando [INS-n]."""
+    # Dado pessoal é barrado ANTES do modelo (como no /registrar/propor): depois que o texto sai daqui, não volta.
+    # Só o que o usuário escreveu é conferido; as falas do modelo nasceram de textos que já passaram por aqui.
+    anteriores = [h.text for h in dados.historico if h.role == "user"]
+    try:
+        dominio.exigir_sem_dados_pessoais(
+            mensagem=dados.mensagem,
+            **{f"mensagem anterior {i}": texto for i, texto in enumerate(anteriores, start=1)},
+        )
+    except dominio.RegraDeNegocio as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
     historico = [h.model_dump() for h in dados.historico]
     try:
-        resposta = llm.consultar(dados.mensagem, historico)
+        resposta = llm.consultar(dados.mensagem, historico, knowledge.montar_base(db))
     except llm.ErroLLM as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     return ChatOut(resposta=resposta)
@@ -163,4 +185,54 @@ def registrar_propor(dados: RegistrarIn, db: Db):
     except llm.ErroLLM as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
-# TODO(T3, PR 3): aprovar/rejeitar, abas Registrar/Fila/Playbook, consultor lendo o banco
+# --- fila -----------------------------------------------------------------------------------
+
+@app.post("/insights/{insight_id}/aprovar", response_model=InsightOut)
+def aprovar_insight(insight_id: int, dados: AprovarIn, db: Db):
+    """Fila: proposto (ou historico_a_validar) -> validado. A partir daqui o item entra na base do consultor."""
+    return _mudar_status(db, insight_id, "validado", dados.por_quem)
+
+
+@app.post("/insights/{insight_id}/rejeitar", response_model=InsightOut)
+def rejeitar_insight(insight_id: int, dados: RejeitarIn, db: Db):
+    """Fila: -> obsoleto, com motivo obrigatório. Nada é apagado: o item e o motivo ficam no histórico."""
+    return _mudar_status(db, insight_id, "obsoleto", dados.por_quem, dados.motivo)
+
+
+def _mudar_status(db: Session, insight_id: int, para: str, por_quem: str, motivo: str | None = None) -> InsightOut:
+    """Muda o status de um item seguindo o ciclo de vida do dominio e grava a mudança no histórico."""
+    item = db.get(Insight, insight_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"INS-{insight_id} não existe.")
+
+    de = item.status
+    try:
+        dominio.validar_transicao(de, para, motivo)
+    except dominio.RegraDeNegocio as e:  # transição inválida ou sem motivo: a tela mostra a mensagem do domínio
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    # O UPDATE só vale se o status no banco ainda for o que lemos acima (WHERE status = de). Se outra pessoa
+    # aprovou ou rejeitou o item nesse meio-tempo, nenhuma linha bate (rowcount 0) e respondemos 422, em vez de
+    # passar por cima da decisão dela e gravar duas mudanças no histórico.
+    valores = {"status": para}
+    if para == "obsoleto":
+        valores["motivo_obsolescencia"] = motivo
+    resultado = db.execute(
+        update(Insight)
+        .where(Insight.id == insight_id, Insight.status == de)
+        .values(**valores)
+        .execution_options(synchronize_session=False)  # o item é recarregado do banco no fim (refresh)
+    )
+    if resultado.rowcount == 0:
+        db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail=f"INS-{insight_id} acabou de ser alterado por outra pessoa. Recarregue a Fila.",
+        )
+
+    db.add(HistoricoStatus(insight_id=insight_id, de=de, para=para, por_quem=por_quem, motivo=motivo))
+    db.commit()  # status + histórico entram juntos (ou nada entra)
+
+    db.refresh(item)  # lê do banco o status novo
+    relacoes = list(db.scalars(select(Relacao).where(Relacao.insight_id == insight_id)))
+    return _para_saida(item, relacoes)
