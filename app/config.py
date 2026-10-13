@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     preco_entrada_1m: float = 0.75
     preco_saida_1m: float = 3.75  # a saída inclui os tokens de raciocínio (thoughts)
     database_url: str = "sqlite:///./data/cerebro.db"
+
+    # Token da integração interna do Notion (T4). Só no .env: nunca no código, no chat ou em log.
+    notion_token: str = ""
     app_env: str = "dev"
 
 
