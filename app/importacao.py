@@ -14,6 +14,7 @@ e o título com dado pessoal sai omitido.
 """
 import json
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -21,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import dominio, markdown_notion, trechos
+from app.config import settings
 from app.models import ExecucaoImportacao, Fonte
 from app.notion import ErroNotion, LeitorNotion, na_lixeira, url_da_pagina
 from app.trechos import Trecho
@@ -35,6 +37,38 @@ TITULO_MAX = 500  # o tamanho da coluna fontes.titulo (o Notion aceita títulos 
 PULADAS = {"vazia", "pulada_dado_pessoal", "pulada_longa", "pulada_duplicata"}
 A_CURAR = {"a_curar", "falha"}  # o que o curador (PR 2) processa
 _NOME_DO_CAMPO = {"titulo": "título", "conteudo": "conteúdo"}
+
+# --- estimativa de custo (--dry-run e teto de gasto), SEM chamar o modelo -------------------------------------
+# Medidos com o count_tokens do Gemini (ADR-003 §4): as instruções do curador, o prompt de relações e a linha de
+# candidato. SUPOSIÇÕES (não há medição ainda): os tokens de saída. Conferir com o custo do log depois da 1ª rodada
+# real e ajustar aqui (ADR-005).
+TOKENS_INSTRUCOES_CURADOR = 1976  # base.md + curador.md (medido)
+TOKENS_EXTRA_CURAR = 60  # o embrulho <texto_do_usuario> e o aviso de turno (estimado)
+TOKENS_SAIDA_CURAR = 800  # SUPOSIÇÃO: o JSON da proposta (~350) mais o raciocínio
+TOKENS_ENTRADA_RELACIONAR = 1187  # 257 do prompt + 30 candidatos × 26 (o pior caso) + ~150 do item novo
+TOKENS_SAIDA_RELACIONAR = 100  # SUPOSIÇÃO
+CARACTERES_POR_TOKEN = 4  # acertou o formato enxuto do consultor (70 estimados contra 73 medidos, ADR-004 §1)
+
+
+@dataclass(frozen=True)
+class Estimativa:
+    chamadas: int
+    tokens_entrada: int
+    tokens_saida: int
+    custo_usd: float
+
+
+def estimar(partes: list[Trecho]) -> Estimativa:
+    """Quanto o curador gastaria com estes trechos: uma chamada "curar" e uma "relacionar" por trecho (a de relações
+    só acontece se houver candidatos; a estimativa supõe que sempre há). Preços do .env, os mesmos do log."""
+    entrada = sum(
+        TOKENS_INSTRUCOES_CURADOR + TOKENS_EXTRA_CURAR + math.ceil(len(t.texto) / CARACTERES_POR_TOKEN)
+        + TOKENS_ENTRADA_RELACIONAR
+        for t in partes
+    )
+    saida = len(partes) * (TOKENS_SAIDA_CURAR + TOKENS_SAIDA_RELACIONAR)
+    custo = (entrada * settings.preco_entrada_1m + saida * settings.preco_saida_1m) / 1_000_000
+    return Estimativa(chamadas=2 * len(partes), tokens_entrada=entrada, tokens_saida=saida, custo_usd=custo)
 
 
 def _agora() -> datetime:
@@ -93,6 +127,11 @@ class Relatorio:
     @property
     def a_curar(self) -> list[PaginaLida]:
         return [p for p in self.paginas if p.trechos]
+
+    @property
+    def estimativa(self) -> Estimativa:
+        """O custo estimado do curador para tudo o que espera por ele."""
+        return estimar([t for p in self.a_curar for t in p.trechos])
 
 
 # --- a execução ---------------------------------------------------------------------------------------------
