@@ -1,0 +1,2050 @@
+{
+ "_aviso": "Workspace do Notion 100% FICTÍCIO para os testes da T4. Nenhum nome, contato ou número é real.",
+ "por_pagina": 3,
+ "paginas": {
+  "c513c8fb-b101-5321-b23d-3df34b5d07fa": {
+   "object": "page",
+   "id": "c513c8fb-b101-5321-b23d-3df34b5d07fa",
+   "created_time": "2026-09-01T12:00:00.000Z",
+   "last_edited_time": "2026-09-01T12:00:00.000Z",
+   "in_trash": false,
+   "is_locked": false,
+   "url": "https://www.notion.so/Cérebro-teste-fictício-c513c8fbb1015321b23d3df34b5d07fa",
+   "public_url": null,
+   "parent": {
+    "type": "workspace",
+    "workspace": true
+   },
+   "properties": {
+    "title": {
+     "id": "title",
+     "type": "title",
+     "title": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Cérebro: teste fictício",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Cérebro: teste fictício",
+       "href": null
+      }
+     ]
+    }
+   },
+   "icon": null,
+   "cover": null
+  },
+  "b3b88c94-486a-504a-b61b-a907bbf4d9de": {
+   "object": "page",
+   "id": "b3b88c94-486a-504a-b61b-a907bbf4d9de",
+   "created_time": "2026-09-01T12:00:00.000Z",
+   "last_edited_time": "2026-09-02T10:15:00.000Z",
+   "in_trash": false,
+   "is_locked": false,
+   "url": "https://www.notion.so/Como-qualificar-leads-de-hotelaria-b3b88c94486a504ab61ba907bbf4d9de",
+   "public_url": null,
+   "parent": {
+    "type": "page_id",
+    "page_id": "c513c8fb-b101-5321-b23d-3df34b5d07fa"
+   },
+   "properties": {
+    "title": {
+     "id": "title",
+     "type": "title",
+     "title": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Como qualificar leads de hotelaria",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Como qualificar leads de hotelaria",
+       "href": null
+      }
+     ]
+    }
+   },
+   "icon": null,
+   "cover": null
+  },
+  "5ffc8987-6c58-5451-b770-de9a6a958540": {
+   "object": "page",
+   "id": "5ffc8987-6c58-5451-b770-de9a6a958540",
+   "created_time": "2026-09-01T12:00:00.000Z",
+   "last_edited_time": "2026-09-03T09:00:00.000Z",
+   "in_trash": false,
+   "is_locked": false,
+   "url": "https://www.notion.so/Objeções-comuns-e-respostas-5ffc89876c585451b770de9a6a958540",
+   "public_url": null,
+   "parent": {
+    "type": "page_id",
+    "page_id": "c513c8fb-b101-5321-b23d-3df34b5d07fa"
+   },
+   "properties": {
+    "title": {
+     "id": "title",
+     "type": "title",
+     "title": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Objeções comuns e respostas",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Objeções comuns e respostas",
+       "href": null
+      }
+     ]
+    }
+   },
+   "icon": null,
+   "cover": null
+  },
+  "d1699d24-c02f-52ab-bd77-45c4738ac14d": {
+   "object": "page",
+   "id": "d1699d24-c02f-52ab-bd77-45c4738ac14d",
+   "created_time": "2026-09-01T12:00:00.000Z",
+   "last_edited_time": "2026-09-04T14:30:00.000Z",
+   "in_trash": false,
+   "is_locked": false,
+   "url": "https://www.notion.so/Roteiro-da-reunião-de-diagnóstico-d1699d24c02f52abbd7745c4738ac14d",
+   "public_url": null,
+   "parent": {
+    "type": "workspace",
+    "workspace": true
+   },
+   "properties": {
+    "title": {
+     "id": "title",
+     "type": "title",
+     "title": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Roteiro da reunião de diagnóstico",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Roteiro da reunião de diagnóstico",
+       "href": null
+      }
+     ]
+    }
+   },
+   "icon": null,
+   "cover": null
+  },
+  "cdee41e9-56f6-56e1-ac9f-ab00ba1e8787": {
+   "object": "page",
+   "id": "cdee41e9-56f6-56e1-ac9f-ab00ba1e8787",
+   "created_time": "2026-09-01T12:00:00.000Z",
+   "last_edited_time": "2026-09-05T08:00:00.000Z",
+   "in_trash": false,
+   "is_locked": false,
+   "url": "https://www.notion.so/Contato-do-hotel-parceiro-cdee41e956f656e1ac9fab00ba1e8787",
+   "public_url": null,
+   "parent": {
+    "type": "workspace",
+    "workspace": true
+   },
+   "properties": {
+    "title": {
+     "id": "title",
+     "type": "title",
+     "title": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Contato do hotel parceiro",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Contato do hotel parceiro",
+       "href": null
+      }
+     ]
+    }
+   },
+   "icon": null,
+   "cover": null
+  },
+  "f3a7ffbe-c659-57a2-b0e7-29c57d477422": {
+   "object": "page",
+   "id": "f3a7ffbe-c659-57a2-b0e7-29c57d477422",
+   "created_time": "2026-09-01T12:00:00.000Z",
+   "last_edited_time": "2026-09-05T09:00:00.000Z",
+   "in_trash": false,
+   "is_locked": false,
+   "url": "https://www.notion.so/Ligar-para-81-99876-5432-amanhã-f3a7ffbec65957a2b0e729c57d477422",
+   "public_url": null,
+   "parent": {
+    "type": "workspace",
+    "workspace": true
+   },
+   "properties": {
+    "title": {
+     "id": "title",
+     "type": "title",
+     "title": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Ligar para 81 99876-5432 amanhã",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Ligar para 81 99876-5432 amanhã",
+       "href": null
+      }
+     ]
+    }
+   },
+   "icon": null,
+   "cover": null
+  },
+  "96971ff1-e51b-5f92-b52e-9f61696d958d": {
+   "object": "page",
+   "id": "96971ff1-e51b-5f92-b52e-9f61696d958d",
+   "created_time": "2026-09-01T12:00:00.000Z",
+   "last_edited_time": "2026-09-06T10:00:00.000Z",
+   "in_trash": false,
+   "is_locked": false,
+   "url": "https://www.notion.so/Prospecção-por-indicação-96971ff1e51b5f92b52e9f61696d958d",
+   "public_url": null,
+   "parent": {
+    "type": "workspace",
+    "workspace": true
+   },
+   "properties": {
+    "title": {
+     "id": "title",
+     "type": "title",
+     "title": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Prospecção por indicação",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Prospecção por indicação",
+       "href": null
+      }
+     ]
+    }
+   },
+   "icon": null,
+   "cover": null
+  },
+  "d1a00372-8c34-5de8-9fbe-02331a14408e": {
+   "object": "page",
+   "id": "d1a00372-8c34-5de8-9fbe-02331a14408e",
+   "created_time": "2026-09-01T12:00:00.000Z",
+   "last_edited_time": "2026-09-06T11:00:00.000Z",
+   "in_trash": false,
+   "is_locked": false,
+   "url": "https://www.notion.so/Cópia-de-Prospecção-por-indicação-d1a003728c345de89fbe02331a14408e",
+   "public_url": null,
+   "parent": {
+    "type": "workspace",
+    "workspace": true
+   },
+   "properties": {
+    "title": {
+     "id": "title",
+     "type": "title",
+     "title": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Cópia de Prospecção por indicação",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Cópia de Prospecção por indicação",
+       "href": null
+      }
+     ]
+    }
+   },
+   "icon": null,
+   "cover": null
+  },
+  "15db29af-b91e-5fce-ad6c-1f0229cc059f": {
+   "object": "page",
+   "id": "15db29af-b91e-5fce-ad6c-1f0229cc059f",
+   "created_time": "2026-09-01T12:00:00.000Z",
+   "last_edited_time": "2026-09-07T10:00:00.000Z",
+   "in_trash": false,
+   "is_locked": false,
+   "url": "https://www.notion.so/Hotel-Fictício-Sol-15db29afb91e5fcead6c1f0229cc059f",
+   "public_url": null,
+   "parent": {
+    "type": "data_source_id",
+    "data_source_id": "9146b9f2-b59a-5099-9ff0-53db000022f9",
+    "database_id": "eed847e1-3502-59eb-8ddc-4e5f3743d9fb"
+   },
+   "properties": {
+    "Nome": {
+     "id": "title",
+     "type": "title",
+     "title": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Hotel Fictício Sol",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Hotel Fictício Sol",
+       "href": null
+      }
+     ]
+    },
+    "Segmento": {
+     "id": "a1b2",
+     "type": "select",
+     "select": {
+      "name": "hotelaria",
+      "color": "blue"
+     }
+    }
+   },
+   "icon": null,
+   "cover": null
+  },
+  "bec4ea87-3fb3-5934-a66d-5a2ed32e8a10": {
+   "object": "page",
+   "id": "bec4ea87-3fb3-5934-a66d-5a2ed32e8a10",
+   "created_time": "2026-09-01T12:00:00.000Z",
+   "last_edited_time": "2026-09-08T10:00:00.000Z",
+   "in_trash": false,
+   "is_locked": false,
+   "url": "https://www.notion.so/Rascunho-antigo-de-proposta-bec4ea873fb35934a66d5a2ed32e8a10",
+   "public_url": null,
+   "parent": {
+    "type": "workspace",
+    "workspace": true
+   },
+   "properties": {
+    "title": {
+     "id": "title",
+     "type": "title",
+     "title": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Rascunho antigo de proposta",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Rascunho antigo de proposta",
+       "href": null
+      }
+     ]
+    }
+   },
+   "icon": null,
+   "cover": null
+  }
+ },
+ "blocos": {
+  "c513c8fb-b101-5321-b23d-3df34b5d07fa": [
+   {
+    "object": "block",
+    "id": "171b4b88-1c5d-5cc0-b8db-0f1251abfce0",
+    "parent": {
+     "type": "page_id",
+     "page_id": "c513c8fb-b101-5321-b23d-3df34b5d07fa"
+    },
+    "type": "child_page",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "child_page": {
+     "title": "Como qualificar leads de hotelaria"
+    }
+   },
+   {
+    "object": "block",
+    "id": "40e88e4d-ff0e-5821-ab63-8b790372c63d",
+    "parent": {
+     "type": "page_id",
+     "page_id": "c513c8fb-b101-5321-b23d-3df34b5d07fa"
+    },
+    "type": "child_page",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "child_page": {
+     "title": "Objeções comuns e respostas"
+    }
+   }
+  ],
+  "51d97427-c953-5115-8db9-c26d350d883e": [
+   {
+    "object": "block",
+    "id": "6c36dcf4-e0e3-576e-afc3-de7a624aeb9c",
+    "parent": {
+     "type": "page_id",
+     "page_id": "51d97427-c953-5115-8db9-c26d350d883e"
+    },
+    "type": "bulleted_list_item",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Se for o dono, a decisão é rápida.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Se for o dono, a decisão é rápida.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "a2b5d3a0-8024-5423-8dcc-e196b195f18c",
+    "parent": {
+     "type": "page_id",
+     "page_id": "51d97427-c953-5115-8db9-c26d350d883e"
+    },
+    "type": "bulleted_list_item",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Se for um conselho, conte com duas reuniões a mais.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Se for um conselho, conte com duas reuniões a mais.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   }
+  ],
+  "b3b88c94-486a-504a-b61b-a907bbf4d9de": [
+   {
+    "object": "block",
+    "id": "eb8d19e5-05de-5b7e-858f-eb11fa102d39",
+    "parent": {
+     "type": "page_id",
+     "page_id": "b3b88c94-486a-504a-b61b-a907bbf4d9de"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Antes da primeira reunião, confira se o hotel tem ",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Antes da primeira reunião, confira se o hotel tem ",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": "orçamento aprovado",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "orçamento aprovado",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " e quem decide. Veja o ",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " e quem decide. Veja o ",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": "modelo de qualificação",
+        "link": {
+         "url": "https://exemplo.com/modelo"
+        }
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "modelo de qualificação",
+       "href": "https://exemplo.com/modelo"
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": ".",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": ".",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "2a241740-5248-5983-be85-ac0e5f73d5c1",
+    "parent": {
+     "type": "page_id",
+     "page_id": "b3b88c94-486a-504a-b61b-a907bbf4d9de"
+    },
+    "type": "heading_2",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "heading_2": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Perguntas que funcionam",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Perguntas que funcionam",
+       "href": null
+      }
+     ],
+     "color": "default",
+     "is_toggleable": false
+    }
+   },
+   {
+    "object": "block",
+    "id": "266450c8-61e3-5e76-9152-e18190b87489",
+    "parent": {
+     "type": "page_id",
+     "page_id": "b3b88c94-486a-504a-b61b-a907bbf4d9de"
+    },
+    "type": "bulleted_list_item",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Quantos quartos o hotel tem?",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Quantos quartos o hotel tem?",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "51d97427-c953-5115-8db9-c26d350d883e",
+    "parent": {
+     "type": "page_id",
+     "page_id": "b3b88c94-486a-504a-b61b-a907bbf4d9de"
+    },
+    "type": "bulleted_list_item",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": true,
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Quem aprova o orçamento?",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Quem aprova o orçamento?",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "7894a06b-0bb4-5488-89bd-85064d25abe9",
+    "parent": {
+     "type": "page_id",
+     "page_id": "b3b88c94-486a-504a-b61b-a907bbf4d9de"
+    },
+    "type": "bulleted_list_item",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Qual sistema usam hoje?",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": true,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Qual sistema usam hoje?",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "a5c7961e-faa0-5875-8467-4bc18785ba80",
+    "parent": {
+     "type": "page_id",
+     "page_id": "b3b88c94-486a-504a-b61b-a907bbf4d9de"
+    },
+    "type": "heading_2",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "heading_2": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Sinais de alerta",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Sinais de alerta",
+       "href": null
+      }
+     ],
+     "color": "default",
+     "is_toggleable": false
+    }
+   },
+   {
+    "object": "block",
+    "id": "f9b0bf60-eca8-5baa-9af6-3029300f785f",
+    "parent": {
+     "type": "page_id",
+     "page_id": "b3b88c94-486a-504a-b61b-a907bbf4d9de"
+    },
+    "type": "numbered_list_item",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "numbered_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Não sabe dizer o orçamento.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Não sabe dizer o orçamento.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "0d1cdd52-ba8a-59cb-9b28-28eda7ec7521",
+    "parent": {
+     "type": "page_id",
+     "page_id": "b3b88c94-486a-504a-b61b-a907bbf4d9de"
+    },
+    "type": "numbered_list_item",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "numbered_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Quer proposta antes do diagnóstico.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Quer proposta antes do diagnóstico.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "75a9f544-034e-5cc1-b316-ca4828ffadab",
+    "parent": {
+     "type": "page_id",
+     "page_id": "b3b88c94-486a-504a-b61b-a907bbf4d9de"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Nas 3 reuniões em que pedimos o orçamento logo no início, a conversa ficou mais objetiva.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Nas 3 reuniões em que pedimos o orçamento logo no início, a conversa ficou mais objetiva.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   }
+  ],
+  "fef6416a-ca69-5a79-be88-840f230c15b9": [
+   {
+    "object": "block",
+    "id": "471749a3-c42c-5725-b1a6-0f323689cdf2",
+    "parent": {
+     "type": "page_id",
+     "page_id": "fef6416a-ca69-5a79-be88-840f230c15b9"
+    },
+    "type": "table_row",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "table_row": {
+     "cells": [
+      [
+       {
+        "type": "text",
+        "text": {
+         "content": "Objeção",
+         "link": null
+        },
+        "annotations": {
+         "bold": false,
+         "italic": false,
+         "strikethrough": false,
+         "underline": false,
+         "code": false,
+         "color": "default"
+        },
+        "plain_text": "Objeção",
+        "href": null
+       }
+      ],
+      [
+       {
+        "type": "text",
+        "text": {
+         "content": "Resposta",
+         "link": null
+        },
+        "annotations": {
+         "bold": false,
+         "italic": false,
+         "strikethrough": false,
+         "underline": false,
+         "code": false,
+         "color": "default"
+        },
+        "plain_text": "Resposta",
+        "href": null
+       }
+      ],
+      [
+       {
+        "type": "text",
+        "text": {
+         "content": "Funcionou?",
+         "link": null
+        },
+        "annotations": {
+         "bold": false,
+         "italic": false,
+         "strikethrough": false,
+         "underline": false,
+         "code": false,
+         "color": "default"
+        },
+        "plain_text": "Funcionou?",
+        "href": null
+       }
+      ]
+     ]
+    }
+   },
+   {
+    "object": "block",
+    "id": "d6f81f37-3cb8-57d3-af94-a0a6b243c80a",
+    "parent": {
+     "type": "page_id",
+     "page_id": "fef6416a-ca69-5a79-be88-840f230c15b9"
+    },
+    "type": "table_row",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "table_row": {
+     "cells": [
+      [
+       {
+        "type": "text",
+        "text": {
+         "content": "Está caro",
+         "link": null
+        },
+        "annotations": {
+         "bold": false,
+         "italic": false,
+         "strikethrough": false,
+         "underline": false,
+         "code": false,
+         "color": "default"
+        },
+        "plain_text": "Está caro",
+        "href": null
+       }
+      ],
+      [
+       {
+        "type": "text",
+        "text": {
+         "content": "Mostrar o custo de não fazer | comparar com o prejuízo",
+         "link": null
+        },
+        "annotations": {
+         "bold": false,
+         "italic": false,
+         "strikethrough": false,
+         "underline": false,
+         "code": false,
+         "color": "default"
+        },
+        "plain_text": "Mostrar o custo de não fazer | comparar com o prejuízo",
+        "href": null
+       }
+      ],
+      [
+       {
+        "type": "text",
+        "text": {
+         "content": "2 de 3 vezes",
+         "link": null
+        },
+        "annotations": {
+         "bold": false,
+         "italic": false,
+         "strikethrough": false,
+         "underline": false,
+         "code": false,
+         "color": "default"
+        },
+        "plain_text": "2 de 3 vezes",
+        "href": null
+       }
+      ]
+     ]
+    }
+   },
+   {
+    "object": "block",
+    "id": "446443a5-5cc0-5ab2-b6c4-11d66bd25cce",
+    "parent": {
+     "type": "page_id",
+     "page_id": "fef6416a-ca69-5a79-be88-840f230c15b9"
+    },
+    "type": "table_row",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "table_row": {
+     "cells": [
+      [
+       {
+        "type": "text",
+        "text": {
+         "content": "Vamos pensar",
+         "link": null
+        },
+        "annotations": {
+         "bold": false,
+         "italic": false,
+         "strikethrough": false,
+         "underline": false,
+         "code": false,
+         "color": "default"
+        },
+        "plain_text": "Vamos pensar",
+        "href": null
+       }
+      ],
+      [
+       {
+        "type": "text",
+        "text": {
+         "content": "Marcar a próxima conversa na hora",
+         "link": null
+        },
+        "annotations": {
+         "bold": false,
+         "italic": false,
+         "strikethrough": false,
+         "underline": false,
+         "code": false,
+         "color": "default"
+        },
+        "plain_text": "Marcar a próxima conversa na hora",
+        "href": null
+       }
+      ],
+      [
+       {
+        "type": "text",
+        "text": {
+         "content": "sim",
+         "link": null
+        },
+        "annotations": {
+         "bold": false,
+         "italic": false,
+         "strikethrough": false,
+         "underline": false,
+         "code": false,
+         "color": "default"
+        },
+        "plain_text": "sim",
+        "href": null
+       }
+      ]
+     ]
+    }
+   },
+   {
+    "object": "block",
+    "id": "cbb0f05a-248a-5216-b0ba-9ec5e043c85e",
+    "parent": {
+     "type": "page_id",
+     "page_id": "fef6416a-ca69-5a79-be88-840f230c15b9"
+    },
+    "type": "table_row",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "table_row": {
+     "cells": [
+      [
+       {
+        "type": "text",
+        "text": {
+         "content": "Já temos um fornecedor",
+         "link": null
+        },
+        "annotations": {
+         "bold": false,
+         "italic": false,
+         "strikethrough": false,
+         "underline": false,
+         "code": false,
+         "color": "default"
+        },
+        "plain_text": "Já temos um fornecedor",
+        "href": null
+       }
+      ],
+      [
+       {
+        "type": "text",
+        "text": {
+         "content": "Propor um piloto pequeno",
+         "link": null
+        },
+        "annotations": {
+         "bold": false,
+         "italic": false,
+         "strikethrough": false,
+         "underline": false,
+         "code": false,
+         "color": "default"
+        },
+        "plain_text": "Propor um piloto pequeno",
+        "href": null
+       }
+      ],
+      [
+       {
+        "type": "text",
+        "text": {
+         "content": "não medimos",
+         "link": null
+        },
+        "annotations": {
+         "bold": false,
+         "italic": false,
+         "strikethrough": false,
+         "underline": false,
+         "code": false,
+         "color": "default"
+        },
+        "plain_text": "não medimos",
+        "href": null
+       }
+      ]
+     ]
+    }
+   }
+  ],
+  "5ffc8987-6c58-5451-b770-de9a6a958540": [
+   {
+    "object": "block",
+    "id": "a80d2fb6-0d25-5158-9d13-3d6ffade0be1",
+    "parent": {
+     "type": "page_id",
+     "page_id": "5ffc8987-6c58-5451-b770-de9a6a958540"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Respostas que o time usou nas últimas negociações (exemplo inventado).",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Respostas que o time usou nas últimas negociações (exemplo inventado).",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "fef6416a-ca69-5a79-be88-840f230c15b9",
+    "parent": {
+     "type": "page_id",
+     "page_id": "5ffc8987-6c58-5451-b770-de9a6a958540"
+    },
+    "type": "table",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": true,
+    "table": {
+     "table_width": 3,
+     "has_column_header": true,
+     "has_row_header": false
+    }
+   }
+  ],
+  "5aeebecc-0205-5fa6-a74e-dc5a09bdf7ae": [
+   {
+    "object": "block",
+    "id": "e508dcfc-d10b-540a-af2c-5a7dd6e4d911",
+    "parent": {
+     "type": "page_id",
+     "page_id": "5aeebecc-0205-5fa6-a74e-dc5a09bdf7ae"
+    },
+    "type": "numbered_list_item",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "numbered_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Sem slides.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Sem slides.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   }
+  ],
+  "75a642dd-527e-572a-8e6e-d6d2bb1f849b": [
+   {
+    "object": "block",
+    "id": "af7e1e6d-2300-515a-836c-19f201ae7cc2",
+    "parent": {
+     "type": "page_id",
+     "page_id": "75a642dd-527e-572a-8e6e-d6d2bb1f849b"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Qual é a maior dor da equipe hoje?",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Qual é a maior dor da equipe hoje?",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   }
+  ],
+  "d1699d24-c02f-52ab-bd77-45c4738ac14d": [
+   {
+    "object": "block",
+    "id": "d1c0c4b2-78dc-5191-b140-d5f8869033ec",
+    "parent": {
+     "type": "page_id",
+     "page_id": "d1699d24-c02f-52ab-bd77-45c4738ac14d"
+    },
+    "type": "callout",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "callout": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Leia antes da reunião.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Leia antes da reunião.",
+       "href": null
+      }
+     ],
+     "icon": {
+      "type": "emoji",
+      "emoji": "💡"
+     },
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "5aeebecc-0205-5fa6-a74e-dc5a09bdf7ae",
+    "parent": {
+     "type": "page_id",
+     "page_id": "d1699d24-c02f-52ab-bd77-45c4738ac14d"
+    },
+    "type": "numbered_list_item",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": true,
+    "numbered_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Apresente-se em um minuto.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Apresente-se em um minuto.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "db861242-c811-5ca6-98a0-237a4f09eebc",
+    "parent": {
+     "type": "page_id",
+     "page_id": "d1699d24-c02f-52ab-bd77-45c4738ac14d"
+    },
+    "type": "numbered_list_item",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "numbered_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Pergunte sobre o processo atual.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Pergunte sobre o processo atual.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "b2e7d46d-84d3-5795-9107-fab9e77fe46c",
+    "parent": {
+     "type": "page_id",
+     "page_id": "d1699d24-c02f-52ab-bd77-45c4738ac14d"
+    },
+    "type": "to_do",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "to_do": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Mandar o resumo em até 2 dias",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Mandar o resumo em até 2 dias",
+       "href": null
+      }
+     ],
+     "checked": true,
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "c7de961f-c321-55b7-a7cf-ca76bde46eec",
+    "parent": {
+     "type": "page_id",
+     "page_id": "d1699d24-c02f-52ab-bd77-45c4738ac14d"
+    },
+    "type": "to_do",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "to_do": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Marcar a devolutiva",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Marcar a devolutiva",
+       "href": null
+      }
+     ],
+     "checked": false,
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "75a642dd-527e-572a-8e6e-d6d2bb1f849b",
+    "parent": {
+     "type": "page_id",
+     "page_id": "d1699d24-c02f-52ab-bd77-45c4738ac14d"
+    },
+    "type": "toggle",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": true,
+    "toggle": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Perguntas extras",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Perguntas extras",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "69bae8d0-31cf-5fe4-9f3a-cd62fc01a161",
+    "parent": {
+     "type": "page_id",
+     "page_id": "d1699d24-c02f-52ab-bd77-45c4738ac14d"
+    },
+    "type": "quote",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "quote": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Quem fala mais na reunião é o cliente.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Quem fala mais na reunião é o cliente.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "06761cf6-db43-5be7-bfb9-508bf08e242e",
+    "parent": {
+     "type": "page_id",
+     "page_id": "d1699d24-c02f-52ab-bd77-45c4738ac14d"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Dúvidas sobre o roteiro: fale com ",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Dúvidas sobre o roteiro: fale com ",
+       "href": null
+      },
+      {
+       "type": "mention",
+       "mention": {
+        "type": "user",
+        "user": {
+         "object": "user",
+         "id": "aae54000-d3aa-5089-b82e-d2643608d01d"
+        }
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "@Joana Fictícia",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": ".",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": ".",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "4ab050b4-c7c5-50c5-ae8a-3fda6840aced",
+    "parent": {
+     "type": "page_id",
+     "page_id": "d1699d24-c02f-52ab-bd77-45c4738ac14d"
+    },
+    "type": "divider",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "divider": {}
+   },
+   {
+    "object": "block",
+    "id": "63798868-2374-581d-a64f-4508782ceba3",
+    "parent": {
+     "type": "page_id",
+     "page_id": "d1699d24-c02f-52ab-bd77-45c4738ac14d"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Revisado pelo comercial em setembro.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Revisado pelo comercial em setembro.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   }
+  ],
+  "cdee41e9-56f6-56e1-ac9f-ab00ba1e8787": [
+   {
+    "object": "block",
+    "id": "e6480cb2-a0e8-5c70-8eec-43e43dec9038",
+    "parent": {
+     "type": "page_id",
+     "page_id": "cdee41e9-56f6-56e1-ac9f-ab00ba1e8787"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "O gerente pediu para mandar a proposta para contato@hotel-ficticio.com.br até sexta.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "O gerente pediu para mandar a proposta para contato@hotel-ficticio.com.br até sexta.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "2d289998-f8e6-591d-8e27-bd9afc76ca19",
+    "parent": {
+     "type": "page_id",
+     "page_id": "cdee41e9-56f6-56e1-ac9f-ab00ba1e8787"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Ele gostou do piloto e quer ampliar para as outras unidades.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Ele gostou do piloto e quer ampliar para as outras unidades.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   }
+  ],
+  "f3a7ffbe-c659-57a2-b0e7-29c57d477422": [
+   {
+    "object": "block",
+    "id": "f49df0b0-9d4b-5caf-b3f2-5c23248f323e",
+    "parent": {
+     "type": "page_id",
+     "page_id": "f3a7ffbe-c659-57a2-b0e7-29c57d477422"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Retomar a conversa sobre o piloto do app de check-in, que o hotel achou interessante.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Retomar a conversa sobre o piloto do app de check-in, que o hotel achou interessante.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   }
+  ],
+  "96971ff1-e51b-5f92-b52e-9f61696d958d": [
+   {
+    "object": "block",
+    "id": "8abfeb76-5f61-5978-be55-ffb764a4dac5",
+    "parent": {
+     "type": "page_id",
+     "page_id": "96971ff1-e51b-5f92-b52e-9f61696d958d"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Pedir indicação no fim de um projeto bem avaliado trouxe dois clientes novos no semestre.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Pedir indicação no fim de um projeto bem avaliado trouxe dois clientes novos no semestre.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "6a0c2498-a46c-5667-af88-8f7cd32afeb6",
+    "parent": {
+     "type": "page_id",
+     "page_id": "96971ff1-e51b-5f92-b52e-9f61696d958d"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "O melhor momento é a reunião de encerramento, quando o cliente já viu o resultado.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "O melhor momento é a reunião de encerramento, quando o cliente já viu o resultado.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   }
+  ],
+  "d1a00372-8c34-5de8-9fbe-02331a14408e": [
+   {
+    "object": "block",
+    "id": "f66cf7af-b4fd-5594-bbd3-0494d90954de",
+    "parent": {
+     "type": "page_id",
+     "page_id": "d1a00372-8c34-5de8-9fbe-02331a14408e"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Pedir indicação no fim de um projeto bem avaliado trouxe dois clientes novos no semestre.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Pedir indicação no fim de um projeto bem avaliado trouxe dois clientes novos no semestre.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   },
+   {
+    "object": "block",
+    "id": "22199acc-6f4c-50ee-bac5-940ffbd52c78",
+    "parent": {
+     "type": "page_id",
+     "page_id": "d1a00372-8c34-5de8-9fbe-02331a14408e"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "O melhor momento é a reunião de encerramento, quando o cliente já viu o resultado.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "O melhor momento é a reunião de encerramento, quando o cliente já viu o resultado.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   }
+  ],
+  "15db29af-b91e-5fce-ad6c-1f0229cc059f": [
+   {
+    "object": "block",
+    "id": "f797468d-e28f-5bd0-9a14-f8f6dbecf51d",
+    "parent": {
+     "type": "page_id",
+     "page_id": "15db29af-b91e-5fce-ad6c-1f0229cc059f"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Aprendizado: o hotel só fechou depois que mostramos o piloto funcionando no celular do gerente.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Aprendizado: o hotel só fechou depois que mostramos o piloto funcionando no celular do gerente.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   }
+  ],
+  "bec4ea87-3fb3-5934-a66d-5a2ed32e8a10": [
+   {
+    "object": "block",
+    "id": "4b7b5169-a838-5a5e-bef4-b8770270b5a5",
+    "parent": {
+     "type": "page_id",
+     "page_id": "bec4ea87-3fb3-5934-a66d-5a2ed32e8a10"
+    },
+    "type": "paragraph",
+    "created_time": "2026-09-01T12:00:00.000Z",
+    "last_edited_time": "2026-09-01T12:00:00.000Z",
+    "in_trash": false,
+    "has_children": false,
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Um modelo de proposta que o time usava em 2025, com escopo, prazo e preço em três blocos separados.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Um modelo de proposta que o time usava em 2025, com escopo, prazo e preço em três blocos separados.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    }
+   }
+  ]
+ }
+}
