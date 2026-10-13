@@ -37,6 +37,7 @@ class NotionFalso:
         self.cabecalhos: dict = {}  # os cabeçalhos da última requisição
         self._falhas: list[tuple[str, int, dict]] = []  # (trecho do caminho, status, cabeçalhos)
         self.busca_incompleta = False  # simula request_status "incomplete" no search
+        self.escondidas_da_busca: set[str] = set()  # ids que o search "esquece" (a página existe, mas não é listada)
 
     def cliente_http(self) -> httpx.Client:
         return httpx.Client(transport=httpx.MockTransport(self._responder))
@@ -79,7 +80,8 @@ class NotionFalso:
         if caminho == "/v1/search":
             corpo = json.loads(pedido.content)
             self.corpos_da_busca.append(corpo)
-            visiveis = [p for p in self.ws["paginas"].values() if not p.get("in_trash")]
+            visiveis = [p for p in self.ws["paginas"].values()
+                        if not p.get("in_trash") and p["id"] not in self.escondidas_da_busca]
             visiveis.sort(key=lambda p: p["last_edited_time"])  # o pedido é por last_edited_time crescente
             resposta = self._pagina_da_lista(visiveis, corpo.get("start_cursor"), corpo.get("page_size"))
             if self.busca_incompleta:
@@ -118,3 +120,20 @@ class NotionFalso:
         corpo = {"object": "error", "status": status, "code": codigos.get(status, "erro"),
                  "message": f"erro {status} simulado"}
         return httpx.Response(status, json=corpo, headers=cabecalhos or {})
+
+
+def limpar_banco_da_importacao(db) -> None:
+    """Apaga o que a importação do Notion gravou no banco de TESTE (temporário). As páginas do workspace fictício têm
+    ids fixos, então cada teste da importação começa do zero."""
+    from sqlalchemy import delete, select
+
+    from app.models import ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Relacao
+
+    ids = list(db.scalars(select(Insight.id).where(Insight.fonte == "notion")))
+    if ids:
+        db.execute(delete(Relacao).where(Relacao.insight_id.in_(ids) | Relacao.relacionado_id.in_(ids)))
+        db.execute(delete(HistoricoStatus).where(HistoricoStatus.insight_id.in_(ids)))
+        db.execute(delete(Insight).where(Insight.id.in_(ids)))
+    db.execute(delete(Fonte))
+    db.execute(delete(ExecucaoImportacao))
+    db.commit()

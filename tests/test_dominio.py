@@ -140,6 +140,11 @@ def test_exigir_sem_dados_pessoais_barra_e_explica_sem_repetir_o_dado():
     assert "telefone em 'relato anterior 1'" in mensagem
     assert "Nada foi enviado ao modelo" in mensagem
     assert "ana@cliente.com" not in mensagem and "99876" not in mensagem
+    assert e.value.achados == [("texto", "e-mail"), ("relato anterior 1", "telefone")]  # o tipo e onde, nunca o dado
+
+
+def test_dado_pessoal_sem_achados_tem_lista_vazia():
+    assert DadoPessoalNaEntrada("mensagem").achados == []
 
 
 # --- segmento -------------------------------------------------------------------------------

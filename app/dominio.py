@@ -24,7 +24,15 @@ class EvidenciaInvalida(RegraDeNegocio):
 
 
 class DadoPessoalNaEntrada(RegraDeNegocio):
-    """Texto que ainda vai para o modelo contém dado pessoal. Barrado ANTES de sair do nosso servidor."""
+    """Texto que ainda vai para o modelo contém dado pessoal. Barrado ANTES de sair do nosso servidor.
+
+    `achados`: os pares (campo, tipo do dado) encontrados, nunca o dado em si. Serve a quem precisa dizer o motivo
+    com as próprias palavras (o relatório da importação do Notion), sem reler a mensagem.
+    """
+
+    def __init__(self, mensagem: str, achados: list[tuple[str, str]] | None = None):
+        super().__init__(mensagem)
+        self.achados = list(achados or [])
 
 
 # Ciclo de vida: de cada status, para quais se pode ir. Qualquer outra mudança é inválida.
@@ -119,7 +127,8 @@ def exigir_sem_dados_pessoais(**campos: str | None) -> None:
     onde = "; ".join(f"{nome} em '{campo}'" for campo, nome in achados)
     raise DadoPessoalNaEntrada(
         f"Encontrei possível dado pessoal: {onde}. Por LGPD, e porque o texto é enviado ao Gemini, ele não pode "
-        "entrar. Troque por algo genérico (\"o cliente\", \"[e-mail]\") e envie de novo. Nada foi enviado ao modelo."
+        "entrar. Troque por algo genérico (\"o cliente\", \"[e-mail]\") e envie de novo. Nada foi enviado ao modelo.",
+        achados,
     )
 
 
