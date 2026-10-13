@@ -59,6 +59,34 @@ Testes: `pytest` (cada execução cria um banco temporário novo pelas migraçõ
 Golden set do consultor (chama o Gemini de verdade e gasta cota, por isso fica fora do `pytest` normal e do CI):
 `pytest -m live tests/golden`. As respostas da rodada ficam em `tests/golden/ultima_execucao.md` (fora do Git).
 
+### Importar o Notion (T4)
+
+Traz as páginas do Notion compartilhadas com a integração interna para a tabela `fontes` (o "staging"), sem misturar
+com o que o time aprovou. Decisões no `docs/adr-005-importacao-notion.md`.
+
+1. Coloque o token da integração no `.env` (`NOTION_TOKEN=`, nunca no chat). A integração só enxerga as páginas
+   compartilhadas com ela: no Notion, ••• → Connections → a integração. As subpáginas vão junto.
+2. Primeiro, uma simulação (não grava nada e não chama o modelo):
+
+   ```bash
+   python -m scripts.importar_notion --dry-run
+   ```
+
+3. Depois, de verdade (`--limite-paginas N` lê só as N primeiras):
+
+   ```bash
+   python -m scripts.importar_notion
+   ```
+
+- **Triagem:** página com e-mail, CPF, CNPJ ou telefone (no título ou no texto) **nunca** vai ao modelo e o texto dela
+  não é guardado; página sem texto, duplicata exata de outra ou longa demais (mais de 5 trechos de 8.000 caracteres)
+  também é pulada. O relatório diz o motivo de cada uma, sem repetir o dado.
+- **Rodar de novo não duplica nada:** página com a mesma data de edição nem é relida, e página relida com o mesmo
+  texto não gera nada novo. Página que saiu do Notion vira `removida` (nada é apagado).
+- **Conteúdo real do comercial só com a chave PAGA do Gemini** (decisão do Davi): na camada gratuita o Google pode usar
+  e ler o que enviamos. O `--dry-run` não chama o modelo e pode rodar sempre.
+- Testes sem rede: `tests/notion_falso.py` serve o workspace FICTÍCIO de `tests/fixtures/notion/workspace.json`.
+
 **Banco e migrações (Alembic):** as tabelas não são mais criadas pelo app. Mudou `app/models.py`? Gere a migração com `alembic revision --autogenerate -m "o que mudou"`, revise o arquivo gerado em `migrations/versions/` e rode `alembic upgrade head`. Nunca edite uma migração que já foi para a main. No SQLite o app liga as chaves estrangeiras (`PRAGMA foreign_keys=ON`, em `app/db.py`), como o Postgres faz: relação para insight inexistente dá erro também no dev. Se uma migração futura precisar recriar uma tabela (batch), teste `upgrade`, `downgrade` e `upgrade` de novo antes do PR.
 
 ## Estrutura
@@ -72,12 +100,17 @@ app/
   schemas.py     formato dos dados que entram/saem da API
   llm.py         ÚNICO lugar que fala com o modelo (Gemini)
   knowledge.py   monta a base do consultor: os itens aprovados do banco, um por linha ([INS-n])
+  notion.py      ÚNICO lugar que fala com o Notion (só leitura, com limite de requisições e backoff)
+  markdown_notion.py  blocos do Notion → markdown
+  trechos.py     página grande → trechos que cabem no curador
+  importacao.py  importação do Notion: sincroniza com a tabela fontes, faz a triagem e o relatório
   prompts/       prompts em arquivos .md (versionados no Git)
   templates/     página da interface (index.html)
   static/        CSS e JS da interface
 knowledge/       exemplos.md: a base v0 da T2 (FICTÍCIA). O consultor não lê mais; o modo demonstração da tela
                  tem uma cópia própria
 docs/            ideia, modelo do playbook, arquitetura, perguntas-teste
+scripts/         linha de comando: python -m scripts.importar_notion
 tests/           testes automáticos
 migrations/      migrações do banco (Alembic); versions/ = histórico do schema
 data/            banco SQLite local (não vai pro Git)
@@ -89,7 +122,7 @@ data/            banco SQLite local (não vai pro Git)
 2. Uma branch por task: `git checkout -b t2-primeira-chamada`. Commits pequenos e com mensagem clara.
 3. Antes de abrir PR/pedir revisão: `pytest` passando.
 4. Não coloque dados pessoais de clientes no banco nem nos prompts.
-5. Todo acesso ao modelo (Gemini) passa por `app/llm.py`.
+5. Todo acesso ao modelo (Gemini) passa por `app/llm.py`, e todo acesso ao Notion, por `app/notion.py`.
 6. Os `TODO(Tn)` no código indicam onde cada task mexe.
 
 ## Tasks (roadmap)
