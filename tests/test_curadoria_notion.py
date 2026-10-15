@@ -267,7 +267,67 @@ def test_duas_rodadas_com_o_curador_nao_mudam_nada(rodar, db, curador):
 
     assert retrato(db) == antes
     assert curador.textos == []
-    assert (relatorio.insights_propostos, relatorio.custo_real_usd) == (0, 0)
+    assert (relatorio.insights_propostos, relatorio.obsoletos, relatorio.custo_real_usd) == (0, 0, 0)
+
+
+# --- página que muda ou sai do Notion depois de importada -----------------------------------------------------
+
+def aprovar(db, item: Insight) -> None:
+    item.status = "validado"
+    db.commit()
+
+
+def test_pagina_alterada_obsoleta_os_pendentes_e_propoe_de_novo(rodar, db, falso, curador):
+    rodar()
+    [antigo] = itens(db, falso, A_CURAR[1])
+    falso.editar(A_CURAR[1], novo_texto="Respostas novas que o time testou.", editado="2026-10-14T09:00:00.000Z")
+
+    relatorio = rodar()
+
+    db.refresh(antigo)
+    assert (antigo.status, antigo.motivo_obsolescencia) == (
+        "obsoleto", f"a página do Notion mudou (execução #{relatorio.execucao_id})")
+    historico = db.scalars(select(HistoricoStatus).where(HistoricoStatus.insight_id == antigo.id)
+                           .order_by(HistoricoStatus.id)).all()
+    assert [(h.de, h.para, h.por_quem) for h in historico] == [
+        (None, "historico_a_validar", AUTOR), ("historico_a_validar", "obsoleto", AUTOR)]
+    [novo] = [i for i in itens(db, falso, A_CURAR[1]) if i.status == "historico_a_validar"]
+    assert novo.id != antigo.id
+    assert relatorio.obsoletos == 1 and relatorio.insights_propostos == 1
+
+
+def test_item_ja_aprovado_nao_muda_quando_a_pagina_muda(rodar, db, falso, curador):
+    rodar()
+    [aprovado] = itens(db, falso, A_CURAR[1])
+    aprovar(db, aprovado)
+    falso.editar(A_CURAR[1], novo_texto="Texto novo.", editado="2026-10-14T09:00:00.000Z")
+
+    relatorio = rodar()
+
+    db.refresh(aprovado)
+    assert aprovado.status == "validado"  # foi decisão do time
+    assert (relatorio.obsoletos, relatorio.aprovados_de_paginas_mudadas) == (0, 1)
+
+
+def test_pagina_removida_obsoleta_os_pendentes(rodar, db, falso, curador):
+    rodar()
+    falso.pagina(A_CURAR[5])["in_trash"] = True
+
+    relatorio = rodar()
+
+    [item] = itens(db, falso, A_CURAR[5])
+    assert (item.status, item.motivo_obsolescencia) == ("obsoleto", "a página saiu do Notion (na lixeira do Notion)")
+    assert status_da_fonte(db, falso, A_CURAR[5]) == ("removida", "na lixeira do Notion")
+    assert relatorio.obsoletos == 1
+
+
+def test_dry_run_nao_obsoleta_nada(rodar, db, falso, curador):
+    rodar()
+    falso.pagina(A_CURAR[5])["in_trash"] = True
+
+    rodar(dry_run=True)
+
+    assert {i.status for i in itens(db)} == {"historico_a_validar"}
 
 
 # --- log -----------------------------------------------------------------------------------------------------

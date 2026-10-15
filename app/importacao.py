@@ -8,6 +8,9 @@ Uma execução (`importar`) faz, em ordem:
 3. **curar** (só fora do dry-run e só com teto de gasto): o curador propõe um item por trecho das fontes que
    esperam por ele. Os itens entram na Fila como `historico_a_validar`, todos os de uma página ou nenhum.
 
+Quando uma página já importada passa pela triagem de novo (mudou) ou sai do Notion, os itens dela que ninguém
+revisou viram `obsoleto`; os aprovados não mudam (ADR-005 §3).
+
 Rodar duas vezes seguidas não muda nada: página com o mesmo `last_edited_time` nem é relida, e página relida com o
 mesmo hash não gera nada novo. O `--dry-run` faz as mesmas leituras e a mesma triagem, mas não grava nada.
 
@@ -107,6 +110,8 @@ class Relatorio:
     esperando: list[PaginaLida] = field(default_factory=list)  # não couberam no teto: ficam para a próxima
     insights_propostos: int = 0
     custo_real_usd: float = 0.0
+    obsoletos: int = 0  # itens pendentes de páginas que mudaram ou saíram do Notion
+    aprovados_de_paginas_mudadas: int = 0  # itens já aprovados dessas páginas: não mudam, alguém confere à mão
 
     def _com(self, *acoes: str) -> list[PaginaLida]:
         return [p for p in self.paginas if p.acao in acoes]
@@ -200,6 +205,7 @@ def importar(
             "falhas_do_curador": len(relatorio.falhas_do_curador),
             "esperando": len(relatorio.esperando),
             "insights_propostos": relatorio.insights_propostos,
+            "obsoletos": relatorio.obsoletos,
             "custo_real_usd": round(relatorio.custo_real_usd, 6),
         }))
     return relatorio
@@ -291,6 +297,8 @@ def _sincronizar_pagina(
     if fonte is None:
         fonte = Fonte(origem=ORIGEM, id_externo=pid)
         db.add(fonte)
+    else:  # passou pela triagem de novo: o que o conteúdo antigo gerou e ninguém revisou sai da Fila
+        _obsoletar_pendentes(db, fonte.url, f"a página do Notion mudou (execução #{relatorio.execucao_id})", relatorio)
     fonte.titulo = seguro
     fonte.url = url_da_pagina(pid)
     fonte.markdown = None if status == "pulada_dado_pessoal" else markdown  # o texto com dado pessoal não é guardado
@@ -368,6 +376,7 @@ def _conferir_removidas(leitor: LeitorNotion, db: Session, vistas: set[str], rel
         if not relatorio.dry_run:
             fonte.status = "removida"
             fonte.motivo = motivo
+            _obsoletar_pendentes(db, fonte.url, f"a página saiu do Notion ({motivo})", relatorio)
             db.commit()
 
 
@@ -383,6 +392,22 @@ def _listar_pendentes(db: Session, vistas: set[str], relatorio: Relatorio) -> No
     for fonte in pendentes:
         partes = trechos.dividir(fonte.titulo, fonte.markdown or "")
         relatorio.paginas.append(PaginaLida(fonte.id_externo, fonte.titulo, "pendente", fonte.status, trechos=partes))
+
+
+def _obsoletar_pendentes(db: Session, url: str, motivo: str, relatorio: Relatorio) -> None:
+    """Os itens da página que ninguém revisou (historico_a_validar) viram `obsoleto`, pela regra do domínio e com
+    histórico. Os aprovados (validado, consolidado) não mudam: foram decisão do time; o relatório conta quantos são.
+    Não faz commit: entra na mesma transação da mudança da fonte."""
+    itens = list(db.scalars(select(Insight).where(Insight.fonte == ORIGEM, Insight.fonte_ref == url)))
+    for item in itens:
+        if item.status == "historico_a_validar":
+            dominio.validar_transicao(item.status, "obsoleto", motivo)
+            db.add(HistoricoStatus(insight_id=item.id, de=item.status, para="obsoleto", por_quem=AUTOR, motivo=motivo))
+            item.status = "obsoleto"
+            item.motivo_obsolescencia = motivo
+            relatorio.obsoletos += 1
+        elif item.status in ("validado", "consolidado"):
+            relatorio.aprovados_de_paginas_mudadas += 1
 
 
 # --- curar ----------------------------------------------------------------------------------------------------
