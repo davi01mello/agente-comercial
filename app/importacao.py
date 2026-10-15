@@ -4,7 +4,9 @@ docs/adr-005-importacao-notion.md.
 Uma execução (`importar`) faz, em ordem:
 1. **sincronizar**: lê as páginas compartilhadas com a integração e, só para as novas ou editadas, os blocos;
    converte em markdown e faz a triagem: dado pessoal, página vazia, duplicata e página longa demais;
-2. confere as páginas que sumiram do Notion (só quando a lista veio completa).
+2. confere as páginas que sumiram do Notion (só quando a lista veio completa);
+3. **curar** (só fora do dry-run e só com teto de gasto): o curador propõe um item por trecho das fontes que
+   esperam por ele. Os itens entram na Fila como `historico_a_validar`, todos os de uma página ou nenhum.
 
 Rodar duas vezes seguidas não muda nada: página com o mesmo `last_edited_time` nem é relida, e página relida com o
 mesmo hash não gera nada novo. O `--dry-run` faz as mesmas leituras e a mesma triagem, mas não grava nada.
@@ -21,15 +23,17 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import dominio, markdown_notion, trechos
+from app import curadoria, dominio, llm, markdown_notion, trechos
 from app.config import settings
-from app.models import MOTIVO_MAX, ExecucaoImportacao, Fonte
+from app.models import MOTIVO_MAX, ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Relacao
 from app.notion import ErroNotion, LeitorNotion, na_lixeira, url_da_pagina
 from app.trechos import Trecho
 
 logger = logging.getLogger(__name__)
 
 ORIGEM = "notion"
+AUTOR = "importação Notion"  # o autor dos itens importados e o por_quem do histórico: nunca o nome de uma pessoa
+FOLGA_DO_TETO = 2  # antes de cada página: gasto real + 2 × a estimativa dela precisa caber no teto (ADR §4.6)
 MIN_CARACTERES = 20  # menos que isso de texto (sem títulos e marcadores): página "vazia", não vai ao modelo
 TITULO_OMITIDO = "(título omitido: tem dado pessoal)"
 SEM_TITULO = "(sem título)"
@@ -96,6 +100,13 @@ class Relatorio:
     avisos: list[str] = field(default_factory=list)
     requisicoes_notion: int = 0
     lidas: int = 0  # as páginas que vieram na busca do Notion nesta execução
+    # o curador (só fora do dry-run e com teto)
+    teto_usd: float | None = None
+    curadas: list[PaginaLida] = field(default_factory=list)  # os itens delas entraram na Fila
+    falhas_do_curador: list[PaginaLida] = field(default_factory=list)  # nada delas entrou; tentadas de novo depois
+    esperando: list[PaginaLida] = field(default_factory=list)  # não couberam no teto: ficam para a próxima
+    insights_propostos: int = 0
+    custo_real_usd: float = 0.0
 
     def _com(self, *acoes: str) -> list[PaginaLida]:
         return [p for p in self.paginas if p.acao in acoes]
@@ -129,6 +140,10 @@ class Relatorio:
         return [p for p in self.paginas if p.trechos]
 
     @property
+    def parou_no_teto(self) -> bool:
+        return bool(self.esperando)
+
+    @property
     def estimativa(self) -> Estimativa:
         """O custo estimado do curador para tudo o que espera por ele."""
         return estimar([t for p in self.a_curar for t in p.trechos])
@@ -137,14 +152,18 @@ class Relatorio:
 # --- a execução ---------------------------------------------------------------------------------------------
 
 def importar(
-    leitor: LeitorNotion, db: Session, *, dry_run: bool = False, limite_paginas: int | None = None
+    leitor: LeitorNotion, db: Session, *, dry_run: bool = False, limite_paginas: int | None = None,
+    teto_usd: float | None = None,
 ) -> Relatorio:
     """Roda uma importação. Fora do dry-run, registra a execução (início, fim e as contagens da spec).
 
+    O curador só roda fora do dry-run e com `teto_usd` (o script sempre passa um): sem teto, as páginas só esperam.
     Levanta ErroNotion se a lista de páginas não puder ser lida (token inválido, sem rede...). Uma página que falha
-    sozinha não derruba a execução: vira uma "falha" no relatório e é tentada de novo na próxima vez.
+    sozinha (no Notion ou no curador) não derruba a execução: vira uma "falha" e é tentada de novo na próxima vez.
     """
-    relatorio = Relatorio(dry_run=dry_run)
+    if teto_usd is not None and teto_usd <= 0:
+        raise ValueError("O teto de gasto precisa ser maior que zero.")
+    relatorio = Relatorio(dry_run=dry_run, teto_usd=teto_usd)
     execucao = None
     if not dry_run:
         execucao = ExecucaoImportacao(inicio=_agora())
@@ -153,6 +172,8 @@ def importar(
         relatorio.execucao_id = execucao.id
     try:
         _sincronizar(leitor, db, relatorio, limite_paginas)
+        if not dry_run and teto_usd is not None:
+            _curar(db, relatorio, teto_usd)
     except BaseException:
         db.rollback()  # o que estava pela metade não entra; a execução é fechada abaixo, numa transação limpa
         raise
@@ -163,7 +184,7 @@ def importar(
             execucao.paginas_lidas = relatorio.lidas
             execucao.paginas_novas = len(relatorio.novas)
             execucao.paginas_alteradas = len(relatorio.alteradas)
-            execucao.paginas_falhas = len(relatorio.falhas)
+            execucao.paginas_falhas = len(relatorio.falhas) + len(relatorio.falhas_do_curador)
             db.commit()
         logger.info(json.dumps({  # só números: nunca título nem texto
             "evento": "importacao_notion",
@@ -175,6 +196,11 @@ def importar(
             "falhas": len(relatorio.falhas),
             "removidas": len(relatorio.removidas),
             "requisicoes_notion": relatorio.requisicoes_notion,
+            "curadas": len(relatorio.curadas),
+            "falhas_do_curador": len(relatorio.falhas_do_curador),
+            "esperando": len(relatorio.esperando),
+            "insights_propostos": relatorio.insights_propostos,
+            "custo_real_usd": round(relatorio.custo_real_usd, 6),
         }))
     return relatorio
 
@@ -357,3 +383,69 @@ def _listar_pendentes(db: Session, vistas: set[str], relatorio: Relatorio) -> No
     for fonte in pendentes:
         partes = trechos.dividir(fonte.titulo, fonte.markdown or "")
         relatorio.paginas.append(PaginaLida(fonte.id_externo, fonte.titulo, "pendente", fonte.status, trechos=partes))
+
+
+# --- curar ----------------------------------------------------------------------------------------------------
+
+def _curar(db: Session, relatorio: Relatorio, teto_usd: float) -> None:
+    """O curador nas fontes que esperam por ele, uma página por vez e dentro do teto de gasto.
+
+    Antes de cada página: o gasto real até ali + FOLGA_DO_TETO × a estimativa dela precisa caber no teto. Se não
+    couber, para: o que falta continua `a_curar` e a próxima execução continua dali. O gasto real é o custo que o
+    Gemini informa (llm.medir_gasto); uma resposta sem a contagem de tokens conta como a estimativa.
+    """
+    with llm.medir_gasto() as gasto:
+        for pagina in list(relatorio.a_curar):
+            estimativa = estimar(pagina.trechos).custo_usd
+            if relatorio.custo_real_usd + FOLGA_DO_TETO * estimativa > teto_usd:
+                i = relatorio.a_curar.index(pagina)
+                relatorio.esperando = relatorio.a_curar[i:]
+                return
+            antes, sem_contagem = gasto.usd, gasto.sem_contagem
+            _curar_pagina(db, pagina, relatorio)
+            custo = gasto.usd - antes
+            if gasto.sem_contagem > sem_contagem:  # custo desconhecido: conta como a estimativa (pessimista)
+                custo = max(custo, estimativa)
+            relatorio.custo_real_usd += custo
+
+
+def _curar_pagina(db: Session, pagina: PaginaLida, relatorio: Relatorio) -> None:
+    """Um item por trecho. Tudo ou nada: se um trecho falhar, nenhum item da página entra e ela fica `falha`."""
+    fonte = db.scalar(select(Fonte).where(Fonte.origem == ORIGEM, Fonte.id_externo == pagina.id_externo))
+    try:
+        propostas = [curadoria.propor_lote(t.texto, AUTOR, ORIGEM, fonte.url, db) for t in pagina.trechos]
+        for proposta in propostas:  # o item que vai ser GRAVADO também não pode ter dado pessoal
+            curadoria.exigir_item_sem_dados_pessoais(proposta.insight)
+    except llm.ErroLLM:
+        _falhou(db, fonte, pagina, relatorio, "o curador falhou (o Gemini não respondeu direito); tenta de novo")
+        return
+    except dominio.DadoPessoalNaEntrada as e:  # a mensagem não é usada: o motivo diz só onde e o quê
+        onde = ", ".join(f"{tipo} em {campo}" for campo, tipo in e.achados)
+        _falhou(db, fonte, pagina, relatorio, f"o item proposto tem possível dado pessoal ({onde})")
+        return
+
+    origem = f"Importado do Notion (execução #{relatorio.execucao_id})"
+    for proposta in propostas:
+        item = Insight(**proposta.insight.model_dump(), status="historico_a_validar")  # nunca validado
+        db.add(item)
+        db.flush()  # para ter o item.id
+        db.add_all(Relacao(insight_id=item.id, relacionado_id=r.relacionado_id, tipo=r.tipo)
+                   for r in proposta.relacoes)
+        db.add(HistoricoStatus(insight_id=item.id, de=None, para="historico_a_validar", por_quem=AUTOR,
+                               motivo=origem))
+    fonte.status = "importada"
+    fonte.motivo = None
+    db.commit()  # os itens da página e a fonte entram juntos (ou nada entra)
+    pagina.status = "importada"
+    relatorio.curadas.append(pagina)
+    relatorio.insights_propostos += len(propostas)
+
+
+def _falhou(db: Session, fonte: Fonte, pagina: PaginaLida, relatorio: Relatorio, motivo: str) -> None:
+    db.rollback()  # nada da página foi gravado (o curador não grava), mas a sessão volta limpa
+    fonte = db.get(Fonte, fonte.id)
+    fonte.status = "falha"
+    fonte.motivo = _motivo(motivo)
+    db.commit()
+    pagina.status, pagina.motivo = "falha", motivo
+    relatorio.falhas_do_curador.append(pagina)
