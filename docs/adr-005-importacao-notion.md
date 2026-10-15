@@ -149,8 +149,11 @@ incluir `historico_a_validar` nos candidatos do curador).
 
 - **Por que duas fases** (`a_curar` e depois `importada`): se o teto parar a execução no meio, o que faltou continua
   esperando, e a próxima execução continua de onde parou, sem refazer nem duplicar nada.
-- **As tabelas têm exatamente os campos da spec.** O motivo de cada página pulada vai no relatório impresso no fim da
-  execução, como a spec pede.
+- **A tabela `fontes` tem os campos da spec e a coluna `motivo`** (pedido do Davi na T4b): por que a página foi pulada,
+  falhou no curador ou saiu do Notion ("e-mail no conteúdo", "6 trechos (limite 5)"), sem o dado e cortada em 200
+  caracteres. A tela de Fontes mostra. A página que volta a `a_curar` ou vira `importada` fica sem motivo.
+- **Uma página que falha ao ser lida no Notion** (403, rede) não muda de status: só aparece em "Falhas" no relatório
+  da execução, e a próxima tenta de novo. O `falha` da fonte é só o do curador.
 
 **4.3 Dado pessoal** (resposta 1 do Davi):
 - **A regra é a mesma do curador** (`dominio.exigir_sem_dados_pessoais`), aplicada no **título e no texto**, antes de
@@ -182,9 +185,14 @@ incluir `historico_a_validar` nos candidatos do curador).
 - O autor é o texto fixo **"importação Notion"**: nunca o nome de uma pessoa, e não depende da permissão de usuários
   da integração.
 - `fonte` e `fonte_ref` são postos pelo código.
-- Os avisos do curador **não são gravados**, como no `POST /insights`.
+- Os avisos do curador **não são gravados**, como no `POST /insights`. O histórico de criação de cada item diz
+  "Importado do Notion (execução #N)".
 - Os itens de uma página entram **todos juntos ou nenhum**: se o curador falhar no 2º trecho, nem o item do 1º entra,
-  e a página fica `falha`.
+  e a página fica `falha`, com o motivo. A próxima execução tenta de novo.
+- **O item que vai ser gravado também é conferido** (`curadoria.exigir_item_sem_dados_pessoais`): se o modelo devolver
+  algo com cara de dado pessoal (um número que parece telefone, por exemplo), a página fica `falha` com "o item proposto
+  tem possível dado pessoal (telefone em contexto_cliente)". É a mesma regra do `POST /insights`, que desde a T4b
+  responde 422 em vez de só avisar (pedido do Davi): dado pessoal de cliente não entra na base por nenhum caminho.
 
 **4.6 Teto de gasto e estimativa:**
 - **O `--dry-run` estima sem chamar o modelo:**
@@ -197,7 +205,9 @@ incluir `historico_a_validar` nos candidatos do curador).
   **2 ×** a estimativa da página cabe. O "2 ×" cobre o JSON refeito e um raciocínio maior que o estimado. Se não couber,
   para, imprime o relatório parcial, e a próxima execução continua.
 - **O gasto real** é a soma do `custo_usd` que o `llm.py` já calcula para o log (`llm.medir_gasto()`), a partir dos
-  tokens que o Gemini informa.
+  tokens que o Gemini informa. Não depende do nível do log. Uma resposta que vier sem a contagem de tokens conta como
+  a estimativa da página (pessimista).
+- **O relatório** mostra o custo real ao lado do teto, as páginas que ficaram esperando e as falhas do curador.
 - **Sem teto, o curador não roda.** O script sempre passa um teto.
 - **Limite honesto:** se uma página sozinha gastar mais que o dobro da estimativa, o teto pode ser passado em no máximo
   o custo dela (~US$ 0,05 no pior caso).

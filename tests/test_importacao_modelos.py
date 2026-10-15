@@ -14,10 +14,11 @@ def colunas(tabela: str) -> set[str]:
     return {c["name"] for c in inspect(engine).get_columns(tabela)}
 
 
-def test_fontes_tem_exatamente_os_campos_da_spec():
+def test_fontes_tem_os_campos_da_spec_e_o_motivo():
+    """Os campos da spec, mais o `motivo` (pedido do Davi na T4b: a tela de Fontes mostra)."""
     assert colunas("fontes") == {
         "id", "origem", "id_externo", "titulo", "url", "markdown", "hash_conteudo", "editado_em", "importado_em",
-        "status",
+        "status", "motivo",
     }
 
 

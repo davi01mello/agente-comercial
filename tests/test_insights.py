@@ -70,13 +70,29 @@ def test_campo_invalido_vira_422(client, campos):
     assert client.post("/insights", json=novo(**campos)).status_code == 422
 
 
-def test_dado_pessoal_grava_mas_avisa(client):
-    r = client.post("/insights", json=novo(contexto_cliente="falar com ana@hotelx.com.br"))
+def test_dado_pessoal_vira_422_e_nada_e_gravado(client):
+    titulo = f"pii-{uuid.uuid4().hex[:8]}"
 
-    assert r.status_code == 201
-    assert r.json()["avisos"] == [
-        "Possível e-mail em 'contexto_cliente': dado pessoal de cliente não deve entrar na base (LGPD)."
-    ]
+    r = client.post("/insights", json=novo(titulo=titulo, contexto_cliente="falar com ana@hotelx.com.br"))
+
+    assert r.status_code == 422
+    assert r.json()["detail"].startswith("Encontrei possível dado pessoal: e-mail em 'contexto_cliente'.")
+    assert "ana@hotelx" not in r.text  # a resposta não repete o dado
+    with SessionLocal() as db:
+        assert db.scalar(select(Insight).where(Insight.titulo == titulo)) is None
+
+
+@pytest.mark.parametrize("campo", ["titulo", "descricao", "segmento", "servico", "o_que_foi_feito", "resultado",
+                                   "contexto_cliente"])
+def test_dado_pessoal_em_qualquer_campo_de_texto_vira_422(client, campo):
+    r = client.post("/insights", json=novo(**{campo: "ligar (81) 99876-5432"}))
+
+    assert r.status_code == 422 and f"telefone em '{campo}'" in r.json()["detail"]
+
+
+def test_autor_com_e_mail_passa(client):
+    """O autor não é texto do item (na T5 ele vem da sessão, e pode ser o e-mail de quem entrou)."""
+    assert client.post("/insights", json=novo(autor="rafael@citi.org.br")).status_code == 201
 
 
 @pytest.mark.parametrize("digitado", ["saude", "Saúde", " SAUDE "])

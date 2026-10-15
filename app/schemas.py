@@ -80,7 +80,7 @@ class InsightOut(InsightBase):
     motivo_obsolescencia: str | None = None
     criado_em: datetime
     relacoes: list[RelacaoOut] = []
-    avisos: list[str] = []  # ex.: possível dado pessoal (LGPD). Vem só na resposta da criação; não é gravado.
+    avisos: list[str] = []  # vem só na resposta da criação e não é gravado (dado pessoal agora é 422, não aviso)
 
 
 class FiltroInsights(BaseModel):
@@ -225,6 +225,7 @@ class FonteOut(BaseModel):
     titulo: str
     url: str
     status: StatusFonte
+    motivo: str | None = None  # por que foi pulada, falhou ou saiu do Notion (nunca o dado pessoal em si)
     editado_em: datetime
     importado_em: datetime
     itens: dict[str, int] = {}  # itens que o curador propôs a partir dela: status do item -> quantos

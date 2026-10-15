@@ -10,6 +10,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
@@ -75,6 +76,47 @@ def _checar_prazo(espera: float = 0.0) -> None:
             f"O Gemini demorou mais de {settings.llm_prazo_total_s} segundos e eu parei de esperar. "
             "Tente de novo; se repetir, encurte o texto ou troque o modelo para gemini-3.5-flash-lite no .env."
         )
+
+
+# --- gasto real -----------------------------------------------------------------------------
+# O teto de gasto da importação do Notion precisa do custo REAL das chamadas, não só do log. Quem abre é
+# `medir_gasto`, no mesmo padrão do `com_prazo`: tudo o que for chamado lá dentro soma no mesmo acumulador.
+# Não depende do nível do log (o _registrar soma antes de logar).
+
+@dataclass
+class Gasto:
+    usd: float = 0.0  # soma do custo_usd de cada tentativa (pelos preços do .env)
+    chamadas: int = 0  # tentativas, com sucesso ou erro
+    sem_contagem: int = 0  # respostas OK que vieram sem a contagem de tokens: o custo delas é desconhecido
+
+
+_gasto: ContextVar[Gasto | None] = ContextVar("gasto", default=None)
+
+
+@contextmanager
+def medir_gasto() -> Iterator[Gasto]:
+    """Abre um acumulador de gasto para tudo que for chamado dentro. Se já houver um aberto, reaproveita."""
+    aberto = _gasto.get()
+    if aberto is not None:
+        yield aberto
+        return
+    gasto = Gasto()
+    token = _gasto.set(gasto)
+    try:
+        yield gasto
+    finally:
+        _gasto.reset(token)
+
+
+def _somar_gasto(resultado: str, custo: float | None) -> None:
+    gasto = _gasto.get()
+    if gasto is None:
+        return
+    gasto.chamadas += 1
+    if custo is not None:
+        gasto.usd += custo
+    elif resultado == "ok":
+        gasto.sem_contagem += 1
 
 
 def carregar_prompt(nome: str) -> str:
@@ -165,6 +207,8 @@ def _registrar(
     raciocinio = getattr(uso, "thoughts_token_count", None)
     # O Gemini cobra o raciocínio (thoughts) como saída, então ele entra na conta da saída.
     saida = None if texto_gerado is None and raciocinio is None else (texto_gerado or 0) + (raciocinio or 0)
+    custo = _custo(entrada, saida)
+    _somar_gasto(resultado, custo)
     logger.info(json.dumps({
         "evento": "chamada_llm",
         "funcao": funcao,
@@ -175,7 +219,7 @@ def _registrar(
         "tokens_entrada": entrada,
         "tokens_saida": saida,
         "tokens_raciocinio": raciocinio,
-        "custo_usd": _custo(entrada, saida),
+        "custo_usd": custo,
     }))
 
 

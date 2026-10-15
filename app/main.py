@@ -99,6 +99,18 @@ def criar_insight(dados: InsightCreate, db: Db):
     except dominio.RegraDeNegocio as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
 
+    # Dado pessoal de cliente não entra na base (pedido do Davi na T4b). Antes era só um aviso na resposta; agora é
+    # a mesma regra da importação do Notion. A mensagem diz onde e o quê, nunca o dado.
+    try:
+        curadoria.exigir_item_sem_dados_pessoais(dados)
+    except dominio.DadoPessoalNaEntrada as e:
+        onde = "; ".join(f"{tipo} em '{campo}'" for campo, tipo in e.achados)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Encontrei possível dado pessoal: {onde}. Por LGPD, dado pessoal de cliente não entra na base. "
+                   "Troque por algo genérico (\"o cliente\", \"[e-mail]\") e envie de novo. Nada foi gravado.",
+        ) from e
+
     if _acabou_de_ser_criado(db, dados):
         raise HTTPException(
             status_code=409,
@@ -119,9 +131,7 @@ def criar_insight(dados: InsightCreate, db: Db):
     db.add_all(relacoes)
     db.add(HistoricoStatus(insight_id=item.id, de=None, para="proposto", por_quem=dados.autor))
     db.commit()  # item + relações + histórico entram juntos (ou nada entra)
-
-    avisos = dominio.detectar_dados_pessoais(descricao=dados.descricao, contexto_cliente=dados.contexto_cliente)
-    return _para_saida(item, relacoes, avisos)
+    return _para_saida(item, relacoes)
 
 
 @app.get("/insights", response_model=ListaInsights)

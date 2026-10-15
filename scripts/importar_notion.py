@@ -2,15 +2,18 @@
 
     python -m scripts.importar_notion --dry-run             # só lista o que faria e estima tokens e custo
     python -m scripts.importar_notion --limite-paginas 3    # lê só as 3 primeiras páginas
-    python -m scripts.importar_notion                       # importa de verdade
+    python -m scripts.importar_notion                       # importa e roda o curador (teto padrão: US$ 1)
+    python -m scripts.importar_notion --teto-usd 0.50       # o mesmo, com outro teto de gasto
 
-Precisa de NOTION_TOKEN no .env. O --dry-run não grava nada e não chama o modelo. O relatório sai no terminal (os
+Precisa de NOTION_TOKEN no .env e, fora do --dry-run, de GEMINI_API_KEY. O --dry-run não grava nada e não chama o
+modelo. Conteúdo REAL do comercial só com a chave PAGA do Gemini (ADR-005 §4.4). O relatório sai no terminal (os
 títulos aparecem nele; título com dado pessoal sai omitido). O log (stderr) tem só números, nunca texto.
 """
 import argparse
 import logging
 import sys
 
+from app.config import settings
 from app.db import SessionLocal
 from app.importacao import Relatorio, importar
 from app.notion import ErroNotion, LeitorNotion
@@ -30,6 +33,13 @@ def _inteiro_positivo(texto: str) -> int:
     return valor
 
 
+def _dolares_positivos(texto: str) -> float:
+    valor = float(texto.replace(",", "."))
+    if not valor > 0:  # "not >" também recusa nan
+        raise argparse.ArgumentTypeError("precisa ser maior que zero (ex.: 1 ou 0,50)")
+    return valor
+
+
 def argumentos(args: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="python -m scripts.importar_notion",
@@ -39,6 +49,9 @@ def argumentos(args: list[str] | None = None) -> argparse.Namespace:
                         help="só lista o que faria e estima tokens e custo (não grava nada, não chama o modelo)")
     parser.add_argument("--limite-paginas", type=_inteiro_positivo, metavar="N",
                         help="lê só as N primeiras páginas (as mais antigas pela data de edição)")
+    parser.add_argument("--teto-usd", type=_dolares_positivos, default=1.0, metavar="US$",
+                        help="o máximo que o curador pode gastar nesta execução (padrão: 1). Se não couber, ele para e "
+                             "a próxima execução continua de onde parou")
     return parser.parse_args(args)
 
 
@@ -46,8 +59,8 @@ def _numero(valor: int) -> str:
     return f"{valor:,}".replace(",", ".")
 
 
-def _dolares(valor: float) -> str:
-    return "US$ " + f"{valor:.4f}".replace(".", ",")
+def _dolares(valor: float, casas: int = 4) -> str:
+    return "US$ " + f"{valor:.{casas}f}".replace(".", ",")
 
 
 def formatar(relatorio: Relatorio) -> str:
@@ -83,9 +96,33 @@ def formatar(relatorio: Relatorio) -> str:
             f"~{_numero(estimativa.tokens_entrada)} tokens de entrada e ~{_numero(estimativa.tokens_saida)} de saída; "
             f"média de {_dolares(media)} por página)"
         )
+    if not r.dry_run and r.teto_usd is not None:
+        linhas += _curador(r)
     if r.avisos:
         linhas += ["", "Avisos:"] + [f"  - {aviso}" for aviso in r.avisos]
     return "\n".join(linhas)
+
+
+def _curador(r: Relatorio) -> list[str]:
+    """O que o curador fez: itens propostos, custo real × teto, falhas, o que ficou esperando e os obsoletos."""
+    linhas = [
+        "",
+        f"Curador: {len(r.curadas)} páginas, {r.insights_propostos} itens propostos (na Fila, como "
+        "historico_a_validar: alguém do time revisa)",
+        f"Custo real: {_dolares(r.custo_real_usd)} (teto: {_dolares(r.teto_usd, 2)})",
+    ]
+    if r.falhas_do_curador:
+        linhas += [f"Falhas do curador ({len(r.falhas_do_curador)}), tentadas de novo na próxima execução:"]
+        linhas += [f"  - {p.titulo}: {p.motivo}" for p in r.falhas_do_curador]
+    if r.parou_no_teto:
+        linhas.append(f"Parou no teto: {len(r.esperando)} páginas esperando. Rode de novo para continuar (o que já "
+                      "entrou na Fila não se repete).")
+    if r.obsoletos or r.aprovados_de_paginas_mudadas:
+        linhas.append(f"Páginas que mudaram ou saíram do Notion: {r.obsoletos} itens pendentes viraram obsoletos.")
+    if r.aprovados_de_paginas_mudadas:
+        linhas.append(f"  - {r.aprovados_de_paginas_mudadas} itens JÁ APROVADOS vieram dessas páginas e não mudaram: "
+                      "confira no Playbook se ainda valem.")
+    return linhas
 
 
 def _ligar_log() -> None:
@@ -104,8 +141,13 @@ def main(args: list[str] | None = None, leitor: LeitorNotion | None = None) -> i
     _ligar_log()
     try:
         leitor = leitor or LeitorNotion()
+        if not opcoes.dry_run and not settings.gemini_api_key:  # antes de ler o Notion: sem a chave, só falharia
+            print("Erro: Falta GEMINI_API_KEY no .env. Sem ela o curador não roda; para só ver o que seria "
+                  "importado, use --dry-run.", file=sys.stderr)
+            return 1
         with SessionLocal() as db:
-            relatorio = importar(leitor, db, dry_run=opcoes.dry_run, limite_paginas=opcoes.limite_paginas)
+            relatorio = importar(leitor, db, dry_run=opcoes.dry_run, limite_paginas=opcoes.limite_paginas,
+                                 teto_usd=opcoes.teto_usd)
     except ErroNotion as e:
         print(f"Erro: {e}", file=sys.stderr)
         return 1

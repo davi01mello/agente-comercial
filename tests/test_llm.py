@@ -524,3 +524,49 @@ def test_log_nunca_tem_a_chave_nem_texto(monkeypatch, esperas, caplog):
     for proibido in ["CHAVE-SECRETA-123", "PERGUNTA-DO-USUARIO", "HISTORICO-DO-USUARIO", "BASE-SECRETA",
                      "RESPOSTA-DO-MODELO", "TEXTO-DO-CURADOR", "isto não é JSON"]:
         assert proibido not in caplog.text
+
+
+# --- gasto real (teto da importação do Notion) ---------------------------------------------
+
+def test_medir_gasto_soma_o_custo_de_cada_tentativa(monkeypatch, esperas):
+    usar(monkeypatch, ClienteFalso(
+        erro_api(503), RespostaFalsa("ok", uso(1000, 200, 300)), RespostaFalsa("ok", uso(10, 5)),
+    ))
+
+    with llm.medir_gasto() as gasto:
+        llm.consultar("oi", [], BASE)  # 503 (sem custo) e depois ok
+        llm.consultar("oi", [], BASE)
+
+    assert gasto.usd == pytest.approx(0.002625 + 0.000026)
+    assert (gasto.chamadas, gasto.sem_contagem) == (3, 0)
+
+
+def test_medir_gasto_nao_depende_do_nivel_do_log(monkeypatch, esperas, caplog):
+    usar(monkeypatch, ClienteFalso(RespostaFalsa("ok", uso(1000, 500))))
+
+    with caplog.at_level(logging.ERROR, logger="app.llm"), llm.medir_gasto() as gasto:
+        llm.consultar("oi", [], BASE)
+
+    assert linhas_do_log(caplog) == []
+    assert gasto.usd == pytest.approx(0.002625)
+
+
+def test_medir_gasto_conta_a_resposta_sem_contagem_de_tokens(monkeypatch, esperas):
+    usar(monkeypatch, ClienteFalso("ok"))  # resposta sem usage_metadata: o custo é desconhecido
+
+    with llm.medir_gasto() as gasto:
+        llm.consultar("oi", [], BASE)
+
+    assert (gasto.usd, gasto.chamadas, gasto.sem_contagem) == (0.0, 1, 1)
+
+
+def test_medir_gasto_aninhado_reaproveita_o_de_fora_e_fora_dele_nada_soma(monkeypatch, esperas):
+    usar(monkeypatch, ClienteFalso(RespostaFalsa("ok", uso(1000, 500)), RespostaFalsa("ok", uso(1000, 500))))
+
+    llm.consultar("oi", [], BASE)  # sem acumulador aberto: não quebra nem soma em lugar nenhum
+    with llm.medir_gasto() as de_fora:
+        with llm.medir_gasto() as de_dentro:
+            llm.consultar("oi", [], BASE)
+
+    assert de_dentro is de_fora
+    assert de_fora.usd == pytest.approx(0.002625)

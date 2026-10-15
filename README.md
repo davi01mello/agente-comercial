@@ -72,17 +72,22 @@ com o que o time aprovou. Decisões no `docs/adr-005-importacao-notion.md`.
    python -m scripts.importar_notion --dry-run
    ```
 
-3. Depois, de verdade (`--limite-paginas N` lê só as N primeiras):
+3. Depois, de verdade, com o curador (precisa de `GEMINI_API_KEY`). O teto padrão é US$ 1; `--teto-usd 0.50` muda,
+   e `--limite-paginas N` lê só as N primeiras:
 
    ```bash
    python -m scripts.importar_notion
    ```
 
+   O curador propõe um item por trecho, e os itens entram na Fila como `historico_a_validar`, com o link da página.
+   Se o próximo passo não couber no teto, ele para, e a próxima execução continua de onde parou.
+
 - **Triagem:** página com e-mail, CPF, CNPJ ou telefone (no título ou no texto) **nunca** vai ao modelo e o texto dela
   não é guardado; página sem texto, duplicata exata de outra ou longa demais (mais de 5 trechos de 8.000 caracteres)
-  também é pulada. O relatório diz o motivo de cada uma, sem repetir o dado.
+  também é pulada. O relatório e a coluna `motivo` (a tela de Fontes mostra) dizem o porquê, sem repetir o dado.
 - **Rodar de novo não duplica nada:** página com a mesma data de edição nem é relida, e página relida com o mesmo
-  texto não gera nada novo. Página que saiu do Notion vira `removida` (nada é apagado).
+  texto não gera nada novo. Página que saiu do Notion vira `removida` (nada é apagado). Quando uma página muda ou sai,
+  os itens dela que ninguém revisou viram `obsoleto`; os já aprovados não mudam.
 - **Conteúdo real do comercial só com a chave PAGA do Gemini** (decisão do Davi): na camada gratuita o Google pode usar
   e ler o que enviamos. O `--dry-run` não chama o modelo e pode rodar sempre.
 - Testes sem rede: `tests/notion_falso.py` serve o workspace FICTÍCIO de `tests/fixtures/notion/workspace.json`.
