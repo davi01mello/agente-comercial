@@ -2,6 +2,9 @@
 
 O modelo (app/llm.py) estrutura o texto; este módulo confere e corrige o que ele devolveu, usando as regras de
 app/dominio.py, e busca no banco os itens com que o novo pode se relacionar. NADA é gravado aqui.
+
+Dois jeitos de chamar: `propor` (o Registrar, com uma pessoa que responde às perguntas) e `propor_lote` (a
+importação do Notion, sem ninguém para responder: o curador roda direto como último turno).
 """
 from datetime import date
 
@@ -10,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app import dominio, llm
 from app.models import Insight
-from app.schemas import InsightBase, InsightLLM, MensagemHistorico, PropostaCuradoria, RelacaoIn
+from app.schemas import Fonte, InsightBase, InsightLLM, MensagemHistorico, PropostaCuradoria, RelacaoIn
 
 MAX_TURNOS = 3  # no 3º turno o curador fecha a proposta com o que tem, sem novas perguntas
 MAX_PERGUNTAS = 2
@@ -33,6 +36,31 @@ def propor(texto: str, autor: str, conversa: list[MensagemHistorico], db: Sessio
         return _propor(texto, autor, conversa, turno, ultimo_turno, db)
 
 
+def propor_lote(texto: str, autor: str, fonte: Fonte, fonte_ref: str, db: Session) -> PropostaCuradoria:
+    """O curador sem ninguém para responder (importação do Notion): uma proposta por texto, sem perguntas.
+
+    Roda como último turno: o modelo é avisado de que não deve perguntar e, se perguntar, a pergunta vira aviso.
+    `autor`, `fonte` e `fonte_ref` são do código (ex.: "importação Notion", "notion" e a url da página).
+    Confere o dado pessoal de novo, mesmo que quem chama já tenha feito a triagem: a regra não pode depender disso.
+    Levanta dominio.DadoPessoalNaEntrada (sem chamar o modelo) e llm.ErroLLM, como `propor`.
+    """
+    _barrar_dado_pessoal(texto, [])
+    with llm.com_prazo():
+        return _propor(texto, autor, [], 1, True, db, fonte=fonte, fonte_ref=fonte_ref)
+
+
+def exigir_item_sem_dados_pessoais(item: InsightBase) -> None:
+    """Levanta dominio.DadoPessoalNaEntrada se algum campo de texto do item tiver dado pessoal.
+
+    É a regra de quem GRAVA um item (POST /insights e a importação), e não só de quem chama o modelo. O `autor` e a
+    `fonte_ref` ficam de fora: não são texto do item (o autor vem da sessão na T5; a fonte_ref é um link).
+    """
+    dominio.exigir_sem_dados_pessoais(**item.model_dump(include=CAMPOS_DE_TEXTO))
+
+
+CAMPOS_DE_TEXTO = {"titulo", "descricao", "segmento", "servico", "o_que_foi_feito", "resultado", "contexto_cliente"}
+
+
 def _barrar_dado_pessoal(texto: str, conversa: list[MensagemHistorico]) -> None:
     """Confere o texto novo e o que o usuário já disse nos turnos anteriores (as respostas do modelo não: foram
     geradas de textos que já passaram por aqui)."""
@@ -43,12 +71,13 @@ def _barrar_dado_pessoal(texto: str, conversa: list[MensagemHistorico]) -> None:
 
 
 def _propor(
-    texto: str, autor: str, conversa: list[MensagemHistorico], turno: int, ultimo_turno: bool, db: Session
+    texto: str, autor: str, conversa: list[MensagemHistorico], turno: int, ultimo_turno: bool, db: Session,
+    fonte: Fonte = "chat", fonte_ref: str | None = None,
 ) -> PropostaCuradoria:
     proposta = llm.curar(texto, [m.model_dump() for m in conversa], turno, ultimo_turno)
     avisos = list(proposta.avisos)
 
-    insight = _conferir_insight(proposta.insight, autor, avisos)
+    insight = _conferir_insight(proposta.insight, autor, avisos, fonte, fonte_ref)
 
     perguntas = [p.strip() for p in proposta.perguntas if p.strip()][:MAX_PERGUNTAS]
     if ultimo_turno and perguntas:  # o modelo perguntou mesmo sendo o último turno: vira aviso
@@ -65,7 +94,9 @@ def _propor(
     )
 
 
-def _conferir_insight(item: InsightLLM, autor: str, avisos: list[str]) -> InsightBase:
+def _conferir_insight(
+    item: InsightLLM, autor: str, avisos: list[str], fonte: Fonte = "chat", fonte_ref: str | None = None
+) -> InsightBase:
     """Aplica as regras de evidência (rebaixando com aviso, em vez de recusar) e põe o que é do código."""
     tipo, evidencia = item.tipo, item.evidencia
 
@@ -84,7 +115,8 @@ def _conferir_insight(item: InsightLLM, autor: str, avisos: list[str]) -> Insigh
         evidencia=evidencia,
         data_evento=_data_ou_none(item.data_evento, avisos),
         autor=autor,  # do código, nunca do modelo
-        fonte="chat",
+        fonte=fonte,
+        fonte_ref=fonte_ref,
     )
 
 

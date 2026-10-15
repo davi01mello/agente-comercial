@@ -296,3 +296,59 @@ def test_rota_erro_do_modelo_vira_502(monkeypatch):
 def test_rota_body_invalido_vira_422(corpo):
     with TestClient(app) as client:
         assert client.post("/registrar/propor", json=corpo).status_code == 422
+
+# --- propor_lote: a importação do Notion (sem ninguém para responder) ------------------------
+
+URL = "https://www.notion.so/0123456789abcdef0123456789abcdef"
+
+
+def propor_lote(db, texto="Página do Notion: Roteiro\n\nabrir com diagnóstico"):
+    return curadoria.propor_lote(texto, "importação Notion", "notion", URL, db)
+
+
+def test_propor_lote_roda_como_ultimo_turno_e_o_codigo_poe_autor_e_fonte(monkeypatch, db):
+    falso = usar(monkeypatch, CuradorFalso(proposta()))
+
+    p = propor_lote(db)
+
+    assert falso.curar_chamadas == [{"texto": "Página do Notion: Roteiro\n\nabrir com diagnóstico", "turno": 1,
+                                     "ultimo_turno": True}]
+    assert (p.insight.autor, p.insight.fonte, p.insight.fonte_ref) == ("importação Notion", "notion", URL)
+    assert p.perguntas == []
+
+
+def test_propor_lote_pergunta_do_modelo_vira_aviso(monkeypatch, db):
+    usar(monkeypatch, CuradorFalso(proposta(perguntas=["Qual foi o resultado?"])))
+
+    p = propor_lote(db)
+
+    assert p.perguntas == []
+    assert p.avisos == ["Ficou sem resposta: Qual foi o resultado?"]
+
+
+def test_propor_lote_dado_pessoal_barra_sem_chamar_o_modelo(monkeypatch, db):
+    falso = usar(monkeypatch, CuradorFalso(proposta()))
+
+    with pytest.raises(dominio.DadoPessoalNaEntrada, match="e-mail em 'texto'"):
+        propor_lote(db, texto="falar com joao@hotelx.com.br")
+
+    assert falso.curar_chamadas == []
+
+
+def test_propor_lote_aplica_as_mesmas_correcoes_do_registrar(monkeypatch, db):
+    usar(monkeypatch, CuradorFalso(proposta(tipo="regra", evidencia=4, resultado="melhorou muito")))
+
+    p = propor_lote(db)
+
+    assert (p.insight.tipo, p.insight.evidencia) == ("regra", 3)  # evidência 4 sem número -> 3; regra com 3 fica
+
+
+def test_exigir_item_sem_dados_pessoais_confere_os_campos_de_texto_e_nao_o_autor(monkeypatch, db):
+    usar(monkeypatch, CuradorFalso(proposta()))
+    item = propor(db).insight
+
+    curadoria.exigir_item_sem_dados_pessoais(item.model_copy(update={"autor": "rafael@citi.org.br"}))
+    for campo in sorted(curadoria.CAMPOS_DE_TEXTO):
+        com_dado = item.model_copy(update={campo: "ligar (81) 99876-5432"})
+        with pytest.raises(dominio.DadoPessoalNaEntrada, match=f"telefone em '{campo}'"):
+            curadoria.exigir_item_sem_dados_pessoais(com_dado)
