@@ -80,7 +80,7 @@ class InsightOut(InsightBase):
     motivo_obsolescencia: str | None = None
     criado_em: datetime
     relacoes: list[RelacaoOut] = []
-    avisos: list[str] = []  # ex.: possível dado pessoal (LGPD). Vem só na resposta da criação; não é gravado.
+    avisos: list[str] = []  # vem só na resposta da criação e não é gravado (dado pessoal agora é 422, não aviso)
 
 
 class FiltroInsights(BaseModel):
