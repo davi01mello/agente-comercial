@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from app import importacao, notion, trechos
 from app.db import SessionLocal
 from app.importacao import TITULO_OMITIDO, importar
-from app.models import ExecucaoImportacao, Fonte
+from app.models import MOTIVO_MAX, ExecucaoImportacao, Fonte
 from app.notion import ErroNotion, LeitorNotion
 from tests.notion_falso import TOKEN_DE_TESTE, NotionFalso, id_da_pagina, limpar_banco_da_importacao
 
@@ -80,7 +80,7 @@ def retrato(db) -> list[tuple]:
     db.expire_all()
     return [
         (f.id, f.origem, f.id_externo, f.titulo, f.url, f.markdown, f.hash_conteudo, f.editado_em, f.importado_em,
-         f.status)
+         f.status, f.motivo)
         for f in db.scalars(select(Fonte).order_by(Fonte.id))
     ]
 
@@ -120,6 +120,33 @@ def test_fonte_guarda_os_campos_da_spec(rodar, db, falso):
     assert len(f.hash_conteudo) == 64
     assert f.editado_em == datetime(2026, 9, 3, 9, 0)  # o last_edited_time, em UTC
     assert f.importado_em == AGORA
+
+
+def test_motivo_gravado_em_cada_pulada_e_vazio_nas_outras(rodar, db):
+    """O motivo do relatório também fica na fonte (a tela de Fontes mostra), sem repetir o dado pessoal."""
+    rodar()
+
+    motivos = {f.titulo: f.motivo for f in db.scalars(select(Fonte))}
+    assert motivos == {
+        "Cérebro: teste fictício": f"menos de {importacao.MIN_CARACTERES} caracteres de texto",
+        "Como qualificar leads de hotelaria": None,
+        "Objeções comuns e respostas": None,
+        "Roteiro da reunião de diagnóstico": None,
+        "Contato do hotel parceiro": "e-mail no conteúdo",
+        TITULO_OMITIDO: "telefone no título",
+        "Prospecção por indicação": None,
+        "Cópia de Prospecção por indicação": "mesmo conteúdo de “Prospecção por indicação”",
+        "Hotel Fictício Sol": None,
+        "Rascunho antigo de proposta": None,
+    }
+    assert not any("@" in m or "99876" in m for m in motivos.values() if m)
+
+
+def test_motivo_longo_e_cortado_no_tamanho_da_coluna():
+    assert importacao._motivo("") is None
+    assert importacao._motivo("e-mail no conteúdo") == "e-mail no conteúdo"
+    cortado = importacao._motivo("x" * 500)
+    assert len(cortado) == MOTIVO_MAX and cortado.endswith("…")
 
 
 # --- idempotência ------------------------------------------------------------------------------------------
@@ -228,7 +255,7 @@ def test_titulo_corrigido_libera_a_pagina(rodar, db, falso):
     relatorio = rodar()
 
     f = fonte(db, falso, "Ligar amanhã para o parceiro")
-    assert (f.status, f.titulo) == ("a_curar", "Ligar amanhã para o parceiro")
+    assert (f.status, f.titulo, f.motivo) == ("a_curar", "Ligar amanhã para o parceiro", None)
     assert f.markdown.startswith("Retomar a conversa")
     assert [p.titulo for p in relatorio.alteradas] == ["Ligar amanhã para o parceiro"]
 
@@ -360,7 +387,7 @@ def test_pagina_na_lixeira_vira_removida(rodar, db, falso):
     relatorio = rodar()
 
     f = fonte(db, falso, "Rascunho antigo de proposta")
-    assert f.status == "removida"
+    assert (f.status, f.motivo) == ("removida", "na lixeira do Notion")
     assert f.markdown  # nada é apagado
     assert [(p.titulo, p.motivo) for p in relatorio.removidas] == [
         ("Rascunho antigo de proposta", "na lixeira do Notion")
@@ -374,7 +401,7 @@ def test_pagina_apagada_ou_sem_compartilhamento_vira_removida(rodar, db, falso):
 
     relatorio = rodar()
 
-    assert db.scalar(select(Fonte.status).where(Fonte.id_externo == pid)) == "removida"
+    assert db.scalar(select(Fonte.motivo).where(Fonte.id_externo == pid)) == "apagada ou sem compartilhamento"
     assert [p.motivo for p in relatorio.removidas] == ["apagada ou sem compartilhamento"]
 
 

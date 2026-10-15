@@ -17,12 +17,13 @@ def client():
         yield c
 
 
-def criar_fonte(titulo: str, status: str = "importada", editado_em=datetime(2026, 10, 13, 12, 0), origem="notion"):
+def criar_fonte(titulo: str, status: str = "importada", editado_em=datetime(2026, 10, 13, 12, 0), origem="notion",
+                motivo=None):
     unico = uuid.uuid4().hex
     with SessionLocal() as db:
         f = Fonte(origem=origem, id_externo=unico, titulo=titulo, url=f"https://www.notion.so/{unico}",
                   markdown="TEXTO SECRETO DA PÁGINA", hash_conteudo=unico, editado_em=editado_em,
-                  importado_em=editado_em, status=status)
+                  importado_em=editado_em, status=status, motivo=motivo)
         db.add(f)
         db.commit()
         return f.url
@@ -48,6 +49,16 @@ def test_lista_a_fonte_com_os_itens_que_ela_gerou(client):
     fonte = r.json()["itens"][0]
     assert fonte["titulo"] == f"Manual {marca}" and fonte["url"] == url and fonte["status"] == "importada"
     assert fonte["itens"] == {"historico_a_validar": 2, "validado": 1}
+
+
+def test_mostra_o_motivo_da_pulada(client):
+    marca = uuid.uuid4().hex[:8]
+    criar_fonte(f"Contato {marca}", status="pulada_dado_pessoal", motivo="e-mail no conteúdo")
+    criar_fonte(f"Manual {marca}")
+
+    itens = client.get("/fontes", params={"q": marca}).json()["itens"]
+
+    assert {i["status"]: i["motivo"] for i in itens} == {"pulada_dado_pessoal": "e-mail no conteúdo", "importada": None}
 
 
 def test_nunca_devolve_o_texto_da_pagina(client):

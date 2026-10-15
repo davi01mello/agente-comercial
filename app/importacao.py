@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app import dominio, markdown_notion, trechos
 from app.config import settings
-from app.models import ExecucaoImportacao, Fonte
+from app.models import MOTIVO_MAX, ExecucaoImportacao, Fonte
 from app.notion import ErroNotion, LeitorNotion, na_lixeira, url_da_pagina
 from app.trechos import Trecho
 
@@ -272,7 +272,16 @@ def _sincronizar_pagina(
     fonte.editado_em = editado
     fonte.importado_em = _agora()
     fonte.status = status
+    fonte.motivo = _motivo(motivo)
     db.commit()
+
+
+def _motivo(texto: str) -> str | None:
+    """O motivo como a coluna guarda: vazio vira None, e o longo (um título grande em "mesmo conteúdo de …") é
+    cortado no tamanho da coluna (o Postgres recusaria)."""
+    if not texto:
+        return None
+    return texto if len(texto) <= MOTIVO_MAX else texto[: MOTIVO_MAX - 1] + "…"
 
 
 def _sem_mudanca(fonte: Fonte) -> PaginaLida:
@@ -332,6 +341,7 @@ def _conferir_removidas(leitor: LeitorNotion, db: Session, vistas: set[str], rel
         relatorio.paginas.append(PaginaLida(fonte.id_externo, fonte.titulo, "removida", "removida", motivo))
         if not relatorio.dry_run:
             fonte.status = "removida"
+            fonte.motivo = motivo
             db.commit()
 
 

@@ -225,6 +225,7 @@ class FonteOut(BaseModel):
     titulo: str
     url: str
     status: StatusFonte
+    motivo: str | None = None  # por que foi pulada, falhou ou saiu do Notion (nunca o dado pessoal em si)
     editado_em: datetime
     importado_em: datetime
     itens: dict[str, int] = {}  # itens que o curador propôs a partir dela: status do item -> quantos

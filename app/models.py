@@ -30,6 +30,7 @@ STATUS = ["proposto", "validado", "consolidado", "obsoleto", "historico_a_valida
 EVIDENCIA = {1: "opiniao", 2: "observacao_unica", 3: "padrao_repetido", 4: "resultado_medido"}
 FONTES = ["chat", "notion", "drive", "canva", "reuniao"]
 TIPOS_RELACAO = ["reforca", "contradiz", "duplica", "substitui"]
+MOTIVO_MAX = 200  # o tamanho de fontes.motivo
 ORIGENS = ["notion"]  # de onde vêm as fontes importadas (o Drive entra na Fase 2)
 # Status de uma fonte (decisões no docs/adr-005-importacao-notion.md):
 STATUS_FONTE = [
@@ -123,6 +124,9 @@ class Fonte(Base):
     editado_em: Mapped[datetime] = mapped_column(DateTime)  # last_edited_time do Notion, em UTC
     importado_em: Mapped[datetime] = mapped_column(DateTime)  # quando ESTE conteúdo (este hash) foi lido, em UTC
     status: Mapped[str] = mapped_column(String(30))  # um de STATUS_FONTE
+    # Por que foi pulada, falhou ou saiu do Notion ("e-mail no conteúdo", "6 trechos (limite 5)"). NUNCA o dado em
+    # si. None quando a fonte está a_curar ou importada. A tela de Fontes mostra.
+    motivo: Mapped[str | None] = mapped_column(String(MOTIVO_MAX), nullable=True)
 
 
 class ExecucaoImportacao(Base):
