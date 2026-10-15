@@ -140,6 +140,8 @@
     ocupado: false,
     reg: { conversa: [], proposta: null, ocupado: false },
     filtro: { secao: null, segmento: null, busca: "", historico: false },
+    fontes: null,  // o resumo de GET /fontes/resumo
+    filtroFontes: { status: null, busca: "" },
     proximoId: 100,
     focoAntes: null,
   };
@@ -432,6 +434,7 @@
     } catch (e) {
       aviso(`Não consegui carregar os itens: ${e.message}`, "erro");
     }
+    try { estado.fontes = await chamar("GET", "/fontes/resumo"); } catch { /* sem o resumo, o contador fica em 0 */ }
     atualizarNumeros();
   }
 
@@ -560,7 +563,8 @@
   // ---------------------------------------------------------------- topo e navegação
   const TOPO = {
     registrar: ["Registrar", "Conte o que aconteceu. O curador organiza, e você revisa antes de mandar para a Fila."],
-    fila: ["Fila de curadoria", "Itens propostos esperando aprovação. Nada entra no playbook sem alguém aprovar."],
+    fila: ["Fila de curadoria", "Itens propostos e itens vindos de fontes antigas esperando aprovação. Nada entra no playbook sem alguém aprovar."],
+    fontes: ["Fontes", "As páginas que o Cérebro leu e o que virou item. Nada daqui entra no playbook sem passar pela Fila."],
     playbook: ["Playbook", "O que o time já validou, na ordem do funil."],
     briefing: ["Briefing de reunião", "Prévia da T9: um roteiro montado só com o que está na base."],
   };
@@ -576,7 +580,7 @@
       box.append(el("div", {}, el("h1", { text: t }), el("p", { text: s })));
     }
   }
-  const TELAS = ["conversar", "registrar", "fila", "playbook", "briefing"];
+  const TELAS = ["conversar", "registrar", "fila", "fontes", "playbook", "briefing"];
   function rotear() {
     const alvo = (location.hash || "#conversar").slice(1);
     const tela = TELAS.includes(alvo) ? alvo : "conversar";
@@ -588,12 +592,15 @@
     estado.tela = tela;
     pintarTopo(tela);
     if (tela === "fila") pintarFila();
+    if (tela === "fontes") pintarFontes();
     if (tela === "playbook") pintarPlaybook();
     if (tela === "briefing") montarBriefing();
   }
+  // Na Fila: o que as pessoas registraram (proposto) e o que veio de fontes antigas, ainda sem revisão (histórico a validar)
+  function estaNaFila(i) { return i.status === "proposto" || i.status === "historico_a_validar"; }
   function atualizarNumeros() {
     const noPlaybook = estado.itens.filter((i) => i.status === "validado" || i.status === "consolidado").length;
-    const naFila = estado.itens.filter((i) => i.status === "proposto").length;
+    const naFila = estado.itens.filter(estaNaFila).length;
     const hipoteses = estado.itens.filter((i) => i.tipo === "hipotese" && i.status !== "obsoleto").length;
     $("#n-playbook").textContent = noPlaybook;
     $("#n-fila").textContent = naFila;
@@ -601,8 +608,9 @@
     const contador = $("#contador-fila");
     contador.textContent = naFila;
     contador.hidden = naFila === 0;
+    $("#n-fontes").textContent = estado.fontes ? estado.fontes.total : 0;
     $("#rodape-base").textContent = aoVivo()
-      ? "Ligado ao servidor. As respostas do chat ainda usam a base de exemplo (knowledge/) até a PR 3."
+      ? "Ligado ao servidor. O consultor responde só com os itens aprovados no Playbook."
       : "Base de exemplo com dados fictícios. Rode o app com o uvicorn para usar a API de verdade.";
   }
   function pintarModo() {
@@ -938,7 +946,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
   function pintarFila() {
     const box = $("#lista-fila");
     box.replaceChildren();
-    const itens = estado.itens.filter((i) => i.status === "proposto");
+    const itens = estado.itens.filter(estaNaFila);
     if (!itens.length) {
       box.append(el("div", { class: "painel vidro" }, vazio("A Fila está vazia",
         "Quando alguém registrar um insight, ele aparece aqui para ser aprovado ou rejeitado.",
@@ -962,7 +970,8 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
       el("p", { class: "desc", text: it.descricao }),
       el("div", { class: "linha-evid" },
         el("span", { class: "evid" }, sinal(it.evidencia), `Evidência ${it.evidencia} · ${EVIDENCIA[it.evidencia]}`),
-        el("span", { text: [it.autor, dataBr(it.data_evento), it.codigo].filter(Boolean).join(" · ") })));
+        el("span", { text: [it.autor, dataBr(it.data_evento), it.codigo].filter(Boolean).join(" · ") }),
+        linkOrigem(it)));
     if (it.relacoes && it.relacoes.length) card.append(el("div", { class: "relacoes" }, it.relacoes.map((r) => relacaoChip(r, it))));
     const avs = avisosDeEvidencia(it);
     if (avs.length) card.append(listaAvisos(avs));
@@ -995,6 +1004,133 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
       if (e.status === 404 || e.status === 405) aviso("Aprovar e rejeitar chegam na PR 3 do Rafael. Por enquanto o item continua na Fila.", "erro");
       else aviso(e.message, "erro");
     }
+  }
+
+
+  // ---------------------------------------------------------------- fontes
+  const ORIGEM = { notion: "Notion", drive: "Drive", upload: "Arquivo" };
+  // [rótulo, cor, o que significa e o que fazer]
+  const STATUS_FONTE = {
+    a_curar: ["Esperando o curador", "alerta", "Passou na triagem e espera o curador propor itens a partir dela."],
+    importada: ["Virou itens", "ok", "O curador já propôs itens a partir dela. Eles estão na Fila, esperando aprovação."],
+    falha: ["Falhou", "risco", "O curador falhou nesta página. A próxima sincronização tenta de novo."],
+    vazia: ["Vazia", "mudo", "Quase sem texto (uma página só de índice, por exemplo). Não vai ao curador."],
+    pulada_dado_pessoal: ["Dado pessoal", "risco", "Tem e-mail, CPF, CNPJ ou telefone, então nunca vai ao modelo. Para ela entrar, limpe o dado na página de origem."],
+    pulada_longa: ["Longa demais", "alerta", "Passa de 5 trechos. Divida a página na origem para ela entrar."],
+    pulada_duplicata: ["Duplicata", "mudo", "Tem o mesmo conteúdo de outra página já lida."],
+    removida: ["Removida", "mudo", "Saiu da origem (apagada ou sem compartilhamento). Os itens ainda não revisados viraram obsoletos."],
+  };
+  const PULADAS = ["vazia", "pulada_dado_pessoal", "pulada_longa", "pulada_duplicata"];
+  const ROTULO_ITEM = { historico_a_validar: "na Fila", proposto: "na Fila", validado: "aprovado", consolidado: "consolidado", obsoleto: "obsoleto" };
+
+  function linkSeguro(url) { return typeof url === "string" && /^https:\/\//.test(url) ? url : null; }
+  function dataHora(iso) {
+    if (!iso) return "";
+    const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`);  // o servidor manda em UTC, sem o "Z"
+    return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  }
+  function linkOrigem(it) {
+    const url = it.fonte && it.fonte !== "chat" ? linkSeguro(it.fonte_ref) : null;
+    if (!url) return null;
+    return el("a", { class: "origem", href: url, target: "_blank", rel: "noopener noreferrer", title: "Abrir a página de origem" },
+      `${ORIGEM[it.fonte] || it.fonte} ↗`);
+  }
+  function numeroCartao(n, rotulo, cor) {
+    return el("div", { class: "cartao-numero vidro", style: cor ? `--c:${cor}` : null },
+      el("b", { text: String(n) }), el("span", { text: rotulo }));
+  }
+  function resumoDeItens(itens) {
+    const partes = Object.entries(itens || {}).map(([st, n]) => `${n} ${ROTULO_ITEM[st] || st}`);
+    return partes.length ? partes.join(" · ") : null;
+  }
+  function cartaoFonte(f) {
+    const [rotulo, cor, explica] = STATUS_FONTE[f.status] || [f.status, "mudo", ""];
+    const url = linkSeguro(f.url);
+    const titulo = url
+      ? el("a", { href: url, target: "_blank", rel: "noopener noreferrer", text: f.titulo })
+      : document.createTextNode(f.titulo);
+    const gerou = resumoDeItens(f.itens);
+    return el("article", { class: "item fonte vidro" },
+      el("div", { class: "meta" },
+        el("span", { class: "etiqueta", text: ORIGEM[f.origem] || f.origem }),
+        el("span", { class: `etiqueta estado-${cor}`, text: rotulo })),
+      el("h3", {}, titulo),
+      el("p", { class: "explica", text: explica }),
+      el("div", { class: "linha-evid" },
+        gerou ? el("span", { class: "evid", text: `Itens gerados: ${gerou}` }) : null,
+        el("span", { text: `Editada em ${dataHora(f.editado_em)} · lida em ${dataHora(f.importado_em)}` })));
+  }
+  function orientacaoFontes() {
+    return el("div", { class: "painel vidro passo-a-passo" },
+      vazio("Nenhuma página lida ainda", "Quando o Cérebro ler o Notion, cada página aparece aqui, com o que aconteceu com ela."),
+      el("ol", {},
+        el("li", {}, "No .env, preencha ", el("code", { text: "NOTION_TOKEN" }), " (a integração só enxerga as páginas compartilhadas com ela)."),
+        el("li", {}, "Simule sem gravar nada: ", el("code", { text: "python -m scripts.importar_notion --dry-run" })),
+        el("li", {}, "Importe de verdade: ", el("code", { text: "python -m scripts.importar_notion" }), ". Depois volte aqui."),
+      ));
+  }
+  async function pintarFontes() {
+    const box = $("#fontes-conteudo");
+    if (!aoVivo()) {
+      box.replaceChildren(el("div", { class: "painel vidro" }, vazio("As fontes só aparecem com o servidor ligado",
+        "No modo demonstração não há páginas importadas. Rode o app com o uvicorn e importe o Notion.")));
+      return;
+    }
+    let resumo, lista;
+    try {
+      [resumo, lista] = await Promise.all([chamar("GET", "/fontes/resumo"), chamar("GET", "/fontes?limit=200")]);
+    } catch (e) {
+      aviso(`Não consegui carregar as fontes: ${e.message}`, "erro");
+      return;
+    }
+    estado.fontes = resumo;
+    atualizarNumeros();
+    if (!resumo.total) { box.replaceChildren(orientacaoFontes()); return; }
+
+    const por = resumo.por_status;
+    const n = (...chaves) => chaves.reduce((s, c) => s + (por[c] || 0), 0);
+    const ultima = resumo.ultima_execucao;
+    const quando = ultima
+      ? `Última sincronização: ${dataHora(ultima.fim || ultima.inicio)}${ultima.fim ? "" : " (não terminou)"} · ${ultima.paginas_lidas} lidas, ${ultima.paginas_novas} novas, ${ultima.paginas_alteradas} alteradas${ultima.paginas_falhas ? `, ${ultima.paginas_falhas} com falha` : ""}`
+      : "Nenhuma sincronização registrada.";
+
+    const filtro = estado.filtroFontes;
+
+    const busca = el("input", { type: "search", class: "busca", placeholder: "Buscar pelo título", "aria-label": "Buscar fonte pelo título" });
+    busca.value = filtro.busca;
+    const aoBuscar = () => { filtro.busca = busca.value; pintarLinhas(); };
+    const linhas = el("div", { class: "lista" });
+    function pintarLinhas() {
+      const itens = lista.itens.filter((f) =>
+        (!filtro.status || f.status === filtro.status) &&
+        (!filtro.busca || f.titulo.toLowerCase().includes(filtro.busca.toLowerCase())));
+      linhas.replaceChildren(...(itens.length
+        ? itens.map(cartaoFonte)
+        : [el("div", { class: "painel vidro" }, vazio("Nada com esse filtro", "Tire o filtro ou mude a busca."))]));
+    }
+    busca.addEventListener("input", aoBuscar);
+
+    const chips = el("div", { class: "filtros" }, busca,
+      chip(`Todas (${resumo.total})`, !filtro.status, () => { filtro.status = null; pintarFontes(); }),
+      ...Object.keys(STATUS_FONTE).filter((s) => por[s]).map((s) =>
+        chip(`${STATUS_FONTE[s][0]} (${por[s]})`, filtro.status === s, () => { filtro.status = filtro.status === s ? null : s; pintarFontes(); })));
+
+    box.replaceChildren(
+      el("div", { class: "fontes-resumo" },
+        numeroCartao(resumo.total, "páginas lidas"),
+        numeroCartao(n("importada"), "viraram itens", "var(--ok)"),
+        numeroCartao(n("a_curar", "falha"), "esperando o curador", "var(--alerta)"),
+        numeroCartao(n(...PULADAS), "puladas", "var(--risco)"),
+        numeroCartao(n("removida"), "removidas")),
+      el("div", { class: "barra-fontes" },
+        el("span", { text: quando }),
+        el("span", { class: "dica", text: "Para sincronizar: python -m scripts.importar_notion (pelo botão chega na T4c)" })),
+      chips,
+      ...(lista.total > lista.itens.length
+        ? [el("p", { class: "resumo-lista", text: `Mostrando as ${lista.itens.length} mais recentes de ${lista.total}` })]
+        : []),
+      linhas);
+    pintarLinhas();
   }
 
   // ---------------------------------------------------------------- playbook

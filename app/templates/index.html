@@ -34,6 +34,10 @@
         <span>Fila</span>
         <b class="contador" id="contador-fila" hidden>0</b>
       </a>
+      <a href="#fontes" data-tela="fontes">
+        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4"/><path d="M4 16l8 4 8-4"/></svg>
+        <span>Fontes</span>
+      </a>
       <a href="#playbook" data-tela="playbook">
         <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A1.5 1.5 0 0 1 6.5 4H19v14H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19"/><path d="M9 8h6M9 11h4"/></svg>
         <span>Playbook</span>
@@ -83,6 +87,7 @@
               <div><b id="n-playbook">0</b><span>no playbook</span></div>
               <div><b id="n-fila">0</b><span>na fila</span></div>
               <div><b id="n-hipoteses">0</b><span>hipóteses abertas</span></div>
+              <div><b id="n-fontes">0</b><span>páginas lidas</span></div>
             </div>
             <p class="rodape" id="rodape-base"></p>
           </div>
@@ -111,6 +116,10 @@
 
       <section class="tela tela-lista" data-tela="fila" aria-label="Fila de curadoria" hidden>
         <div class="lista" id="lista-fila"></div>
+      </section>
+
+      <section class="tela tela-lista" data-tela="fontes" aria-label="Fontes importadas" hidden>
+        <div id="fontes-conteudo"></div>
       </section>
 
       <section class="tela tela-lista" data-tela="playbook" aria-label="Playbook" hidden>
