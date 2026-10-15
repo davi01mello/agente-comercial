@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 
 from app import dominio
-from app.models import FONTES, SECOES, STATUS, TIPOS, TIPOS_RELACAO
+from app.models import FONTES, SECOES, STATUS, STATUS_FONTE, TIPOS, TIPOS_RELACAO
 
 # Valores permitidos: a lista mora em app/models.py (fonte única). Valor fora da lista -> 422 automático.
 Tipo = Literal[*TIPOS]
@@ -13,6 +13,7 @@ Secao = Literal[*SECOES]
 Status = Literal[*STATUS]
 Fonte = Literal[*FONTES]
 TipoRelacao = Literal[*TIPOS_RELACAO]
+StatusFonte = Literal[*STATUS_FONTE]
 
 # Segmento é texto livre, mas gravado numa forma única: "Saúde", "saude" e " SAUDE " viram "saúde", e assim batem
 # na busca por relações e nos filtros (regras em dominio.normalizar_segmento; decisão no ADR-003).
@@ -198,3 +199,61 @@ class RejeitarIn(AprovarIn):
     """
 
     motivo: str | None = Field(default=None, max_length=2000)
+
+
+# --- fontes (a tela de Fontes) ----------------------------------------------------------------
+
+class FiltroFontes(BaseModel):
+    """Query string de GET /fontes. Ex.: /fontes?status=pulada_dado_pessoal&q=proposta"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: StatusFonte | None = None
+    origem: str | None = Field(default=None, max_length=20)
+    q: str | None = Field(default=None, max_length=100, description="parte do título")
+    limit: int = Field(default=50, ge=1, le=200)
+    offset: int = Field(default=0, ge=0)
+
+
+class FonteOut(BaseModel):
+    """Uma página importada, como a tela mostra. Nunca leva o texto (`markdown`): só o que identifica e o estado."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    origem: str
+    titulo: str
+    url: str
+    status: StatusFonte
+    editado_em: datetime
+    importado_em: datetime
+    itens: dict[str, int] = {}  # itens que o curador propôs a partir dela: status do item -> quantos
+
+
+class ListaFontes(BaseModel):
+    itens: list[FonteOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class ExecucaoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    inicio: datetime
+    fim: datetime | None = None  # None: ainda roda, ou caiu no meio
+    paginas_lidas: int
+    paginas_novas: int
+    paginas_alteradas: int
+    paginas_falhas: int
+
+
+class ResumoFontes(BaseModel):
+    """GET /fontes/resumo: os números do topo da tela de Fontes."""
+
+    total: int
+    por_status: dict[str, int]
+    por_origem: dict[str, int]
+    ultima_execucao: ExecucaoOut | None = None
+

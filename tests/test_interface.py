@@ -30,3 +30,19 @@ def test_js_nao_usa_innerhtml_com_texto_de_fora():
     codigo = re.sub(r"/\*.*?\*/", "", js, flags=re.S)  # tira os comentários de bloco
     usos = [linha.strip() for linha in codigo.splitlines() if "innerHTML" in linha]
     assert all("orbe(" in u for u in usos), usos
+
+
+def test_tela_de_fontes_esta_no_menu_e_na_pagina():
+    with TestClient(app) as client:
+        pagina = client.get("/").text
+        js = client.get("/static/cerebro.js").text
+    assert 'data-tela="fontes"' in pagina and 'href="#fontes"' in pagina
+    assert '"/fontes/resumo"' in js and '"/fontes?limit=200"' in js
+
+
+def test_fila_mostra_tambem_o_historico_a_validar():
+    """Os itens que a importação do Notion propõe entram como historico_a_validar: a Fila precisa mostrá-los."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert 'i.status === "proposto" || i.status === "historico_a_validar"' in js
+

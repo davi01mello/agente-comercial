@@ -16,19 +16,24 @@ from sqlalchemy.orm import Session
 
 from app import curadoria, dominio, knowledge, llm
 from app.db import get_db
-from app.models import HistoricoStatus, Insight, Relacao
+from app.models import ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Relacao
 from app.schemas import (
     AprovarIn,
     ChatIn,
     ChatOut,
+    ExecucaoOut,
+    FiltroFontes,
     FiltroInsights,
+    FonteOut,
     InsightCreate,
     InsightOut,
+    ListaFontes,
     ListaInsights,
     PropostaCuradoria,
     RegistrarIn,
     RejeitarIn,
     RelacaoOut,
+    ResumoFontes,
 )
 
 # Logs do app (app.llm, app.knowledge...) no terminal, ao lado dos do uvicorn. O uvicorn só configura os loggers
@@ -236,3 +241,57 @@ def _mudar_status(db: Session, insight_id: int, para: str, por_quem: str, motivo
     db.refresh(item)  # lê do banco o status novo
     relacoes = list(db.scalars(select(Relacao).where(Relacao.insight_id == insight_id)))
     return _para_saida(item, relacoes)
+
+
+# --- fontes ---------------------------------------------------------------------------------
+# Só leitura: quem traz as páginas é o scripts/importar_notion.py. Estas rotas alimentam a tela de Fontes.
+# Nunca devolvem o texto das páginas (`markdown`), só título, link, estado e quantos itens saíram delas.
+
+@app.get("/fontes", response_model=ListaFontes)
+def listar_fontes(filtro: Annotated[FiltroFontes, Query()], db: Db):
+    """Páginas importadas, as editadas mais recentemente primeiro, com os itens que o curador tirou de cada uma."""
+    consulta = select(Fonte)
+    if filtro.status:
+        consulta = consulta.where(Fonte.status == filtro.status)
+    if filtro.origem:
+        consulta = consulta.where(Fonte.origem == filtro.origem)
+    if filtro.q:
+        consulta = consulta.where(func.lower(Fonte.titulo).contains(filtro.q.lower(), autoescape=True))
+
+    total = db.scalar(select(func.count()).select_from(consulta.subquery()))
+    pagina = consulta.order_by(Fonte.editado_em.desc(), Fonte.id.desc()).limit(filtro.limit).offset(filtro.offset)
+    fontes = list(db.scalars(pagina))
+
+    # Itens gerados por cada fonte da página, numa consulta só (o item guarda a url da fonte em fonte_ref)
+    itens_por_url: dict[str, dict[str, int]] = {}
+    if fontes:
+        linhas = db.execute(
+            select(Insight.fonte_ref, Insight.status, func.count())
+            .where(Insight.fonte_ref.in_([f.url for f in fontes]))
+            .group_by(Insight.fonte_ref, Insight.status)
+        )
+        for url, status, quantos in linhas:
+            itens_por_url.setdefault(url, {})[status] = quantos
+
+    saida = []
+    for f in fontes:
+        item = FonteOut.model_validate(f)
+        item.itens = itens_por_url.get(f.url, {})
+        saida.append(item)
+    return ListaFontes(itens=saida, total=total, limit=filtro.limit, offset=filtro.offset)
+
+
+@app.get("/fontes/resumo", response_model=ResumoFontes)
+def resumo_fontes(db: Db):
+    """Os números do topo da tela: quantas páginas em cada estado, por origem, e a última sincronização."""
+    por_status = dict(db.execute(select(Fonte.status, func.count()).group_by(Fonte.status)).all())
+    por_origem = dict(db.execute(select(Fonte.origem, func.count()).group_by(Fonte.origem)).all())
+    recentes = select(ExecucaoImportacao).order_by(ExecucaoImportacao.inicio.desc(), ExecucaoImportacao.id.desc())
+    ultima = db.scalar(recentes.limit(1))
+    return ResumoFontes(
+        total=sum(por_status.values()),
+        por_status=por_status,
+        por_origem=por_origem,
+        ultima_execucao=ExecucaoOut.model_validate(ultima) if ultima else None,
+    )
+
