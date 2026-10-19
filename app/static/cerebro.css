@@ -577,3 +577,11 @@ select option { background: #15163c; color: var(--tinta); }
 .passo-a-passo code { font: 500 12px var(--f-dado); padding: 2px 7px; border-radius: 8px; background: var(--campo); border: 1px solid var(--borda); color: var(--tinta); }
 @media (max-width: 900px) { .fontes-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
+
+/* Fila: aprovar vários de uma vez */
+.barra-lote { position: sticky; top: 8px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 16px; }
+.barra-lote .lote-info { flex: 1 1 180px; color: var(--nevoa); font-size: 13px; }
+.item .sel { display: inline-flex; align-items: center; gap: 8px; width: fit-content; color: var(--nevoa); font-size: 12.5px; cursor: pointer; }
+.item .sel input { width: 18px; height: 18px; accent-color: var(--ciano); cursor: pointer; }
+.item.selecionado { outline: 2px solid var(--ciano); outline-offset: -2px; }
+.item.fonte .motivo-fonte { margin: 0; color: var(--alerta); font-size: 13px; }
