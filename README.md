@@ -48,8 +48,12 @@ rejeitar), **Playbook** (itens validados na ordem do funil) e **Briefing** (pré
 - Com o servidor no ar, a interface usa a API de verdade (selo **Ao vivo** no topo).
 - Sem servidor, ou com `?demo` na URL (`http://127.0.0.1:8000/?demo`), entra no modo **Demonstração**, com a base de
   exemplo fictícia e respostas simuladas. Serve para mostrar o produto sem chave do Gemini.
-- Aprovar e rejeitar chamam `POST /insights/{id}/aprovar` (corpo `{"por_quem"}`) e `POST /insights/{id}/rejeitar`
-  (corpo `{"por_quem", "motivo"}`). Esses endpoints chegam na PR 3; até lá a tela avisa que a ação ainda não existe.
+- Aprovar e rejeitar chamam `POST /insights/{id}/aprovar` (sem corpo) e `POST /insights/{id}/rejeitar` (corpo
+  `{"motivo"}`). Quem aprova, registra ou rejeita é a **pessoa logada** (T5): o servidor pega o nome da sessão.
+- **Login (T5):** só entra quem tem conta Google `@citi.org.br`. No dev, sem `GOOGLE_CLIENT_ID` no `.env`, o login fica
+  desligado e você entra como "Dev local". Para testar o login de verdade, siga "Login: cliente OAuth do Google" em
+  [docs/deploy-railway.md](docs/deploy-railway.md). Em produção (`APP_ENV=prod`) o app não sobe sem ele
+  ([ADR-007](docs/adr-007-login-google.md)).
 - Todo texto do usuário ou do modelo entra na página como texto, nunca como HTML (há um teste que garante isso).
 
 Se mudar o `.env`, reinicie o servidor (o `--reload` só observa arquivos `.py`).
@@ -152,6 +156,7 @@ app/
   importacao_drive.py  importação do Drive (incremental, com teto) e os trechos de busca
   busca.py       busca nos documentos (BM25 em Python): os trechos que o consultor recebe como [DOC-n]
   agendador.py   sincronização automática do Drive (DRIVE_SYNC_INTERVALO_MIN)
+  auth.py        login com a conta Google do CITi (sessão, autor da sessão; toda rota exige login)
   prompts/       prompts em arquivos .md (versionados no Git)
   templates/     página da interface (index.html)
   static/        CSS e JS da interface

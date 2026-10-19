@@ -54,10 +54,7 @@
       <div class="ident" id="ident"></div>
       <div class="acoes">
         <span class="modo" id="modo" data-modo="demo">Conectando…</span>
-        <div class="voce">
-          <label for="autor">Você</label>
-          <input id="autor" autocomplete="name" placeholder="Seu nome" maxlength="100">
-        </div>
+        <div class="voce" id="voce" hidden></div>
       </div>
     </header>
 
@@ -161,6 +158,17 @@
   </button>
   <div id="gaveta-corpo"></div>
 </aside>
+<!-- Entrada (T5): cobre o app enquanto ninguém entrou com a conta Google do CITi. -->
+<div class="entrada-login" id="entrada-login" hidden>
+  <section class="vidro cartao-login" role="dialog" aria-modal="true" aria-labelledby="entrada-titulo">
+    <span class="marca-orbe grande" data-orbe="grande" aria-hidden="true"></span>
+    <h1 id="entrada-titulo">Cérebro Comercial CITi</h1>
+    <p class="entrada-texto">Entre com a sua conta Google do CITi (<b id="entrada-dominio">@citi.org.br</b>) para conversar, registrar e consultar o que o comercial já aprendeu.</p>
+    <p class="entrada-aviso" id="entrada-aviso" role="alert" hidden></p>
+    <a class="btn primario entrada-botao" id="entrada-botao" href="/auth/login">Entrar com o Google</a>
+    <p class="entrada-nota">Só contas do CITi entram. O que você registra fica com o seu nome.</p>
+  </section>
+</div>
 <div class="torradas" id="torradas" aria-live="polite"></div>
 <!-- corpo:fim -->
 <script src="/static/cerebro.js" defer></script>
