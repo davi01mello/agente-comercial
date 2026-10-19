@@ -70,3 +70,12 @@ def test_tela_de_fontes_mostra_o_motivo():
         js = client.get("/static/cerebro.js").text
     assert "f.motivo" in js
     assert "motivo-fonte" in js
+
+
+def test_modo_ao_vivo_nao_mistura_itens_de_exemplo():
+    """Ao vivo só existe o que está no banco: nada de EX-0n na busca, no briefing, na saudação ou nos atalhos."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert js.count("aoVivo() ? estado.itens : [...estado.itens, ...EXEMPLOS]") == 2  # acharItem e baseUtil
+    assert "ATALHOS_CHAT.filter((_, i) => !aoVivo() || i > 0)" in js  # o atalho do caso fictício de hotelaria
+    assert "aoVivo() ? null : el(\"div\", { class: \"exemplos\" }" in js  # relatos de exemplo só na demonstração

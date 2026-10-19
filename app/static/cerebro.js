@@ -464,7 +464,7 @@
     return null;
   }
   function acharItem(codigo) {
-    const todos = [...estado.itens, ...EXEMPLOS];
+    const todos = aoVivo() ? estado.itens : [...estado.itens, ...EXEMPLOS];  // ao vivo: só o que existe no banco
     return todos.find((i) => i.codigo === codigo) || null;
   }
   function itemPorId(id, origem) {
@@ -715,9 +715,13 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     const caixa = $("#mensagens");
     caixa.replaceChildren();
     estado.conversa = [];
+    const exemplo = aoVivo() ? estado.itens.find((i) => i.status === "validado" || i.status === "consolidado") : null;
+    const toque = aoVivo()
+      ? (exemplo ? `Toque numa fonte, como [${exemplo.codigo}], para ver o item inteiro.` : "Quando houver itens aprovados, toque numa fonte para ver o item inteiro.")
+      : "Toque numa fonte, como [EX-02], para ver o item inteiro.";
     adicionarMsg(caixa, {
       papel: "cerebro", quem: "Cérebro",
-      texto: "Oi! Eu respondo com base no que o time registrou e mostro de onde tirei cada ponto. Toque numa fonte, como [EX-02], para ver o item inteiro.",
+      texto: `Oi! Eu respondo com base no que o time aprovou e mostro de onde tirei cada ponto. ${toque}`,
     });
     if (!aoVivo()) {
       const pergunta = ATALHOS_CHAT[0][1];
@@ -857,7 +861,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     if (!p) {
       f.append(vazio("O rascunho aparece aqui",
         "Conte o que aconteceu no campo ao lado. O curador preenche tipo, seção, segmento e evidência, e você ajusta antes de enviar para a Fila.",
-        el("div", { class: "exemplos" },
+        aoVivo() ? null : el("div", { class: "exemplos" },
           el("span", { class: "rotulo", text: "Experimente um destes relatos" }),
           EXEMPLOS_RELATO.map((txt) => el("button", { type: "button", class: "exemplo", text: txt, onclick: () => relatar(txt) })))));
       return;
@@ -1066,7 +1070,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     const idMotivo = `motivo-${it.id}`;
     const motivo = el("div", { class: "motivo", hidden: true },
       el("label", { class: "rotulo", for: idMotivo, text: "Motivo da rejeição" }),
-      el("textarea", { id: idMotivo, rows: "2", maxlength: "1000", placeholder: "Ex.: duplica o EX-01 e não traz nada novo" }),
+      el("textarea", { id: idMotivo, rows: "2", maxlength: "1000", placeholder: "Ex.: duplica outro item e não traz nada novo" }),
       el("div", { class: "botoes" },
         el("button", { type: "button", class: "btn perigo", onclick: () => decidir(it, "rejeitar", $(`#${idMotivo}`).value) }, "Confirmar rejeição"),
         el("button", { type: "button", class: "btn fantasma", onclick: () => { motivo.hidden = true; } }, "Cancelar")));
@@ -1378,7 +1382,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
   }
   function baseUtil() {
     const vistos = new Set();
-    return [...estado.itens, ...EXEMPLOS].filter((i) => {
+    return (aoVivo() ? estado.itens : [...estado.itens, ...EXEMPLOS]).filter((i) => {
       if (vistos.has(i.codigo) || !["validado", "consolidado"].includes(i.status)) return false;
       vistos.add(i.codigo);
       return true;
@@ -1474,8 +1478,6 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     const formChat = $("#form-chat");
     ligarCampo($("#campo-chat"), formChat);
     formChat.addEventListener("submit", (e) => { e.preventDefault(); perguntar($("#campo-chat").value); });
-    $("#atalhos-chat").append(...ATALHOS_CHAT.map(([rotulo, texto, cor]) =>
-      el("button", { type: "button", class: "atalho", style: `--c:${cor}`, onclick: () => perguntar(texto) }, el("span", { class: "ponto" }), rotulo)));
 
     const formReg = $("#form-reg");
     ligarCampo($("#campo-reg"), formReg);
@@ -1488,6 +1490,13 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharGaveta(); });
   }
 
+  function pintarAtalhosChat() {
+    // O 1º atalho é sobre o caso fictício de hotelaria: só existe na demonstração.
+    const atalhos = ATALHOS_CHAT.filter((_, i) => !aoVivo() || i > 0);
+    $("#atalhos-chat").replaceChildren(...atalhos.map(([rotulo, texto, cor]) =>
+      el("button", { type: "button", class: "atalho", style: `--c:${cor}`, onclick: () => perguntar(texto) }, el("span", { class: "ponto" }), rotulo)));
+  }
+
   async function iniciar() {
     pintarOrbes();
     cena.iniciar();
@@ -1495,6 +1504,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     pintarTopo("conversar");
     estado.modo = await detectarModo();
     pintarModo();
+    pintarAtalhosChat();
     if (aoVivo()) estado.itens = [];
     await carregarItens();
     atualizarNumeros();
