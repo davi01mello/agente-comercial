@@ -20,7 +20,7 @@ def recebido(monkeypatch):
     """Troca o llm.consultar por um falso que anota o que recebeu. Lista vazia = o modelo nem foi chamado."""
     chamadas = []
 
-    def consultar_falso(mensagem, historico, base):
+    def consultar_falso(mensagem, historico, base, documentos=""):
         chamadas.append({"mensagem": mensagem, "historico": historico, "base": base})
         return "Proponha um piloto [INS-2]."
 
@@ -37,7 +37,7 @@ def test_chat_ok(client, recebido):
     r = client.post("/chat", json={"mensagem": "E se disser que está caro?", "historico": historico})
 
     assert r.status_code == 200
-    assert r.json() == {"resposta": "Proponha um piloto [INS-2]."}
+    assert r.json() == {"resposta": "Proponha um piloto [INS-2].", "documentos": []}
     assert recebido[0]["mensagem"] == "E se disser que está caro?"
     assert recebido[0]["historico"] == historico
 
@@ -85,7 +85,7 @@ def test_fala_do_modelo_nao_e_conferida(client, recebido):
 
 
 def test_chat_erro_llm_vira_502(client, monkeypatch):
-    def consultar_com_erro(mensagem, historico, base):
+    def consultar_com_erro(mensagem, historico, base, documentos=""):
         raise llm.ErroLLM("A chave do Gemini é inválida.")
 
     monkeypatch.setattr(llm, "consultar", consultar_com_erro)

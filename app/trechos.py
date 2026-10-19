@@ -73,11 +73,17 @@ def _juntar(unidades: list[str], capacidade: int, separador: str) -> list[str]:
     return grupos
 
 
-def dividir(titulo: str, markdown: str) -> list[Trecho]:
-    """Os trechos de uma página. Página sem texto devolve [] (quem chama decide o que fazer com ela)."""
+def quebrar(texto: str, capacidade: int) -> list[str]:
+    """Pedaços de até `capacidade` caracteres, cortados em parágrafo ou linha (a busca do Drive usa)."""
+    return _quebrar(texto, capacidade)
+
+
+def dividir(titulo: str, markdown: str, rotulo: str = "Página do Notion") -> list[Trecho]:
+    """Os trechos de uma página. Página sem texto devolve [] (quem chama decide o que fazer com ela). `rotulo` é o
+    começo do cabeçalho de contexto ("Documento do Drive: título")."""
     if not markdown.strip():
         return []
-    cabecalho = f"Página do Notion: {_cortar(titulo, _TITULO_NO_CABECALHO)}"
+    cabecalho = f"{rotulo}: {_cortar(titulo, _TITULO_NO_CABECALHO)}"
     if len(cabecalho) + 2 + len(markdown) <= LIMITE_TRECHO:
         return [Trecho(texto=f"{cabecalho}\n\n{markdown}", parte=1, total=1)]
 

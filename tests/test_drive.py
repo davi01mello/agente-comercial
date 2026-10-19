@@ -1,0 +1,246 @@
+"""LeitorDrive (app/drive.py) com a SessaoFalsa de tests/drive_falso.py: a lista recursiva, a paginação, as novas
+tentativas, os erros e o download em blocos. Sem rede e sem Google."""
+import json
+from datetime import datetime
+
+import pytest
+
+from app import drive
+from app.drive import API, ErroDrive, LeitorDrive
+from app.extrair_texto import MIME_DOCX, MIME_PDF
+from tests.drive_falso import RespostaFalsa, SessaoFalsa, atalho, item, pasta
+
+RAIZ = "raiz123"
+GOOGLE_DOC = "application/vnd.google-apps.document"
+
+
+@pytest.fixture(autouse=True)
+def sem_espera(monkeypatch):
+    esperas = []
+    monkeypatch.setattr(drive, "_dormir", esperas.append)
+    return esperas
+
+
+@pytest.fixture
+def sessao():
+    return SessaoFalsa()
+
+
+@pytest.fixture
+def leitor(sessao):
+    return LeitorDrive(RAIZ, sessao=sessao)
+
+
+def test_lista_as_subpastas_com_o_caminho_e_o_link(sessao, leitor):
+    sessao.pastas[RAIZ] = [[pasta("p1", "Resumo Comercial"), item("a1", "solto.docx", MIME_DOCX)]]
+    sessao.pastas["p1"] = [[item("a2", "guia.pdf", MIME_PDF, tamanho=2048, md5="abc"), pasta("p2", "Antigos")]]
+    sessao.pastas["p2"] = [[item("a3", "velho.pdf", MIME_PDF)]]
+
+    busca = leitor.arquivos()
+
+    assert busca.completa
+    por_id = {a.id: a for a in busca.arquivos}
+    assert set(por_id) == {"a1", "a2", "a3"}
+    assert por_id["a1"].caminho == () and por_id["a1"].categoria is None
+    assert por_id["a2"].caminho == ("Resumo Comercial",) and por_id["a2"].categoria == "Resumo Comercial"
+    assert por_id["a3"].categoria == "Resumo Comercial / Antigos"
+    assert (por_id["a2"].tamanho, por_id["a2"].md5, por_id["a2"].mime) == (2048, "abc", MIME_PDF)
+    assert por_id["a2"].url == "https://drive.google.com/file/d/a2/view"
+    assert por_id["a2"].modificado_em == datetime(2026, 10, 13, 7, 59, 22)  # UTC, sem fuso, como o banco guarda
+
+
+def test_pergunta_pelos_filhos_da_pasta_sem_a_lixeira_e_com_drives_compartilhados(sessao, leitor):
+    leitor.arquivos()
+
+    [(url, params)] = sessao.pedidos
+    assert url == API
+    assert params["q"] == f"'{RAIZ}' in parents and trashed = false"
+    assert params["supportsAllDrives"] == "true" and params["includeItemsFromAllDrives"] == "true"
+
+
+def test_atalhos_ficam_de_fora_e_nao_sao_seguidos(sessao, leitor):
+    sessao.pastas[RAIZ] = [[atalho("s1", "atalho"), item("a1", "x.docx", MIME_DOCX)]]
+
+    assert [a.id for a in leitor.arquivos().arquivos] == ["a1"]
+
+
+def test_pagina_ate_acabar(sessao, leitor):
+    sessao.pastas[RAIZ] = [[item("a1", "1.docx", MIME_DOCX)], [item("a2", "2.docx", MIME_DOCX)],
+                           [item("a3", "3.docx", MIME_DOCX)]]
+
+    busca = leitor.arquivos()
+
+    assert [a.id for a in busca.arquivos] == ["a1", "a2", "a3"]
+    assert [p.get("pageToken") for _, p in sessao.pedidos] == [None, "1", "2"]
+    assert leitor.requisicoes == 3
+
+
+def test_limite_corta_a_lista_e_ela_sai_incompleta(sessao, leitor):
+    sessao.pastas[RAIZ] = [[item(f"a{i}", f"{i}.docx", MIME_DOCX) for i in range(5)]]
+
+    busca = leitor.arquivos(limite=2)
+
+    assert [a.id for a in busca.arquivos] == ["a0", "a1"] and not busca.completa
+
+
+def test_limite_igual_ao_total_nao_marca_incompleta(sessao, leitor):
+    sessao.pastas[RAIZ] = [[item("a1", "1.docx", MIME_DOCX), item("a2", "2.docx", MIME_DOCX)]]
+
+    assert leitor.arquivos(limite=2).completa
+
+
+def test_pasta_dentro_dela_mesma_nao_faz_laco(sessao, leitor):
+    sessao.pastas[RAIZ] = [[pasta("p1", "A")]]
+    sessao.pastas["p1"] = [[pasta(RAIZ, "volta"), pasta("p1", "ela mesma"), item("a1", "x.docx", MIME_DOCX)]]
+
+    assert [a.id for a in leitor.arquivos().arquivos] == ["a1"]
+
+
+def test_subpasta_que_nao_abre_deixa_a_lista_incompleta_mas_nao_derruba(sessao, leitor):
+    sessao.pastas[RAIZ] = [[pasta("p1", "Fechada"), item("a1", "x.docx", MIME_DOCX)]]
+    pedir = sessao.get
+
+    def get(url, params=None, stream=False, timeout=None):
+        if "'p1'" in (params or {}).get("q", ""):
+            return RespostaFalsa(status=403)  # a raiz responde normal; só a subpasta recusa
+        return pedir(url, params, stream, timeout)
+
+    sessao.get = get
+
+    busca = leitor.arquivos()
+
+    assert [a.id for a in busca.arquivos] == ["a1"] and not busca.completa
+
+
+def test_raiz_sem_acesso_levanta_com_o_que_fazer(sessao, leitor):
+    sessao.programadas = [RespostaFalsa(status=403)]
+
+    with pytest.raises(ErroDrive, match="compartilhada com o e-mail da conta de serviço") as erro:
+        leitor.arquivos()
+
+    assert erro.value.status == 403
+
+
+def test_pasta_inexistente_diz_para_conferir_o_id(sessao, leitor):
+    sessao.programadas = [RespostaFalsa(status=404)]
+
+    with pytest.raises(ErroDrive, match="DRIVE_PASTA_ID"):
+        leitor.arquivos()
+
+
+def test_429_e_5xx_tentam_de_novo_com_espera_crescente(sessao, leitor, sem_espera):
+    sessao.pastas[RAIZ] = [[item("a1", "x.docx", MIME_DOCX)]]
+    sessao.programadas = [RespostaFalsa(status=429), RespostaFalsa(status=503), RespostaFalsa(status=500)]
+
+    assert [a.id for a in leitor.arquivos().arquivos] == ["a1"]
+    assert sem_espera == [1.0, 2.0, 4.0] and leitor.requisicoes == 4
+
+
+def test_desiste_depois_de_quatro_tentativas(sessao, leitor):
+    sessao.programadas = [RespostaFalsa(status=503)] * 4
+
+    with pytest.raises(ErroDrive, match="erro \\(503\\)"):
+        leitor.arquivos()
+
+    assert leitor.requisicoes == 4
+
+
+def test_rede_que_cai_tenta_de_novo_e_depois_desiste_so_com_o_tipo(sessao, leitor, sem_espera):
+    sessao.programadas = [ConnectionError("SEGREDO") for _ in range(4)]
+
+    with pytest.raises(ErroDrive) as erro:
+        leitor.arquivos()
+
+    assert "ConnectionError" in str(erro.value) and "SEGREDO" not in str(erro.value)
+    assert len(sem_espera) == 3
+
+
+def test_4xx_nao_tenta_de_novo(sessao, leitor):
+    sessao.programadas = [RespostaFalsa(status=400)]
+
+    with pytest.raises(ErroDrive):
+        leitor.arquivos()
+
+    assert leitor.requisicoes == 1
+
+
+# --- baixar --------------------------------------------------------------------------------------------------
+
+def arquivo_do_drive(sessao, leitor, mime=MIME_PDF, conteudo=b"x"):
+    sessao.pastas[RAIZ] = [[item("a1", "doc", mime)]]
+    sessao.corpos["a1"] = conteudo
+    sessao.corpos["a1/export"] = conteudo
+    return leitor.arquivos().arquivos[0]
+
+
+def test_baixa_em_blocos_para_o_disco_e_fecha_a_resposta(sessao, leitor, tmp_path, monkeypatch):
+    monkeypatch.setattr(drive, "BLOCO", 4)
+    arquivo = arquivo_do_drive(sessao, leitor, conteudo=b"0123456789")
+
+    leitor.baixar(arquivo, tmp_path / "saida")
+
+    assert (tmp_path / "saida").read_bytes() == b"0123456789"
+    url, params = sessao.pedidos[-1]
+    assert url == f"{API}/a1" and params["alt"] == "media" and params["supportsAllDrives"] == "true"
+
+
+def test_documento_do_google_e_exportado_como_texto(sessao, leitor, tmp_path):
+    arquivo = arquivo_do_drive(sessao, leitor, mime=GOOGLE_DOC, conteudo="Olá".encode())
+
+    leitor.baixar(arquivo, tmp_path / "saida")
+
+    url, params = sessao.pedidos[-1]
+    assert url == f"{API}/a1/export" and params == {"mimeType": "text/plain"}
+    assert (tmp_path / "saida").read_bytes() == "Olá".encode()
+
+
+def test_planilha_do_google_e_exportada_como_csv(sessao, leitor, tmp_path):
+    arquivo = arquivo_do_drive(sessao, leitor, mime="application/vnd.google-apps.spreadsheet")
+
+    leitor.baixar(arquivo, tmp_path / "saida")
+
+    assert sessao.pedidos[-1][1] == {"mimeType": "text/csv"}
+
+
+def test_download_com_erro_levanta(sessao, leitor, tmp_path):
+    arquivo = arquivo_do_drive(sessao, leitor)
+    sessao.programadas = [RespostaFalsa(status=404)]
+
+    with pytest.raises(ErroDrive):
+        leitor.baixar(arquivo, tmp_path / "saida")
+
+    assert not (tmp_path / "saida").exists()
+
+
+# --- configuração --------------------------------------------------------------------------------------------
+
+def test_sem_pasta_no_env_diz_qual_variavel_falta(monkeypatch):
+    monkeypatch.setattr(drive.settings, "drive_pasta_id", "")
+
+    with pytest.raises(ErroDrive, match="DRIVE_PASTA_ID"):
+        LeitorDrive(sessao=SessaoFalsa())
+
+
+def test_sem_credencial_diz_as_duas_variaveis(monkeypatch):
+    monkeypatch.setattr(drive.settings, "google_service_account_json", "")
+    monkeypatch.setattr(drive.settings, "google_application_credentials", "")
+
+    with pytest.raises(ErroDrive, match="GOOGLE_APPLICATION_CREDENTIALS.*GOOGLE_SERVICE_ACCOUNT_JSON"):
+        LeitorDrive(RAIZ)
+
+
+def test_credencial_ilegivel_nao_vaza_pedaco_da_chave():
+    with pytest.raises(ErroDrive) as erro:
+        LeitorDrive(RAIZ, credenciais_json='{"private_key": "SEGREDO-DA-CHAVE", ')
+
+    assert "JSON da conta de serviço" in str(erro.value) and "SEGREDO" not in str(erro.value)
+
+
+def test_credencial_por_arquivo_que_nao_existe():
+    with pytest.raises(ErroDrive, match="FileNotFoundError"):
+        LeitorDrive(RAIZ, caminho_credenciais="/nao/existe/chave.json")
+
+
+def test_credencial_json_sem_os_campos_da_conta_de_servico():
+    with pytest.raises(ErroDrive, match="MalformedError"):
+        LeitorDrive(RAIZ, credenciais_json=json.dumps({"type": "service_account"}))

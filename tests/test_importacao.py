@@ -143,9 +143,9 @@ def test_motivo_gravado_em_cada_pulada_e_vazio_nas_outras(rodar, db):
 
 
 def test_motivo_longo_e_cortado_no_tamanho_da_coluna():
-    assert importacao._motivo("") is None
-    assert importacao._motivo("e-mail no conteúdo") == "e-mail no conteúdo"
-    cortado = importacao._motivo("x" * 500)
+    assert importacao.motivo_da_coluna("") is None
+    assert importacao.motivo_da_coluna("e-mail no conteúdo") == "e-mail no conteúdo"
+    cortado = importacao.motivo_da_coluna("x" * 500)
     assert len(cortado) == MOTIVO_MAX and cortado.endswith("…")
 
 

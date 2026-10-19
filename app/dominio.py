@@ -99,6 +99,12 @@ def _achar_dados_pessoais(campos: dict[str, str | None]) -> list[tuple[str, str]
     return achados
 
 
+def tipos_de_dados_pessoais(texto: str) -> list[str]:
+    """Os tipos de dado pessoal que o texto tem ("e-mail", "telefone"...), sem repetir e nunca o dado em si. Serve
+    para quem NÃO bloqueia (o Drive, por decisão do time) mas quer avisar na tela de Fontes."""
+    return [tipo for _, tipo in _achar_dados_pessoais({"texto": texto})]
+
+
 def detectar_dados_pessoais(**campos: str | None) -> list[str]:
     """Procura e-mail, CNPJ, CPF e telefone nos campos. NÃO bloqueia: devolve avisos para o humano revisar.
 

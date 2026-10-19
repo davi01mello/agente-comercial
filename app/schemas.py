@@ -128,9 +128,18 @@ class ChatIn(BaseModel):
     historico: list[MensagemHistorico] = Field(default=[], max_length=30)
 
 
+class DocumentoCitavel(BaseModel):
+    """Um documento do Drive que o consultor recebeu para esta pergunta (a tela faz link dos [DOC-n] da resposta)."""
+    id: int
+    titulo: str
+    url: str
+    categoria: str | None = None
+
+
 class ChatOut(BaseModel):
-    """O que POST /chat devolve."""
+    """O que POST /chat devolve. `documentos`: os do Drive que o consultor recebeu (podem ou não estar na resposta)."""
     resposta: str
+    documentos: list[DocumentoCitavel] = []
 
 
 # --- curador --------------------------------------------------------------------------------
@@ -235,7 +244,8 @@ class FonteOut(BaseModel):
     titulo: str
     url: str
     status: StatusFonte
-    motivo: str | None = None  # por que foi pulada, falhou ou saiu do Notion (nunca o dado pessoal em si)
+    categoria: str | None = None  # Drive: a subpasta
+    motivo: str | None = None  # por que foi pulada, falhou ou saiu (nunca o dado pessoal em si)
     editado_em: datetime
     importado_em: datetime
     itens: dict[str, int] = {}  # itens que o curador propôs a partir dela: status do item -> quantos
@@ -252,6 +262,7 @@ class ExecucaoOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    origem: str = "notion"
     inicio: datetime
     fim: datetime | None = None  # None: ainda roda, ou caiu no meio
     paginas_lidas: int
@@ -266,7 +277,8 @@ class ResumoFontes(BaseModel):
     total: int
     por_status: dict[str, int]
     por_origem: dict[str, int]
-    ultima_execucao: ExecucaoOut | None = None
+    ultima_execucao: ExecucaoOut | None = None  # a mais recente, de qualquer origem
+    ultima_por_origem: dict[str, ExecucaoOut] = {}  # a mais recente de cada origem ("notion", "drive")
 
 
 class SincronizarIn(BaseModel):
@@ -303,6 +315,7 @@ class ExecucaoDetalhe(BaseModel):
     """GET /fontes/execucoes/{id}: o que a tela mostra enquanto a importação roda (e depois)."""
 
     id: int
+    origem: str = "notion"
     status: Literal[*STATUS_EXECUCAO]
     fase: Literal[*FASES_EXECUCAO]  # no `erro`, a fase em que a execução caiu
     dry_run: bool

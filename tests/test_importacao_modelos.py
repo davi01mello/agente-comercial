@@ -15,10 +15,11 @@ def colunas(tabela: str) -> set[str]:
 
 
 def test_fontes_tem_os_campos_da_spec_e_o_motivo():
-    """Os campos da spec, mais o `motivo` (pedido do Davi na T4b: a tela de Fontes mostra)."""
+    """Os campos da spec, mais o `motivo` (pedido do Davi na T4b: a tela de Fontes mostra) e a `categoria` (T6: a
+    subpasta do Drive)."""
     assert colunas("fontes") == {
         "id", "origem", "id_externo", "titulo", "url", "markdown", "hash_conteudo", "editado_em", "importado_em",
-        "status", "motivo",
+        "status", "motivo", "categoria",
     }
 
 
@@ -27,7 +28,7 @@ def test_execucoes_tem_os_campos_da_spec_e_os_da_t4c():
     assert colunas("execucoes_importacao") == {
         "id", "inicio", "fim", "paginas_lidas", "paginas_novas", "paginas_alteradas", "paginas_falhas",
         "status", "fase", "dry_run", "paginas_puladas", "paginas_removidas", "paginas_curadas", "insights_propostos",
-        "gasto_usd", "teto_usd", "estimativa_usd", "erro",
+        "gasto_usd", "teto_usd", "estimativa_usd", "erro", "origem",
     }
 
 

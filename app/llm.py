@@ -132,13 +132,17 @@ def _client() -> genai.Client:
     )
 
 
-def _system_consultor(base: str) -> str:
-    """Camadas do agente: instruções (base + consultor) e conhecimento (a base que quem chamou montou)."""
-    return "\n\n".join([
+def _system_consultor(base: str, documentos: str = "") -> str:
+    """Camadas do agente: instruções (base + consultor) e conhecimento (a base que quem chamou montou). Os documentos
+    do Drive (knowledge.montar_documentos), quando a busca achou algum, vão por último e marcados como não revisados."""
+    camadas = [
         carregar_prompt("base"),
         carregar_prompt("consultor"),
         "# BASE DE CONHECIMENTO\n\n" + base,
-    ])
+    ]
+    if documentos:
+        camadas.append("# DOCUMENTOS DO DRIVE (AINDA NÃO REVISADOS)\n\n" + documentos)
+    return "\n\n".join(camadas)
 
 
 def _traduzir_erro(e: errors.APIError, modelo: str) -> str:
@@ -249,11 +253,12 @@ def _mensagem(role: str, texto: str) -> types.Content:
     return types.Content(role=role, parts=[types.Part(text=texto)])
 
 
-def consultar(mensagem: str, historico: list[dict], base: str) -> str:
+def consultar(mensagem: str, historico: list[dict], base: str, documentos: str = "") -> str:
     """Responde como consultor, usando a base de conhecimento e lembrando da conversa.
 
     historico: mensagens anteriores, no formato [{"role": "user" ou "model", "text": "..."}].
     base: o texto da base (knowledge.montar_base), que vai no system_instruction.
+    documentos: os pedaços de documentos do Drive achados para esta pergunta (knowledge.montar_documentos), ou "".
     O que o usuário escreveu vai embrulhado como DADO (_como_dado), como no curador; as falas do modelo, não.
     """
     _checar_chave()
@@ -270,7 +275,7 @@ def consultar(mensagem: str, historico: list[dict], base: str) -> str:
             model=settings.model_consultor,
             contents=contents,
             config=types.GenerateContentConfig(
-                system_instruction=_system_consultor(base),
+                system_instruction=_system_consultor(base, documentos),
                 temperature=0.3,
             ),
         )

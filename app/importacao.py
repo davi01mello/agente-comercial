@@ -39,8 +39,22 @@ from app.trechos import Trecho
 
 logger = logging.getLogger(__name__)
 
-ORIGEM = "notion"
-AUTOR = "importação Notion"  # o autor dos itens importados e o por_quem do histórico: nunca o nome de uma pessoa
+
+
+@dataclass(frozen=True)
+class Origem:
+    """O que muda de uma fonte para outra no pipeline (a triagem e a leitura são de cada uma; o curador é comum)."""
+
+    nome: str  # um de ORIGENS: também é o Insight.fonte dos itens
+    autor: str  # o autor dos itens importados e o por_quem do histórico: nunca o nome de uma pessoa
+    rotulo: str  # "do Notion": o "Importado do Notion (execução #n)" do histórico
+    barra_dado_pessoal: bool  # Notion: dado pessoal nunca vai ao modelo. Drive: decisão do Davi, o texto é privado
+
+
+NOTION = Origem("notion", "importação Notion", "do Notion", barra_dado_pessoal=True)
+DRIVE = Origem("drive", "importação Drive", "do Drive", barra_dado_pessoal=False)
+ORIGEM = NOTION.nome
+AUTOR = NOTION.autor
 FOLGA_DO_TETO = 2  # antes de cada página: gasto real + 2 × a estimativa dela precisa caber no teto (ADR §4.6)
 MIN_CARACTERES = 20  # menos que isso de texto (sem títulos e marcadores): página "vazia", não vai ao modelo
 TITULO_OMITIDO = "(título omitido: tem dado pessoal)"
@@ -173,14 +187,14 @@ def conferir_configuracao(dry_run: bool) -> None:
 
 
 def executar(
-    leitor: LeitorNotion, *, dry_run: bool = False, limite_paginas: int | None = None, teto_usd: float | None = None,
-    execucao_id: int | None = None,
+    leitor, *, dry_run: bool = False, limite_paginas: int | None = None, teto_usd: float | None = None,
+    execucao_id: int | None = None, origem: Origem = NOTION, sincronizar=None,
 ) -> Relatorio:
     """A importação com a própria sessão do banco: a única porta de entrada, para o script e para a API (em segundo
     plano, quando a sessão da requisição já fechou). Os erros são os de `importar`."""
     with SessionLocal() as db:
         return importar(leitor, db, dry_run=dry_run, limite_paginas=limite_paginas, teto_usd=teto_usd,
-                        execucao_id=execucao_id)
+                        execucao_id=execucao_id, origem=origem, sincronizar=sincronizar)
 
 
 def marcar_interrompidas(db: Session) -> int:
@@ -197,23 +211,27 @@ def marcar_interrompidas(db: Session) -> int:
     return resultado.rowcount
 
 
-def nova_execucao(db: Session, *, dry_run: bool = False, teto_usd: float | None = None) -> ExecucaoImportacao:
+def nova_execucao(
+    db: Session, *, dry_run: bool = False, teto_usd: float | None = None, origem: Origem = NOTION
+) -> ExecucaoImportacao:
     """A linha da execução, `rodando`, gravada já: a API devolve o id antes de o trabalho começar."""
-    execucao = ExecucaoImportacao(inicio=_agora(), status="rodando", fase="sincronizando", dry_run=dry_run,
-                                  teto_usd=None if dry_run else teto_usd)
+    execucao = ExecucaoImportacao(origem=origem.nome, inicio=_agora(), status="rodando", fase="sincronizando",
+                                  dry_run=dry_run, teto_usd=None if dry_run else teto_usd)
     db.add(execucao)
     db.commit()
     return execucao
 
 
 def importar(
-    leitor: LeitorNotion, db: Session, *, dry_run: bool = False, limite_paginas: int | None = None,
-    teto_usd: float | None = None, execucao_id: int | None = None,
+    leitor, db: Session, *, dry_run: bool = False, limite_paginas: int | None = None,
+    teto_usd: float | None = None, execucao_id: int | None = None, origem: Origem = NOTION, sincronizar=None,
 ) -> Relatorio:
     """Roda uma importação e a registra em `execucoes_importacao` (o dry-run também, com dry_run=True). Com
     `execucao_id`, usa a execução que a API já criou (nova_execucao); sem ele, cria uma.
 
     O curador só roda fora do dry-run e com `teto_usd` (o script sempre passa um): sem teto, as páginas só esperam.
+    `origem` e `sincronizar` trocam a fonte: o padrão é o Notion (`_sincronizar`); o Drive passa DRIVE e a função de
+    app/importacao_drive.py. O resto (execução, progresso, teto de gasto e curador) é o mesmo.
     Levanta ErroNotion se a lista de páginas não puder ser lida (token inválido, sem rede...). Uma página que falha
     sozinha (no Notion ou no curador) não derruba a execução: vira uma "falha" e é tentada de novo na próxima vez.
     O que derruba a execução a deixa `erro`, com só o tipo do erro (a mensagem pode ter texto de página).
@@ -221,18 +239,18 @@ def importar(
     if teto_usd is not None and teto_usd <= 0:
         raise ValueError("O teto de gasto precisa ser maior que zero.")
     if execucao_id is None:
-        execucao = nova_execucao(db, dry_run=dry_run, teto_usd=teto_usd)
+        execucao = nova_execucao(db, dry_run=dry_run, teto_usd=teto_usd, origem=origem)
     else:
         execucao = db.get(ExecucaoImportacao, execucao_id)
     relatorio = Relatorio(dry_run=dry_run, teto_usd=teto_usd, execucao_id=execucao.id)
     erro = None
     try:
-        _sincronizar(leitor, db, relatorio, limite_paginas, execucao)
+        (sincronizar or _sincronizar)(leitor, db, relatorio, limite_paginas, execucao)
         execucao.estimativa_usd = relatorio.estimativa.custo_usd
         if not dry_run and teto_usd is not None:
             execucao.fase = "curando"
             _gravar_progresso(db, execucao, relatorio)
-            _curar(db, relatorio, teto_usd, execucao)
+            _curar(db, relatorio, teto_usd, execucao, origem)
     except BaseException as e:
         db.rollback()  # o que estava pela metade não entra; a execução é fechada abaixo, numa transação limpa
         erro = _nome_do_erro(e)
@@ -247,7 +265,7 @@ def importar(
             execucao.status, execucao.erro = "erro", erro
         _gravar_progresso(db, execucao, relatorio)
         logger.info(json.dumps({  # só números: nunca título nem texto
-            "evento": "importacao_notion",
+            "evento": f"importacao_{origem.nome}",
             "execucao_id": execucao.id,
             "status": execucao.status,
             "dry_run": dry_run,
@@ -285,7 +303,7 @@ def _gravar_progresso(db: Session, execucao: ExecucaoImportacao, relatorio: Rela
 
 def _nome_do_erro(e: BaseException) -> str:
     """O que a execução guarda do erro: o tipo e, do Notion, o código HTTP. Nunca a mensagem."""
-    status = e.status if isinstance(e, ErroNotion) else None
+    status = getattr(e, "status", None)  # ErroNotion e ErroDrive trazem o código HTTP
     return f"{type(e).__name__} ({status})" if status is not None else type(e).__name__
 
 
@@ -387,11 +405,11 @@ def _sincronizar_pagina(
     fonte.editado_em = editado
     fonte.importado_em = _agora()
     fonte.status = status
-    fonte.motivo = _motivo(motivo)
+    fonte.motivo = motivo_da_coluna(motivo)
     db.commit()
 
 
-def _motivo(texto: str) -> str | None:
+def motivo_da_coluna(texto: str) -> str | None:
     """O motivo como a coluna guarda: vazio vira None, e o longo (um título grande em "mesmo conteúdo de …") é
     cortado no tamanho da coluna (o Postgres recusaria)."""
     if not texto:
@@ -399,10 +417,18 @@ def _motivo(texto: str) -> str | None:
     return texto if len(texto) <= MOTIVO_MAX else texto[: MOTIVO_MAX - 1] + "…"
 
 
+def trechos_da_fonte(fonte: Fonte) -> list[Trecho]:
+    """Os trechos que o curador recebe, refeitos a partir do markdown guardado (o cabeçalho diz de onde vêm)."""
+    if fonte.origem == DRIVE.nome:
+        titulo = f"{fonte.titulo} (pasta {fonte.categoria})" if fonte.categoria else fonte.titulo
+        return trechos.dividir(titulo, fonte.markdown or "", rotulo="Documento do Drive")
+    return trechos.dividir(fonte.titulo, fonte.markdown or "")
+
+
 def _sem_mudanca(fonte: Fonte) -> PaginaLida:
     """Página que não mudou. Se ainda espera o curador (a execução anterior parou no teto, ou ele falhou), os trechos
     vêm junto, refeitos a partir do markdown guardado."""
-    partes = trechos.dividir(fonte.titulo, fonte.markdown or "") if fonte.status in A_CURAR else []
+    partes = trechos_da_fonte(fonte) if fonte.status in A_CURAR else []
     return PaginaLida(fonte.id_externo, fonte.titulo, "sem mudança", fonte.status, trechos=partes)
 
 
@@ -461,29 +487,33 @@ def _conferir_removidas(leitor: LeitorNotion, db: Session, vistas: set[str], rel
             db.commit()
 
 
-def _listar_pendentes(db: Session, vistas: set[str], relatorio: Relatorio) -> None:
+def _listar_pendentes(db: Session, vistas: set[str], relatorio: Relatorio, origem: Origem = NOTION) -> None:
     """Fontes que esperam o curador e não vieram nesta busca (ex.: com --limite-paginas): entram no relatório para
     a estimativa do --dry-run e para o curador saber o que falta. As que já estão no relatório (removidas, ou que
     falharam na conferência) ficam de fora."""
     no_relatorio = vistas | {p.id_externo for p in relatorio.paginas}
     pendentes = db.scalars(
-        select(Fonte).where(Fonte.origem == ORIGEM, Fonte.status.in_(A_CURAR), Fonte.id_externo.not_in(no_relatorio))
+        select(Fonte).where(Fonte.origem == origem.nome, Fonte.status.in_(A_CURAR),
+                            Fonte.id_externo.not_in(no_relatorio))
         .order_by(Fonte.id)
     )
     for fonte in pendentes:
-        partes = trechos.dividir(fonte.titulo, fonte.markdown or "")
+        partes = trechos_da_fonte(fonte)
         relatorio.paginas.append(PaginaLida(fonte.id_externo, fonte.titulo, "pendente", fonte.status, trechos=partes))
 
 
-def _obsoletar_pendentes(db: Session, url: str, motivo: str, relatorio: Relatorio) -> None:
+def _obsoletar_pendentes(
+    db: Session, url: str, motivo: str, relatorio: Relatorio, origem: Origem = NOTION
+) -> None:
     """Os itens da página que ninguém revisou (historico_a_validar) viram `obsoleto`, pela regra do domínio e com
     histórico. Os aprovados (validado, consolidado) não mudam: foram decisão do time; o relatório conta quantos são.
     Não faz commit: entra na mesma transação da mudança da fonte."""
-    itens = list(db.scalars(select(Insight).where(Insight.fonte == ORIGEM, Insight.fonte_ref == url)))
+    itens = list(db.scalars(select(Insight).where(Insight.fonte == origem.nome, Insight.fonte_ref == url)))
     for item in itens:
         if item.status == "historico_a_validar":
             dominio.validar_transicao(item.status, "obsoleto", motivo)
-            db.add(HistoricoStatus(insight_id=item.id, de=item.status, para="obsoleto", por_quem=AUTOR, motivo=motivo))
+            db.add(HistoricoStatus(insight_id=item.id, de=item.status, para="obsoleto", por_quem=origem.autor,
+                                   motivo=motivo))
             item.status = "obsoleto"
             item.motivo_obsolescencia = motivo
             relatorio.obsoletos += 1
@@ -493,7 +523,9 @@ def _obsoletar_pendentes(db: Session, url: str, motivo: str, relatorio: Relatori
 
 # --- curar ----------------------------------------------------------------------------------------------------
 
-def _curar(db: Session, relatorio: Relatorio, teto_usd: float, execucao: ExecucaoImportacao) -> None:
+def _curar(
+    db: Session, relatorio: Relatorio, teto_usd: float, execucao: ExecucaoImportacao, origem: Origem = NOTION
+) -> None:
     """O curador nas fontes que esperam por ele, uma página por vez e dentro do teto de gasto.
 
     Antes de cada página: o gasto real até ali + FOLGA_DO_TETO × a estimativa dela precisa caber no teto. Se não
@@ -508,7 +540,7 @@ def _curar(db: Session, relatorio: Relatorio, teto_usd: float, execucao: Execuca
                 relatorio.esperando = relatorio.a_curar[i:]
                 return
             antes, sem_contagem = gasto.usd, gasto.sem_contagem
-            _curar_pagina(db, pagina, relatorio)
+            _curar_pagina(db, pagina, relatorio, origem)
             custo = gasto.usd - antes
             if gasto.sem_contagem > sem_contagem:  # custo desconhecido: conta como a estimativa (pessimista)
                 custo = max(custo, estimativa)
@@ -516,13 +548,18 @@ def _curar(db: Session, relatorio: Relatorio, teto_usd: float, execucao: Execuca
             _gravar_progresso(db, execucao, relatorio)
 
 
-def _curar_pagina(db: Session, pagina: PaginaLida, relatorio: Relatorio) -> None:
+def _curar_pagina(db: Session, pagina: PaginaLida, relatorio: Relatorio, origem: Origem = NOTION) -> None:
     """Um item por trecho. Tudo ou nada: se um trecho falhar, nenhum item da página entra e ela fica `falha`."""
-    fonte = db.scalar(select(Fonte).where(Fonte.origem == ORIGEM, Fonte.id_externo == pagina.id_externo))
+    fonte = db.scalar(select(Fonte).where(Fonte.origem == origem.nome, Fonte.id_externo == pagina.id_externo))
     try:
-        propostas = [curadoria.propor_lote(t.texto, AUTOR, ORIGEM, fonte.url, db) for t in pagina.trechos]
+        propostas = [
+            curadoria.propor_lote(t.texto, origem.autor, origem.nome, fonte.url, db,
+                                  barrar_dado_pessoal=origem.barra_dado_pessoal)
+            for t in pagina.trechos
+        ]
         for proposta in propostas:  # o item que vai ser GRAVADO também não pode ter dado pessoal
-            curadoria.exigir_item_sem_dados_pessoais(proposta.insight)
+            if origem.barra_dado_pessoal:
+                curadoria.exigir_item_sem_dados_pessoais(proposta.insight)
     except llm.ErroLLM:
         _falhou(db, fonte, pagina, relatorio, "o curador falhou (o Gemini não respondeu direito); tenta de novo")
         return
@@ -531,17 +568,18 @@ def _curar_pagina(db: Session, pagina: PaginaLida, relatorio: Relatorio) -> None
         _falhou(db, fonte, pagina, relatorio, f"o item proposto tem possível dado pessoal ({onde})")
         return
 
-    origem = f"Importado do Notion (execução #{relatorio.execucao_id})"
+    motivo_do_item = f"Importado {origem.rotulo} (execução #{relatorio.execucao_id})"
     for proposta in propostas:
         item = Insight(**proposta.insight.model_dump(), status="historico_a_validar")  # nunca validado
         db.add(item)
         db.flush()  # para ter o item.id
         db.add_all(Relacao(insight_id=item.id, relacionado_id=r.relacionado_id, tipo=r.tipo)
                    for r in proposta.relacoes)
-        db.add(HistoricoStatus(insight_id=item.id, de=None, para="historico_a_validar", por_quem=AUTOR,
-                               motivo=origem))
+        db.add(HistoricoStatus(insight_id=item.id, de=None, para="historico_a_validar", por_quem=origem.autor,
+                               motivo=motivo_do_item))
     fonte.status = "importada"
-    fonte.motivo = None
+    if origem.barra_dado_pessoal:  # no Drive o motivo guarda o aviso de dado pessoal mantido: não se apaga
+        fonte.motivo = None
     db.commit()  # os itens da página e a fonte entram juntos (ou nada entra)
     pagina.status = "importada"
     relatorio.curadas.append(pagina)
@@ -552,7 +590,7 @@ def _falhou(db: Session, fonte: Fonte, pagina: PaginaLida, relatorio: Relatorio,
     db.rollback()  # nada da página foi gravado (o curador não grava), mas a sessão volta limpa
     fonte = db.get(Fonte, fonte.id)
     fonte.status = "falha"
-    fonte.motivo = _motivo(motivo)
+    fonte.motivo = motivo_da_coluna(motivo)
     db.commit()
     pagina.status, pagina.motivo = "falha", motivo
     relatorio.falhas_do_curador.append(pagina)

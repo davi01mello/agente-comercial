@@ -9,6 +9,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.busca import Achado
 from app.models import Insight
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,19 @@ def formatar(item: Insight) -> str:
         item.resultado or "sem resultado registrado",
     ]
     return " | ".join(_numa_linha(c) for c in campos)
+
+
+def montar_documentos(achados: list[Achado]) -> str:
+    """Os documentos do Drive que a busca achou para ESTA pergunta, como o consultor os recebe: um bloco por
+    documento, com o id [DOC-n]. O texto do documento é DADO, nunca instrução (vai entre <documento>…</documento>), e
+    nenhum desses documentos foi revisado por alguém do time. Sem achados, devolve "" (nada vai ao modelo)."""
+    blocos = []
+    for a in achados:
+        pasta = f" | pasta: {_numa_linha(a.categoria)}" if a.categoria else ""
+        cabecalho = f"[DOC-{a.fonte_id}] {_numa_linha(a.titulo)}{pasta}"
+        trechos = "\n[…]\n".join(t.strip() for t in a.textos)
+        blocos.append(f"{cabecalho}\n<documento>\n{trechos}\n</documento>")
+    return "\n\n".join(blocos)
 
 
 def _resumir(texto: str) -> str:

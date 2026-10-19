@@ -2,6 +2,7 @@
 
 As tabelas do banco são criadas e atualizadas pelas migrações: rode `alembic upgrade head` antes.
 """
+import asyncio
 import json
 import logging
 import threading
@@ -17,15 +18,18 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app import curadoria, dominio, importacao, knowledge, llm
+from app import agendador, busca, curadoria, dominio, importacao, importacao_drive, knowledge, llm
+from app.config import settings
 from app.db import SessionLocal, get_db
-from app.models import ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Relacao
+from app.drive import ErroDrive, LeitorDrive
+from app.models import ORIGENS, ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Relacao
 from app.notion import ErroNotion, LeitorNotion
 from app.schemas import (
     AprovarIn,
     ChatIn,
     ChatOut,
     ContagensExecucao,
+    DocumentoCitavel,
     ExecucaoDetalhe,
     ExecucaoOut,
     FiltroFontes,
@@ -61,7 +65,12 @@ async def ciclo_de_vida(_app: FastAPI):
     """Na subida: a execução da importação que ficou `rodando` é de um servidor que parou no meio dela."""
     with SessionLocal() as db:
         importacao.marcar_interrompidas(db)
+    agendada = None
+    if settings.drive_sync_intervalo_min > 0:  # sincronização automática do Drive (DRIVE_SYNC_INTERVALO_MIN)
+        agendada = asyncio.create_task(agendador.laco(_uma_sincronizacao_por_vez))
     yield
+    if agendada is not None:
+        agendada.cancel()
 
 
 app = FastAPI(title="Cérebro Comercial CITi", lifespan=ciclo_de_vida)
@@ -100,11 +109,17 @@ def chat(dados: ChatIn, db: Db):
         raise HTTPException(status_code=422, detail=str(e)) from e
 
     historico = [h.model_dump() for h in dados.historico]
+    achados = busca.buscar(db, busca.consulta_da_conversa(dados.mensagem, historico))  # documentos do Drive
     try:
-        resposta = llm.consultar(dados.mensagem, historico, knowledge.montar_base(db))
+        resposta = llm.consultar(dados.mensagem, historico, knowledge.montar_base(db),
+                                 knowledge.montar_documentos(achados))
     except llm.ErroLLM as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    return ChatOut(resposta=resposta)
+    return ChatOut(
+        resposta=resposta,
+        documentos=[DocumentoCitavel(id=a.fonte_id, titulo=a.titulo, url=a.url, categoria=a.categoria)
+                    for a in achados],
+    )
 
 
 # --- insights -------------------------------------------------------------------------------
@@ -322,11 +337,17 @@ def resumo_fontes(db: Db):
         .order_by(ExecucaoImportacao.inicio.desc(), ExecucaoImportacao.id.desc())
     )
     ultima = db.scalar(recentes.limit(1))
+    por_execucao = {}
+    for nome in ORIGENS:
+        mais_recente = db.scalar(recentes.where(ExecucaoImportacao.origem == nome).limit(1))
+        if mais_recente:
+            por_execucao[nome] = ExecucaoOut.model_validate(mais_recente)
     return ResumoFontes(
         total=sum(por_status.values()),
         por_status=por_status,
         por_origem=por_origem,
         ultima_execucao=ExecucaoOut.model_validate(ultima) if ultima else None,
+        ultima_por_origem=por_execucao,
     )
 
 
@@ -345,18 +366,36 @@ def leitor_notion() -> LeitorNotion:
         raise HTTPException(status_code=503, detail=str(e)) from e
 
 
+def leitor_drive() -> LeitorDrive:
+    """O leitor do Drive da sincronização. Os testes trocam pelo Drive falso (app.dependency_overrides)."""
+    try:
+        return LeitorDrive()
+    except ErroDrive as e:  # falta a pasta ou a credencial no .env
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+
+LEITORES = {"notion": leitor_notion, "drive": leitor_drive}
+
+
+def _criar_leitor(origem: str):
+    """O leitor da origem pedida, só dele: pedir o Drive não exige o NOTION_TOKEN (e vice-versa). Respeita o
+    app.dependency_overrides, que é como os testes põem o Notion e o Drive falsos."""
+    fabrica = LEITORES[origem]
+    return app.dependency_overrides.get(fabrica, fabrica)()
+
+
 @app.post("/fontes/sincronizar", response_model=SincronizarOut, status_code=202)
-def sincronizar_fontes(
-    dados: SincronizarIn, tarefas: BackgroundTasks, db: Db, leitor: Annotated[LeitorNotion, Depends(leitor_notion)]
-):
-    """Começa uma importação do Notion em segundo plano e devolve o id da execução na hora. Acompanhe pelo
-    GET /fontes/execucoes/{id}. As mesmas regras do scripts/importar_notion.py: o dry-run não muda as fontes nem chama
-    o modelo, e o curador para antes de passar do teto. 409 se já houver uma importação (não dry-run) rodando."""
+def sincronizar_fontes(dados: SincronizarIn, tarefas: BackgroundTasks, db: Db):
+    """Começa uma importação (do Notion ou do Drive, pelo campo `origem`) em segundo plano e devolve o id da execução
+    na hora. Acompanhe pelo GET /fontes/execucoes/{id}. As mesmas regras dos scripts/importar_notion.py e
+    scripts/sincronizar_drive.py: o dry-run não muda as fontes nem chama o modelo, e o curador para antes de passar do
+    teto. 409 se já houver uma importação (não dry-run) rodando, de qualquer origem."""
     # T5: exigir papel admin
     try:
         importacao.conferir_configuracao(dados.dry_run)
     except importacao.FaltaConfiguracao as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
+    leitor = _criar_leitor(dados.origem)
 
     with _uma_sincronizacao_por_vez:
         rodando = db.scalar(
@@ -369,7 +408,8 @@ def sincronizar_fontes(
                 status_code=409,
                 detail=f"Já há uma importação rodando (execução #{rodando}). Acompanhe em /fontes/execucoes/{rodando}.",
             )
-        execucao = importacao.nova_execucao(db, dry_run=dados.dry_run, teto_usd=dados.teto_usd)
+        origem = importacao.DRIVE if dados.origem == "drive" else importacao.NOTION
+        execucao = importacao.nova_execucao(db, dry_run=dados.dry_run, teto_usd=dados.teto_usd, origem=origem)
 
     tarefas.add_task(_sincronizar_em_segundo_plano, leitor, execucao.id, dados)
     return SincronizarOut(execucao_id=execucao.id)
@@ -383,7 +423,7 @@ def ver_execucao(execucao_id: int, db: Db):
     if e is None:
         raise HTTPException(status_code=404, detail=f"A execução #{execucao_id} não existe.")
     return ExecucaoDetalhe(
-        id=e.id, status=e.status, fase=e.fase, dry_run=e.dry_run,
+        id=e.id, origem=e.origem, status=e.status, fase=e.fase, dry_run=e.dry_run,
         contagens=ContagensExecucao(
             lidas=e.paginas_lidas, novas=e.paginas_novas, alteradas=e.paginas_alteradas, puladas=e.paginas_puladas,
             removidas=e.paginas_removidas, falhas=e.paginas_falhas, curadas=e.paginas_curadas,
@@ -394,11 +434,12 @@ def ver_execucao(execucao_id: int, db: Db):
     )
 
 
-def _sincronizar_em_segundo_plano(leitor: LeitorNotion, execucao_id: int, dados: SincronizarIn) -> None:
+def _sincronizar_em_segundo_plano(leitor, execucao_id: int, dados: SincronizarIn) -> None:
     """Roda depois que a resposta saiu, com a própria sessão do banco (importacao.executar)."""
+    executar = importacao_drive.executar if dados.origem == "drive" else importacao.executar
     try:
-        importacao.executar(leitor, dry_run=dados.dry_run, limite_paginas=dados.limite_paginas,
-                            teto_usd=dados.teto_usd, execucao_id=execucao_id)
+        executar(leitor, dry_run=dados.dry_run, limite_paginas=dados.limite_paginas, teto_usd=dados.teto_usd,
+                 execucao_id=execucao_id)
     except Exception as e:  # a execução já ficou `erro`, com o tipo; a mensagem pode ter texto de página
         logger.warning(json.dumps({"evento": "sincronizacao_falhou", "execucao_id": execucao_id,
-                                   "erro": type(e).__name__}))
+                                   "origem": dados.origem, "erro": type(e).__name__}))

@@ -27,6 +27,18 @@ uma instrução que foi ignorada.
   Na dúvida, escolha a MENOR. "Acho que vale para todos" é opinião, não padrão.
 - `data_evento`: AAAA-MM-DD se o relato disser a data; senão null. Não deduza a data de hoje.
 
+## Documentos com marcadores de origem
+Alguns textos vêm de documentos do Drive em que cada afirmação termina com um marcador de quem a escreveu. Use o
+marcador para escolher a `evidencia` (na dúvida, a menor) e não o copie para o item:
+- `[Opinião]`, `[opinião]` → evidência 1.
+- `[Experiência]`, `[aconteceu 1x]` → evidência 2 (um caso vivido).
+- `[faço sempre]` → evidência 3 (padrão repetido pelo próprio autor), mas só se o texto não disser o contrário.
+- Evidência 4 só com número medido no texto (taxa, valor, tempo), como sempre.
+Um trecho pode ter vários marcadores: cada item usa o do que ele registra. Se um item junta afirmações de marcadores
+diferentes, use o menor. Texto sem marcador (uma proposta comercial, um briefing de empresa): é o que o CITi escreveu,
+não um aprendizado comprovado: registre a prática ou o argumento que o texto mostra, com evidência 1 ou 2, e avise
+em `avisos` que o texto não traz resultado.
+
 ## Perguntas
 - Se faltar algo importante (principalmente resultado, segmento ou o que foi feito), faça no máximo 2
   perguntas curtas em `perguntas`. Sem pergunta, devolva `perguntas: []`.

@@ -62,30 +62,35 @@ def _dolares(valor: float, casas: int = 4) -> str:
     return "US$ " + f"{valor:.{casas}f}".replace(".", ",")
 
 
-def formatar(relatorio: Relatorio) -> str:
-    """O relatório da execução, como a spec pede: lidas / novas / alteradas / puladas (com motivo) / custo estimado."""
+def formatar(relatorio: Relatorio, fonte: str = "Notion", unidade: str = "Páginas") -> str:
+    """O relatório da execução, como a spec pede: lidas / novas / alteradas / puladas (com motivo) / custo estimado.
+    `fonte` e `unidade` só trocam os nomes ("Drive", "Arquivos"): o scripts/sincronizar_drive.py usa o mesmo."""
     r = relatorio
     linhas = [
         f"SIMULAÇÃO (--dry-run, execução #{r.execucao_id}): nenhuma fonte mudou e o modelo não foi chamado."
-        if r.dry_run else f"Importação do Notion: execução #{r.execucao_id}",
-        f"Páginas lidas: {r.lidas} · novas: {len(r.novas)} · alteradas: {len(r.alteradas)} · "
+        if r.dry_run else f"Importação do {fonte}: execução #{r.execucao_id}",
+        f"{unidade} lidas: {r.lidas} · novas: {len(r.novas)} · alteradas: {len(r.alteradas)} · "
         f"sem mudança: {len(r.sem_mudanca)} · puladas: {len(r.puladas)} · falhas: {len(r.falhas)} · "
         f"removidas: {len(r.removidas)}",
-        f"Requisições ao Notion: {r.requisicoes_notion}",
+        f"Requisições ao {fonte}: {r.requisicoes_notion}",
     ]
     if r.puladas:
         linhas += ["", f"Puladas ({len(r.puladas)}):"]
         linhas += [f"  - {ROTULO[p.status]}: {p.titulo} ({p.motivo})" for p in r.puladas]
+    so_busca = [p for p in r._com("nova", "alterada") if p.status == "so_busca"]
+    if so_busca:
+        linhas += ["", f"Só na busca, não vão ao curador ({len(so_busca)}):"]
+        linhas += [f"  - {p.titulo} ({p.motivo})" for p in so_busca]
     if r.falhas:
         linhas += ["", f"Falhas ({len(r.falhas)}), tentadas de novo na próxima execução:"]
         linhas += [f"  - {p.titulo}: {p.motivo}" for p in r.falhas]
     if r.removidas:
-        linhas += ["", f"Removidas do Notion ({len(r.removidas)}):"]
+        linhas += ["", f"Removidas do {fonte} ({len(r.removidas)}):"]
         linhas += [f"  - {p.titulo} ({p.motivo})" for p in r.removidas]
 
     estimativa = r.estimativa
     n_trechos = sum(len(p.trechos) for p in r.a_curar)
-    linhas += ["", f"Para o curador: {len(r.a_curar)} páginas, {n_trechos} trechos"]
+    linhas += ["", f"Para o curador: {len(r.a_curar)} {unidade.lower()}, {n_trechos} trechos"]
     linhas += [f"  - {p.titulo} ({len(p.trechos)} {'trecho' if len(p.trechos) == 1 else 'trechos'})"
                for p in r.a_curar]
     if r.a_curar:
@@ -93,20 +98,20 @@ def formatar(relatorio: Relatorio) -> str:
         linhas.append(
             f"Custo estimado do curador: {_dolares(estimativa.custo_usd)} (até {estimativa.chamadas} chamadas, "
             f"~{_numero(estimativa.tokens_entrada)} tokens de entrada e ~{_numero(estimativa.tokens_saida)} de saída; "
-            f"média de {_dolares(media)} por página)"
+            f"média de {_dolares(media)} por {unidade.lower().rstrip('s')})"
         )
     if not r.dry_run and r.teto_usd is not None:
-        linhas += _curador(r)
+        linhas += _curador(r, fonte, unidade)
     if r.avisos:
         linhas += ["", "Avisos:"] + [f"  - {aviso}" for aviso in r.avisos]
     return "\n".join(linhas)
 
 
-def _curador(r: Relatorio) -> list[str]:
+def _curador(r: Relatorio, fonte: str = "Notion", unidade: str = "Páginas") -> list[str]:
     """O que o curador fez: itens propostos, custo real × teto, falhas, o que ficou esperando e os obsoletos."""
     linhas = [
         "",
-        f"Curador: {len(r.curadas)} páginas, {r.insights_propostos} itens propostos (na Fila, como "
+        f"Curador: {len(r.curadas)} {unidade.lower()}, {r.insights_propostos} itens propostos (na Fila, como "
         "historico_a_validar: alguém do time revisa)",
         f"Custo real: {_dolares(r.custo_real_usd)} (teto: {_dolares(r.teto_usd, 2)})",
     ]
@@ -114,13 +119,14 @@ def _curador(r: Relatorio) -> list[str]:
         linhas += [f"Falhas do curador ({len(r.falhas_do_curador)}), tentadas de novo na próxima execução:"]
         linhas += [f"  - {p.titulo}: {p.motivo}" for p in r.falhas_do_curador]
     if r.parou_no_teto:
-        linhas.append(f"Parou no teto: {len(r.esperando)} páginas esperando. Rode de novo para continuar (o que já "
-                      "entrou na Fila não se repete).")
+        linhas.append(f"Parou no teto: {len(r.esperando)} {unidade.lower()} esperando. Rode de novo para continuar "
+                      "(o que já entrou na Fila não se repete).")
     if r.obsoletos or r.aprovados_de_paginas_mudadas:
-        linhas.append(f"Páginas que mudaram ou saíram do Notion: {r.obsoletos} itens pendentes viraram obsoletos.")
+        linhas.append(f"{unidade} que mudaram ou saíram do {fonte}: {r.obsoletos} itens pendentes viraram "
+                      "obsoletos.")
     if r.aprovados_de_paginas_mudadas:
-        linhas.append(f"  - {r.aprovados_de_paginas_mudadas} itens JÁ APROVADOS vieram dessas páginas e não mudaram: "
-                      "confira no Playbook se ainda valem.")
+        linhas.append(f"  - {r.aprovados_de_paginas_mudadas} itens JÁ APROVADOS vieram dessas {unidade.lower()} e não "
+                      "mudaram: confira no Playbook se ainda valem.")
     return linhas
 
 
