@@ -589,3 +589,18 @@ select option { background: #15163c; color: var(--tinta); }
 /* Playbook: separador entre os filtros e o "mostrar mais" de cada etapa */
 .filtros .separador { width: 1px; height: 22px; margin: 0 4px; background: var(--borda); }
 .grupo .mais { margin-top: 12px; }
+
+/* Fontes: sincronizar o Notion pela tela */
+.painel.sync { display: grid; gap: 10px; max-width: 980px; margin: 0 0 14px; padding: 16px 20px; }
+.sync-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.sync-teto { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: var(--nevoa); font-size: 12.5px; }
+.sync-teto input { width: 78px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--borda); background: var(--campo); color: var(--tinta); }
+.sync-linha { display: flex; align-items: center; gap: 10px; }
+.sync-num { margin: 0; color: var(--nevoa); font: 400 12.5px var(--f-dado); }
+.sync-final { margin: 0; color: var(--tinta); }
+.sync-final.erro { color: var(--risco); }
+.painel.sync .dica { margin: 0; font: 400 11.5px var(--f-dado); color: var(--apagado); }
+.girando { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--borda-forte); border-top-color: var(--ciano); animation: girar 0.9s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .girando { animation: none; } }
+.rodape-fontes { display: grid; justify-items: start; gap: 8px; max-width: 980px; margin-top: 6px; }
