@@ -520,12 +520,12 @@ def test_erro_inesperado_desfaz_o_que_estava_pela_metade_e_fecha_a_execucao(monk
 
 # --- dry-run --------------------------------------------------------------------------------------------------
 
-def test_dry_run_faz_a_mesma_triagem_sem_gravar_nada(rodar, db):
+def test_dry_run_faz_a_mesma_triagem_sem_gravar_nenhuma_fonte(rodar, db):
     relatorio = rodar(dry_run=True)
 
     assert db.scalar(select(func.count()).select_from(Fonte)) == 0
-    assert db.scalar(select(func.count()).select_from(ExecucaoImportacao)) == 0
-    assert relatorio.execucao_id is None
+    execucao = db.scalar(select(ExecucaoImportacao))  # só a execução é gravada, marcada como dry-run
+    assert (execucao.id, execucao.dry_run, execucao.status) == (relatorio.execucao_id, True, "concluida")
     assert {p.titulo: p.status for p in relatorio.paginas} == ESPERADO_NA_1A_RODADA  # inclusive a duplicata
 
 

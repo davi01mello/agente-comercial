@@ -171,16 +171,17 @@ def test_sem_chave_do_gemini_para_antes_de_ler(monkeypatch, falso, capsys):
 
 # --- dry-run ------------------------------------------------------------------------------------------------
 
-def test_dry_run_nao_grava_nada_e_lista_o_que_faria(falso, capsys):
+def test_dry_run_nao_muda_as_fontes_e_lista_o_que_faria(falso, capsys):
     codigo, saida, _ = rodar(falso, capsys, "--dry-run")
 
     assert codigo == 0
-    assert saida.startswith("SIMULAÇÃO (--dry-run): nada foi gravado e o modelo não foi chamado.")
+    assert saida.startswith("SIMULAÇÃO (--dry-run, execução #")
+    assert "): nenhuma fonte mudou e o modelo não foi chamado." in saida.splitlines()[0]
     assert "Para o curador: 6 páginas, 6 trechos" in saida
     assert "Custo estimado do curador: US$ " in saida
     assert "Curador:" not in saida
     assert contar(Fonte) == 0
-    assert contar(ExecucaoImportacao) == 0
+    assert contar(ExecucaoImportacao) == 1  # a execução fica registrada, com dry_run=True
 
 
 def test_limite_de_paginas_chega_na_importacao(falso, capsys):
@@ -215,7 +216,7 @@ def test_erro_inesperado_nao_mostra_a_mensagem(monkeypatch, falso, capsys):
     def quebrar(*args, **kwargs):
         raise RuntimeError("TEXTO-DE-PAGINA-NO-ERRO")
 
-    monkeypatch.setattr(importar_notion, "importar", quebrar)
+    monkeypatch.setattr(importar_notion, "executar", quebrar)
 
     codigo, saida, erro = rodar(falso, capsys)
 
@@ -235,8 +236,8 @@ def test_estimativa_de_um_trecho_de_3_mil_caracteres_e_comparavel_com_a_do_davi(
 
     assert estimativa.chamadas == 2
     assert estimativa.tokens_entrada == 1976 + 60 + 750 + 1187
-    assert estimativa.tokens_saida == 900
-    assert estimativa.custo_usd == pytest.approx(0.00635, abs=0.00001)
+    assert estimativa.tokens_saida == 1250 + 100
+    assert estimativa.custo_usd == pytest.approx(0.00804, abs=0.00001)
 
 
 def test_estimativa_usa_os_precos_do_env_e_soma_os_trechos(monkeypatch):
@@ -247,7 +248,7 @@ def test_estimativa_usa_os_precos_do_env_e_soma_os_trechos(monkeypatch):
     estimativa = estimar(partes)
 
     assert estimativa.chamadas == 4
-    assert estimativa.custo_usd == pytest.approx((2 * (1976 + 60 + 1000 + 1187) * 1 + 2 * 900 * 10) / 1_000_000)
+    assert estimativa.custo_usd == pytest.approx((2 * (1976 + 60 + 1000 + 1187) * 1 + 2 * 1350 * 10) / 1_000_000)
 
 
 def test_sem_trechos_custo_zero():

@@ -5,17 +5,16 @@
     python -m scripts.importar_notion                       # importa e roda o curador (teto padrão: US$ 1)
     python -m scripts.importar_notion --teto-usd 0.50       # o mesmo, com outro teto de gasto
 
-Precisa de NOTION_TOKEN no .env e, fora do --dry-run, de GEMINI_API_KEY. O --dry-run não grava nada e não chama o
-modelo. Conteúdo REAL do comercial só com a chave PAGA do Gemini (ADR-005 §4.4). O relatório sai no terminal (os
-títulos aparecem nele; título com dado pessoal sai omitido). O log (stderr) tem só números, nunca texto.
+Precisa de NOTION_TOKEN no .env e, fora do --dry-run, de GEMINI_API_KEY. O --dry-run não muda nenhuma fonte e não
+chama o modelo (só a execução fica registrada, com dry_run=True). Conteúdo REAL do comercial só com a chave PAGA do
+Gemini (ADR-005 §4.4). O relatório sai no terminal (os títulos aparecem nele; título com dado pessoal sai omitido). O
+log (stderr) tem só números, nunca texto.
 """
 import argparse
 import logging
 import sys
 
-from app.config import settings
-from app.db import SessionLocal
-from app.importacao import Relatorio, importar
+from app.importacao import FaltaConfiguracao, Relatorio, conferir_configuracao, executar
 from app.notion import ErroNotion, LeitorNotion
 
 ROTULO = {
@@ -46,7 +45,7 @@ def argumentos(args: list[str] | None = None) -> argparse.Namespace:
         description="Importa as páginas do Notion compartilhadas com a integração para a tabela fontes.",
     )
     parser.add_argument("--dry-run", action="store_true",
-                        help="só lista o que faria e estima tokens e custo (não grava nada, não chama o modelo)")
+                        help="só lista o que faria e estima tokens e custo (não muda as fontes, não chama o modelo)")
     parser.add_argument("--limite-paginas", type=_inteiro_positivo, metavar="N",
                         help="lê só as N primeiras páginas (as mais antigas pela data de edição)")
     parser.add_argument("--teto-usd", type=_dolares_positivos, default=1.0, metavar="US$",
@@ -67,8 +66,8 @@ def formatar(relatorio: Relatorio) -> str:
     """O relatório da execução, como a spec pede: lidas / novas / alteradas / puladas (com motivo) / custo estimado."""
     r = relatorio
     linhas = [
-        "SIMULAÇÃO (--dry-run): nada foi gravado e o modelo não foi chamado." if r.dry_run
-        else f"Importação do Notion: execução #{r.execucao_id}",
+        f"SIMULAÇÃO (--dry-run, execução #{r.execucao_id}): nenhuma fonte mudou e o modelo não foi chamado."
+        if r.dry_run else f"Importação do Notion: execução #{r.execucao_id}",
         f"Páginas lidas: {r.lidas} · novas: {len(r.novas)} · alteradas: {len(r.alteradas)} · "
         f"sem mudança: {len(r.sem_mudanca)} · puladas: {len(r.puladas)} · falhas: {len(r.falhas)} · "
         f"removidas: {len(r.removidas)}",
@@ -92,7 +91,7 @@ def formatar(relatorio: Relatorio) -> str:
     if r.a_curar:
         media = estimativa.custo_usd / len(r.a_curar)
         linhas.append(
-            f"Custo estimado do curador: {_dolares(estimativa.custo_usd)} ({estimativa.chamadas} chamadas, "
+            f"Custo estimado do curador: {_dolares(estimativa.custo_usd)} (até {estimativa.chamadas} chamadas, "
             f"~{_numero(estimativa.tokens_entrada)} tokens de entrada e ~{_numero(estimativa.tokens_saida)} de saída; "
             f"média de {_dolares(media)} por página)"
         )
@@ -136,19 +135,16 @@ def _ligar_log() -> None:
 
 
 def main(args: list[str] | None = None, leitor: LeitorNotion | None = None) -> int:
-    """`leitor` serve para os testes (um leitor com o Notion falso). Devolve o código de saída do processo."""
+    """`leitor` serve para os testes (um leitor com o Notion falso). Devolve o código de saída do processo. As
+    regras são as do POST /fontes/sincronizar: as duas portas chamam as mesmas funções de app/importacao.py."""
     opcoes = argumentos(args)
     _ligar_log()
     try:
         leitor = leitor or LeitorNotion()
-        if not opcoes.dry_run and not settings.gemini_api_key:  # antes de ler o Notion: sem a chave, só falharia
-            print("Erro: Falta GEMINI_API_KEY no .env. Sem ela o curador não roda; para só ver o que seria "
-                  "importado, use --dry-run.", file=sys.stderr)
-            return 1
-        with SessionLocal() as db:
-            relatorio = importar(leitor, db, dry_run=opcoes.dry_run, limite_paginas=opcoes.limite_paginas,
-                                 teto_usd=opcoes.teto_usd)
-    except ErroNotion as e:
+        conferir_configuracao(opcoes.dry_run)  # antes de ler o Notion: sem a chave, toda página só falharia
+        relatorio = executar(leitor, dry_run=opcoes.dry_run, limite_paginas=opcoes.limite_paginas,
+                             teto_usd=opcoes.teto_usd)
+    except (ErroNotion, FaltaConfiguracao) as e:
         print(f"Erro: {e}", file=sys.stderr)
         return 1
     except Exception as e:  # a mensagem NÃO é mostrada: ela pode ter texto de página (ex.: os parâmetros de um SQL)
