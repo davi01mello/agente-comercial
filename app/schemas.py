@@ -5,7 +5,17 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 
 from app import dominio
-from app.models import FONTES, ORIGENS, SECOES, STATUS, STATUS_FONTE, TIPOS, TIPOS_RELACAO
+from app.models import (
+    FASES_EXECUCAO,
+    FONTES,
+    ORIGENS,
+    SECOES,
+    STATUS,
+    STATUS_EXECUCAO,
+    STATUS_FONTE,
+    TIPOS,
+    TIPOS_RELACAO,
+)
 
 # Valores permitidos: a lista mora em app/models.py (fonte única). Valor fora da lista -> 422 automático.
 Tipo = Literal[*TIPOS]
@@ -273,3 +283,33 @@ class SincronizarIn(BaseModel):
 
 class SincronizarOut(BaseModel):
     execucao_id: int
+
+
+class ContagensExecucao(BaseModel):
+    """Páginas de cada tipo nesta execução. `puladas` e `removidas` são só as desta execução (as já puladas antes
+    aparecem como "sem mudança", que não tem contagem própria); `falhas` soma as do Notion e as do curador."""
+
+    lidas: int
+    novas: int
+    alteradas: int
+    puladas: int
+    removidas: int
+    falhas: int
+    curadas: int
+    insights_propostos: int
+
+
+class ExecucaoDetalhe(BaseModel):
+    """GET /fontes/execucoes/{id}: o que a tela mostra enquanto a importação roda (e depois)."""
+
+    id: int
+    status: Literal[*STATUS_EXECUCAO]
+    fase: Literal[*FASES_EXECUCAO]  # no `erro`, a fase em que a execução caiu
+    dry_run: bool
+    contagens: ContagensExecucao
+    gasto_usd: float  # o custo real do curador até aqui
+    teto_usd: float | None = None  # None no dry-run
+    estimativa_usd: float | None = None  # o custo estimado do curador para tudo o que espera; None até sincronizar
+    erro: str | None = None  # só o tipo do erro, ou "interrompida"
+    inicio: datetime
+    fim: datetime | None = None

@@ -25,6 +25,8 @@ from app.schemas import (
     AprovarIn,
     ChatIn,
     ChatOut,
+    ContagensExecucao,
+    ExecucaoDetalhe,
     ExecucaoOut,
     FiltroFontes,
     FiltroInsights,
@@ -371,6 +373,25 @@ def sincronizar_fontes(
 
     tarefas.add_task(_sincronizar_em_segundo_plano, leitor, execucao.id, dados)
     return SincronizarOut(execucao_id=execucao.id)
+
+
+@app.get("/fontes/execucoes/{execucao_id}", response_model=ExecucaoDetalhe)
+def ver_execucao(execucao_id: int, db: Db):
+    """Uma execução da importação (pela API ou pelo script): status, fase, contagens, gasto, teto e estimativa. As
+    contagens mudam a cada página enquanto ela roda."""
+    e = db.get(ExecucaoImportacao, execucao_id)
+    if e is None:
+        raise HTTPException(status_code=404, detail=f"A execução #{execucao_id} não existe.")
+    return ExecucaoDetalhe(
+        id=e.id, status=e.status, fase=e.fase, dry_run=e.dry_run,
+        contagens=ContagensExecucao(
+            lidas=e.paginas_lidas, novas=e.paginas_novas, alteradas=e.paginas_alteradas, puladas=e.paginas_puladas,
+            removidas=e.paginas_removidas, falhas=e.paginas_falhas, curadas=e.paginas_curadas,
+            insights_propostos=e.insights_propostos,
+        ),
+        gasto_usd=e.gasto_usd, teto_usd=e.teto_usd, estimativa_usd=e.estimativa_usd, erro=e.erro, inicio=e.inicio,
+        fim=e.fim,
+    )
 
 
 def _sincronizar_em_segundo_plano(leitor: LeitorNotion, execucao_id: int, dados: SincronizarIn) -> None:

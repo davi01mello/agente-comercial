@@ -247,3 +247,71 @@ def test_erro_em_segundo_plano_fica_na_execucao_sem_texto_de_pagina(monkeypatch,
     assert '"evento": "sincronizacao_falhou"' in caplog.text
     assert "TEXTO-DE-PAGINA-NO-ERRO" not in caplog.text
     assert client.post("/fontes/sincronizar", json={"origem": "notion"}).status_code == 202  # não ficou travado
+
+
+# --- GET /fontes/execucoes/{id} -----------------------------------------------------------------------------
+
+def ver(client, execucao_id: int) -> dict:
+    r = client.get(f"/fontes/execucoes/{execucao_id}")
+    assert r.status_code == 200
+    return r.json()
+
+
+def test_execucao_concluida_com_as_contagens_o_gasto_e_a_estimativa(client):
+    execucao_id = client.post("/fontes/sincronizar", json={"origem": "notion"}).json()["execucao_id"]
+
+    e = ver(client, execucao_id)
+
+    assert (e["id"], e["status"], e["fase"], e["dry_run"], e["erro"]) == (execucao_id, "concluida", "fim", False, None)
+    assert e["contagens"] == {"lidas": 10, "novas": 10, "alteradas": 0, "puladas": 4, "removidas": 0, "falhas": 0,
+                              "curadas": 6, "insights_propostos": 6}
+    assert e["gasto_usd"] == pytest.approx(0.006) and e["teto_usd"] == 1.0
+    assert e["estimativa_usd"] > 0
+    assert e["inicio"] and e["fim"]
+
+
+def test_execucao_que_parou_no_teto(monkeypatch, client):
+    """Cada página "custa" US$ 0,50 no curador falso: com teto de US$ 1, duas entram e quatro ficam esperando."""
+    usar(monkeypatch, CuradorDeLote(custo=0.5))
+    execucao_id = client.post("/fontes/sincronizar", json={"origem": "notion", "teto_usd": 1}).json()["execucao_id"]
+
+    e = ver(client, execucao_id)
+
+    assert (e["status"], e["fase"]) == ("parou_no_teto", "fim")
+    assert (e["contagens"]["curadas"], e["gasto_usd"], e["teto_usd"]) == (2, 1.0, 1.0)
+
+
+def test_execucao_com_erro_do_notion(client, falso):
+    falso.falhar("/v1/search", 401)
+    execucao_id = client.post("/fontes/sincronizar", json={"origem": "notion"}).json()["execucao_id"]
+
+    e = ver(client, execucao_id)
+
+    assert (e["status"], e["fase"], e["erro"]) == ("erro", "sincronizando", "ErroNotion (401)")
+    assert e["contagens"]["lidas"] == 0 and e["estimativa_usd"] is None and e["fim"]
+    assert TOKEN_DE_TESTE not in str(e)
+
+
+def test_execucao_do_dry_run(client):
+    execucao_id = client.post("/fontes/sincronizar", json={"origem": "notion", "dry_run": True}).json()["execucao_id"]
+
+    e = ver(client, execucao_id)
+
+    assert (e["status"], e["dry_run"], e["teto_usd"], e["gasto_usd"]) == ("concluida", True, None, 0.0)
+    assert e["contagens"]["curadas"] == 0 and e["estimativa_usd"] > 0
+
+
+def test_execucao_rodando_mostra_o_progresso(client):
+    """Enquanto roda, o GET mostra o que já foi gravado (aqui, a execução que ficou parada no banco)."""
+    execucao_id = rodando()
+
+    e = ver(client, execucao_id)
+
+    assert (e["status"], e["fase"], e["fim"], e["estimativa_usd"]) == ("rodando", "sincronizando", None, None)
+
+
+def test_execucao_que_nao_existe_e_404(client):
+    r = client.get("/fontes/execucoes/999999")
+
+    assert r.status_code == 404
+    assert r.json()["detail"] == "A execução #999999 não existe."
