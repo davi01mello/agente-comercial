@@ -66,14 +66,14 @@ com o que o time aprovou. Decisões no `docs/adr-005-importacao-notion.md`.
 
 1. Coloque o token da integração no `.env` (`NOTION_TOKEN=`, nunca no chat). A integração só enxerga as páginas
    compartilhadas com ela: no Notion, ••• → Connections → a integração. As subpáginas vão junto.
-2. Primeiro, uma simulação (não grava nada e não chama o modelo):
+2. Primeiro, uma simulação (não muda nenhuma fonte e não chama o modelo; só a execução fica registrada):
 
    ```bash
    python -m scripts.importar_notion --dry-run
    ```
 
-3. Depois, de verdade, com o curador (precisa de `GEMINI_API_KEY`). O teto padrão é US$ 1; `--teto-usd 0.50` muda,
-   e `--limite-paginas N` lê só as N primeiras:
+3. Depois, de verdade, com o curador. Precisa de `GEMINI_API_KEY` com a **chave paga** (veja abaixo). O teto padrão
+   é US$ 1; `--teto-usd 0.50` muda, e `--limite-paginas N` lê só as N primeiras:
 
    ```bash
    python -m scripts.importar_notion
@@ -82,6 +82,22 @@ com o que o time aprovou. Decisões no `docs/adr-005-importacao-notion.md`.
    O curador propõe um item por trecho, e os itens entram na Fila como `historico_a_validar`, com o link da página.
    Se o próximo passo não couber no teto, ele para, e a próxima execução continua de onde parou.
 
+4. **Ou pela API**, com o servidor no ar (também em http://127.0.0.1:8000/docs). As opções são as mesmas do script:
+
+   ```bash
+   curl -s -X POST http://127.0.0.1:8000/fontes/sincronizar -H 'content-type: application/json' -d '{"origem":"notion","dry_run":true}'
+   ```
+
+   - A resposta (202) traz o `execucao_id`, e a importação roda em segundo plano. Para acompanhar, use
+     `GET /fontes/execucoes/{id}`, que mostra o status, a fase, as contagens (atualizadas a cada página), o gasto e o
+     teto.
+   - Corpo: `origem` (`"notion"`), `dry_run` (padrão `false`), `limite_paginas` e `teto_usd` (padrão 1.0).
+   - **409** se já houver uma importação de verdade rodando. **503** se faltar o `NOTION_TOKEN`, ou a `GEMINI_API_KEY`
+     fora do dry-run.
+   - Se o servidor cair no meio de uma execução, ela vira `erro` ("interrompida") na próxima subida. O que já tinha
+     entrado fica, e a próxima execução continua de onde parou.
+   - Não rode o script e a API ao mesmo tempo: o 409 só vale para a API.
+
 - **Triagem:** página com e-mail, CPF, CNPJ ou telefone (no título ou no texto) **nunca** vai ao modelo e o texto dela
   não é guardado; página sem texto, duplicata exata de outra ou longa demais (mais de 5 trechos de 8.000 caracteres)
   também é pulada. O relatório e a coluna `motivo` (a tela de Fontes mostra) dizem o porquê, sem repetir o dado.
@@ -89,7 +105,11 @@ com o que o time aprovou. Decisões no `docs/adr-005-importacao-notion.md`.
   texto não gera nada novo. Página que saiu do Notion vira `removida` (nada é apagado). Quando uma página muda ou sai,
   os itens dela que ninguém revisou viram `obsoleto`; os já aprovados não mudam.
 - **Conteúdo real do comercial só com a chave PAGA do Gemini** (decisão do Davi): na camada gratuita o Google pode usar
-  e ler o que enviamos. O `--dry-run` não chama o modelo e pode rodar sempre.
+  e ler o que enviamos. O `.env` da importação real leva o `NOTION_TOKEN` e a `GEMINI_API_KEY` paga (cobrança ativa
+  no projeto do Google Cloud). O código não consegue conferir se a chave é paga, então isso fica no processo. O
+  `--dry-run` não chama o modelo e pode rodar sempre.
+- **Custo:** a rodada da página comercial inteira (266 páginas curadas) custou US$ 1,85, ~US$ 0,007 por página
+  (ADR-005 §5).
 - Testes sem rede: `tests/notion_falso.py` serve o workspace FICTÍCIO de `tests/fixtures/notion/workspace.json`.
 
 **Banco e migrações (Alembic):** as tabelas não são mais criadas pelo app. Mudou `app/models.py`? Gere a migração com `alembic revision --autogenerate -m "o que mudou"`, revise o arquivo gerado em `migrations/versions/` e rode `alembic upgrade head`. Nunca edite uma migração que já foi para a main. No SQLite o app liga as chaves estrangeiras (`PRAGMA foreign_keys=ON`, em `app/db.py`), como o Postgres faz: relação para insight inexistente dá erro também no dev. Se uma migração futura precisar recriar uma tabela (batch), teste `upgrade`, `downgrade` e `upgrade` de novo antes do PR.
@@ -108,7 +128,8 @@ app/
   notion.py      ÚNICO lugar que fala com o Notion (só leitura, com limite de requisições e backoff)
   markdown_notion.py  blocos do Notion → markdown
   trechos.py     página grande → trechos que cabem no curador
-  importacao.py  importação do Notion: sincroniza com a tabela fontes, faz a triagem e o relatório
+  importacao.py  importação do Notion: sincroniza com a tabela fontes, faz a triagem e o relatório (o script e o
+                 POST /fontes/sincronizar usam as mesmas funções)
   prompts/       prompts em arquivos .md (versionados no Git)
   templates/     página da interface (index.html)
   static/        CSS e JS da interface

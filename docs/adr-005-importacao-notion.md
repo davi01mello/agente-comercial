@@ -1,10 +1,10 @@
 # ADR-005: Importação do Notion (staging, triagem e curador em lote)
 
 - **Status:** aceito
-- **Data:** 2026-10-13
+- **Data:** 2026-10-13 (atualizado em 2026-10-19, na T4c: a rodada real no §5 e a execução pela API no §6)
 - **Autor:** Rafael Nóbrega
-- **Contexto:** T4, em 2 PRs: `t4a-notion-fontes` (ler e triar, sem o modelo) e `t4b-notion-curador` (o curador e o
-  teto de gasto)
+- **Contexto:** T4, em 3 PRs: `t4a-notion-fontes` (ler e triar, sem o modelo), `t4b-notion-curador` (o curador e o
+  teto de gasto) e `t4c-sincronizar-tela` (a execução pela API)
 
 ## Contexto
 
@@ -21,6 +21,10 @@ O que guiou as decisões:
     relatório ("pulada por dado pessoal: título e motivo"), sem repetir o dado;
   - primeiro uma área de teste ("Cérebro: teste"), com teto de US$ 1;
   - a conta dele: ~US$ 0,01 por página (uma chamada do curador e uma de relações).
+- **A orientação mudou (Davi, 2026-10-16 e 19):** a integração vê a **página comercial inteira**, só leitura. A página
+  fictícia e a "Cérebro: teste" caíram. A chave paga ficou ativa em 2026-10-19, e a curadoria real foi liberada com o
+  teto combinado com o Davi (~US$ 2 para a rodada toda). O resto continua: dado pessoal barrado pelo código, nada entra
+  como `validado` (§4.4 e §5).
 - **"O LLM propõe, o código dispõe"** continua valendo. O status, o autor, a fonte, a triagem e o teto ficam no código,
   com teste.
 
@@ -131,6 +135,9 @@ incluir `historico_a_validar` nos candidatos do curador).
 - **Página já curada** (`importada`) não volta ao curador.
 - **O teste confere, tabela por tabela,** que a 2ª execução não muda `fontes`, `insights`, `historico_status` nem
   `relacoes`. A única linha nova é a da própria execução em `execucoes_importacao`.
+- **O `--dry-run` também grava a execução** (desde a T4c), com `dry_run=True` e sem teto: é por ela que a tela
+  acompanha uma simulação pedida pela API (§6). As fontes não mudam, e o `/fontes/resumo` ignora essas linhas (a
+  "última sincronização" é a última de verdade).
 - **Limite conhecido:** o Notion arredonda o `last_edited_time` para o minuto (changelog do Notion). Uma edição feita
   no mesmo minuto da importação só é vista na próxima edição.
 
@@ -178,6 +185,8 @@ incluir `historico_a_validar` nos candidatos do curador).
   1. "Cérebro: teste fictício", com a chave grátis;
   2. "Cérebro: teste", com as páginas reais, só depois da cobrança ativa e da chave nova.
 - O `--dry-run` nunca chama o modelo, então pode rodar com página real a qualquer momento.
+- **Como ficou (2026-10-19):** a 2ª rodada passou a ser a página comercial inteira (Contexto), e só começou com a
+  chave paga no `.env`. A regra continua no processo: o código não sabe se a chave é paga.
 
 **4.5 Curador em lote** (`curadoria.propor_lote`):
 - Não há ninguém para responder às perguntas, então o curador roda como **último turno**: o modelo é avisado de que
@@ -196,11 +205,12 @@ incluir `historico_a_validar` nos candidatos do curador).
 
 **4.6 Teto de gasto e estimativa:**
 - **O `--dry-run` estima sem chamar o modelo:**
-  - por trecho, entrada = 1.976 tokens de instruções (medido, ADR-003 §4) + caracteres ÷ 4 + 60, e saída = 800
-    (**suposição**);
-  - mais a chamada de relações: 1.187 de entrada (30 candidatos no pior caso) e 100 de saída (**suposição**);
+  - por trecho, entrada = 1.976 tokens de instruções (medido, ADR-003 §4) + caracteres ÷ 4 + 60, e saída = 1.250
+    (**medido** na rodada real, §5; era 800, uma suposição);
+  - mais a chamada de relações: 1.187 de entrada (30 candidatos no pior caso) e 100 de saída;
   - nos preços do `.env`.
-  - Uma página de 3 mil caracteres dá **~US$ 0,0064**, comparável com os ~US$ 0,01 do Davi.
+  - Uma página de 3 mil caracteres dá **~US$ 0,0080**, comparável com os ~US$ 0,01 do Davi.
+  - O relatório diz "até N chamadas": a de relações só acontece quando há candidatos (§5).
 - **O teto (`--teto-usd`, padrão US$ 1, o do teste):** antes de cada página, confere se o gasto **real** até ali mais
   **2 ×** a estimativa da página cabe. O "2 ×" cobre o JSON refeito e um raciocínio maior que o estimado. Se não couber,
   para, imprime o relatório parcial, e a próxima execução continua.
@@ -230,14 +240,149 @@ incluir `historico_a_validar` nos candidatos do curador).
 - **Não usei o `GET /v1/pages/{id}/markdown`**, que devolve a página já em markdown: a spec pede página → blocos →
   markdown, e com os blocos o código decide o que vai ao modelo (por exemplo, trocar a pessoa mencionada).
 
-## 5. Resultado da 1ª rodada real
+## 5. Resultado da rodada real (2026-10-19)
 
-> **A preencher** depois da rodada na "Cérebro: teste" (8 a 10 páginas reais, com a chave paga), com o relatório do
-> script, as linhas `chamada_llm` do log e a revisão na Fila:
-> - estimado (`--dry-run`) × custo real das chamadas, e se as constantes de saída (800 e 100) precisam mudar;
-> - quantas páginas foram puladas, e se alguma não deveria (ou alguma deveria e não foi);
-> - na Fila: o curador acertou tipo, seção e evidência? Duplicou itens? Alguma página normal "escondeu" aprendizados
->   (§1)?
+A página comercial inteira, com a chave paga, em execuções do script (`gemini-3.8-flash`). Os números vêm do log
+(`chamada_llm` e `importacao_notion`, que têm só números) e das contagens do banco. Nenhum título entra aqui.
+
+**O que aconteceu, execução por execução:**
+
+| Execução | O quê | Resultado |
+|---|---|---|
+| dry-run | A página inteira, sem gravar | 2.022 páginas lidas, 3.346 requisições ao Notion. 266 páginas (282 trechos) para o curador |
+| #1 | 10 páginas, com o curador | 7 curadas, 8 itens, US$ 0,0469 |
+| #2 | A mesma coisa de novo | Zero mudança |
+| #3 | A página inteira | Interrompida com Ctrl+C na sincronização (823 páginas lidas) |
+| #4 | A página inteira | Sincronizou o resto (1.200 novas). Interrompida com Ctrl+C na curadoria, depois de 72 páginas (US$ 0,4726) |
+| #5 | O resto | 187 páginas curadas, 202 itens, US$ 1,3265, em 40 min (~13 s por página) |
+| #6 | A mesma coisa de novo | Zero mudança: 21 requisições, 15 s, US$ 0 |
+
+**Total:**
+- 266 páginas curadas, que são as mesmas 266 do dry-run, e nenhuma falha do curador;
+- 282 chamadas do curador e 282 itens na Fila (`historico_a_validar`);
+- **US$ 1,8461**, dentro dos ~US$ 2 combinados com o Davi. Dá US$ 0,0069 por página, contra os ~US$ 0,01 da conta
+  dele.
+
+**As interrupções confirmaram o §4.2:** depois dos dois Ctrl+C, a execução seguinte continuou de onde a anterior parou,
+sem refazer e sem duplicar nada. São 266 fontes `importada` e uma chamada do curador para cada item.
+
+**Estimado × real** (a estimativa é a do dry-run, com as constantes da época):
+
+| | Estimado | Real |
+|---|---|---|
+| Chamadas do curador | 282 | 282 |
+| Entrada do curador (tokens) | 714.329 | 718.585 (**+0,6%**) |
+| Saída do curador (tokens) | 225.600 (800 por chamada) | 344.948: média de 1.223 (**+53%**), mediana de 1.163 e máximo de 3.482 |
+| Chamadas de relações | 282 | **16** |
+| Entrada de relações (tokens) | 334.734 | 6.462 (404 por chamada) |
+| Saída de relações (tokens) | 28.200 | 2.322 (145 por chamada) |
+| **Custo** | **US$ 1,7385** | **US$ 1,8461 (+6%)** |
+
+- **O total bateu por coincidência.** A saída do curador, subestimada, deixou de fora ~US$ 0,45. A chamada de relações,
+  estimada para toda página, pôs ~US$ 0,34 a mais. Ela só acontece quando há candidatos (`validado` e `consolidado`,
+  ADR-003 §1), e a base tinha 2 itens aprovados.
+- **A entrada estava certa:** os caracteres ÷ 4 e as instruções medidas ficaram a 0,6% do real.
+- **A saída do curador é quase toda raciocínio:** ~940 tokens de raciocínio (77%) e ~280 do JSON. A suposição de ~350
+  para o JSON estava certa. O que faltou foi o raciocínio.
+
+**O que mudou no código (pela regra de "mais de 50%"):**
+- `TOKENS_SAIDA_CURAR` passou de 800 para **1.250** (a média medida, arredondada para cima). Com ela, a estimativa
+  desta rodada daria US$ 2,21, 20% acima do real. É pessimista de propósito: quando o time aprovar os itens da Fila, a
+  chamada de relações passa a acontecer de verdade.
+- **A folga do teto passa a cobrir o pior trecho medido** (US$ 0,0161: 4.063 tokens de entrada e 3.482 de saída). Com
+  800, duas vezes a estimativa dele dava ~US$ 0,0146 e ficaria abaixo do custo real. Com 1.250, dá ~US$ 0,0180.
+- **A relações continua como estava:** 1.187 de entrada (o pior caso) e 100 de saída. A saída medida, 145, ficou 45%
+  acima (abaixo da regra), e a entrada do pior caso, quase 3 vezes a real, cobre a diferença.
+- O relatório passou a dizer "até N chamadas".
+
+**Puladas: 1.756 de 2.022 (87%).**
+
+| Motivo | Páginas |
+|---|---|
+| Vazia (menos de 20 caracteres de texto) | 1.658 (82%) |
+| Dado pessoal | 57 (38 com e-mail e telefone, 16 só com telefone, 2 só com e-mail e 1 com e-mail, CPF e telefone) |
+| Duplicata | 40 |
+| Longa demais | 1 |
+
+- **82% de vazias é esperado** (Davi, 2026-10-19). A maioria é linha de banco de dados do Notion, em que o conteúdo
+  fica nas colunas, e a importação lê só o título e os blocos (§4.7). O relatório das vazias por banco
+  (`guias/ferramentas/vazias_por_banco.py`, fora do repositório) foi direto para o Davi, porque os nomes dos bancos
+  são dado real.
+- **As 57 com dado pessoal não foram revisadas uma a uma.** Pode haver falso positivo, como um número de 11 dígitos.
+  O motivo de cada uma está na tela de Fontes, e ela entra depois de limpa no Notion.
+- **A página longa demais** foi para o Davi, com o link, para ser dividida.
+
+**Na Fila: 282 itens, nenhum revisado ainda.**
+- Por tipo: 97 `template`, 91 `aprendizado`, 29 `case`, 28 `hipotese`, 25 `perfil_segmento`, 6 `objecao` e 6
+  `regra`;
+- por seção: 92 em prospecção, 57 em fundamentos, 44 em qualificação, 33 em pós-venda, 20 em proposta, 19 em reunião
+  de diagnóstico e 17 em negociação e fechamento;
+- por evidência: 158 com 1, 108 com 2, 8 com 3 e 8 com 4;
+- nenhuma relação gravada (as 16 chamadas não acharam ligação com os 2 itens aprovados).
+
+A pergunta do §1 (o curador acertou tipo, seção e evidência? alguma página "escondeu" aprendizados?) e a do §2
+(itens repetidos vindos de páginas diferentes?) dependem da revisão do time na Fila. Os gatilhos de "Rever quando"
+continuam valendo.
+
+## 6. A execução pela API (T4c)
+
+**Como funciona:**
+- **`POST /fontes/sincronizar`** recebe `{origem: "notion", dry_run, limite_paginas, teto_usd}`, as mesmas opções do
+  script, com teto padrão de US$ 1. Campo desconhecido dá 422: um `"teto"` digitado errado não é ignorado em silêncio.
+- **A requisição devolve 202** `{execucao_id}` na hora. A importação roda numa `BackgroundTasks` do FastAPI, que começa
+  depois que a resposta sai, com a própria sessão do banco (a da requisição já fechou).
+- **`GET /fontes/execucoes/{id}`** devolve `status` (`rodando`, `concluida`, `parou_no_teto` ou `erro`), `fase`
+  (`sincronizando`, `curando` ou `fim`), as contagens, o gasto, o teto, a estimativa e o erro. Para um id que não
+  existe, dá 404. Serve também para as execuções do script, porque a tabela é a mesma.
+- **As contagens são gravadas a cada página,** num commit curto entre uma página e outra, nunca no meio de uma. A tela
+  acompanha a execução enquanto ela roda, e o commit nunca leva uma página pela metade.
+- **O script e a API chamam as mesmas funções** de `app/importacao.py` (`conferir_configuracao` e `executar`). A regra
+  fica num lugar só.
+
+**As decisões:**
+- **409 se já houver uma importação de verdade rodando.** A resposta traz o número dela. Um dry-run rodando não
+  bloqueia nada, porque não muda as fontes.
+  - A conferência e a criação da execução ficam dentro de um `threading.Lock`. Sem ele, duas requisições ao mesmo tempo
+    veriam "nenhuma rodando" e criariam duas.
+- **503 quando falta o `NOTION_TOKEN`, ou a `GEMINI_API_KEY` fora do dry-run.** A mensagem é a mesma do script, e nada
+  é criado. É 503, e não 422, porque o que falta é a configuração do servidor, não algo que quem pediu errou.
+- **Na subida do servidor (lifespan), toda execução `rodando` vira `erro`, "interrompida".** Sem isso, um servidor que
+  caiu no meio de uma execução travaria o 409 para sempre.
+- **No erro, a execução guarda só o tipo** ("ErroNotion (401)", "RuntimeError"), nunca a mensagem. A de um erro
+  inesperado pode ter texto de página (o SQLAlchemy põe os parâmetros do SQL nela). **A `fase` fica onde a execução
+  caiu**, para dizer se foi na sincronização ou na curadoria.
+- **O teto não pode ser infinito:** um `1e999` no JSON vira infinito, e um teto infinito deixaria o curador gastar sem
+  limite. O `allow_inf_nan=False` recusa, e nada é criado. A resposta sai 500, e não 422, porque o FastAPI repete o
+  valor no detalhe do erro, e infinito não é JSON válido.
+- **A migração (`ad4589712565`) preenche as execuções antigas:** as com `fim` viram `concluida`, e as sem `fim` viram
+  `erro` ("interrompida").
+- **Sem login por enquanto:** o comentário `# T5: exigir papel admin` marca onde entra o "só admin".
+
+**Limites conhecidos:**
+- **A trava do 409 vale dentro de um processo.** No dev, com um `uvicorn` só, ela basta. Com vários workers, a
+  conferência continua no banco, mas duas requisições exatamente ao mesmo tempo em workers diferentes poderiam passar.
+  Fica para quando houver deploy.
+- **O script não confere o 409:** não rode o script e a API ao mesmo tempo.
+- **A subida do servidor marca como interrompida qualquer execução `rodando`**, inclusive uma do script que esteja
+  rodando naquele instante. Quando o script termina, ele grava o status certo por cima.
+- **Ctrl+C no `uvicorn`:** o 1º espera a execução acabar ("Waiting for background tasks to complete"), e só o 2º força
+  a saída. O `--reload` também espera. Como uma rodada grande leva ~40 min (§5), editar um arquivo durante ela adia o
+  reload até o fim.
+- **As execuções de antes da T4c ficam incompletas na API:**
+  - as contagens novas (puladas, curadas, itens e gasto) ficam em zero, porque o script antigo não as gravava;
+  - o script antigo fechava a execução (com `fim`) mesmo quando ela caía. Por isso, uma execução antiga interrompida
+    com Ctrl+C aparece como `concluida`. Foi o caso da #3 e da #4 do §5. A migração só reconhece como interrompida a
+    que ficou sem `fim` (processo morto).
+
+**O teste na mão (2026-10-19, Notion real):**
+- **dry-run com 10 páginas pela API:** `concluida`, `dry_run: true`, sem teto, e o `/fontes/resumo` continuou mostrando
+  a última execução de verdade;
+- **rodada de verdade com teto de US$ 0,05:** 2.022 páginas lidas, 0 novas e gasto zero (tudo já estava sincronizado);
+- **o dry-run do script** apareceu no `GET /fontes/execucoes/{id}`, porque a tabela é a mesma;
+- **um id que não existe** deu 404.
+
+O 409 e a interrupção não deram para ver na mão: com tudo sincronizado, a rodada acaba em segundos. Os testes
+automáticos cobrem os dois casos (`tests/test_sincronizar_api.py`).
 
 ## Consequências
 
@@ -246,6 +391,7 @@ incluir `historico_a_validar` nos candidatos do curador).
   (ADR-004);
 - rodar a importação quantas vezes quiser: ela é incremental, não duplica e retoma de onde parou;
 - saber quanto vai custar antes (`--dry-run`) e não passar do teto;
+- pedir e acompanhar uma importação pela API (e, em breve, pela tela de Fontes), com o mesmo resultado do script;
 - testar tudo sem rede: o SDK oficial roda de verdade contra um Notion falso, com um workspace fictício em JSON.
 
 **Fica mais difícil / custa:**
@@ -256,7 +402,9 @@ incluir `historico_a_validar` nos candidatos do curador).
 - quase-duplicatas chegam à Fila.
 
 **Rever quando:**
-- a 1ª rodada real mostrar o custo real longe do estimado (→ ajustar as constantes de saída);
+- uma rodada mostrar o custo real longe do estimado (→ ajustar as constantes de saída; a 1ª rodada já ajustou a do
+  curador, §5);
+- a importação rodar com mais de um worker (→ a trava do 409 precisa ir para o banco, §6);
 - a Fila mostrar páginas que "escondem" aprendizados (→ §1) ou muitos itens repetidos (→ §2);
 - o Drive entrar (Fase 2): a mesma tabela `fontes` serve (`origem`), mas documentos longos vão exigir outra regra de
   "longa demais".
