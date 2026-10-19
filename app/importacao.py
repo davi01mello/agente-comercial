@@ -177,8 +177,8 @@ def executar(
     leitor: LeitorNotion, *, dry_run: bool = False, limite_paginas: int | None = None, teto_usd: float | None = None,
     execucao_id: int | None = None,
 ) -> Relatorio:
-    """A importação com a própria sessão do banco: a porta de entrada da API (em segundo plano, quando a sessão da
-    requisição já fechou). Os erros são os de `importar`."""
+    """A importação com a própria sessão do banco: a única porta de entrada, para o script e para a API (em segundo
+    plano, quando a sessão da requisição já fechou). Os erros são os de `importar`."""
     with SessionLocal() as db:
         return importar(leitor, db, dry_run=dry_run, limite_paginas=limite_paginas, teto_usd=teto_usd,
                         execucao_id=execucao_id)

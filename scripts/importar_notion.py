@@ -14,9 +14,7 @@ import argparse
 import logging
 import sys
 
-from app.config import settings
-from app.db import SessionLocal
-from app.importacao import Relatorio, importar
+from app.importacao import FaltaConfiguracao, Relatorio, conferir_configuracao, executar
 from app.notion import ErroNotion, LeitorNotion
 
 ROTULO = {
@@ -137,19 +135,16 @@ def _ligar_log() -> None:
 
 
 def main(args: list[str] | None = None, leitor: LeitorNotion | None = None) -> int:
-    """`leitor` serve para os testes (um leitor com o Notion falso). Devolve o código de saída do processo."""
+    """`leitor` serve para os testes (um leitor com o Notion falso). Devolve o código de saída do processo. As
+    regras são as do POST /fontes/sincronizar: as duas portas chamam as mesmas funções de app/importacao.py."""
     opcoes = argumentos(args)
     _ligar_log()
     try:
         leitor = leitor or LeitorNotion()
-        if not opcoes.dry_run and not settings.gemini_api_key:  # antes de ler o Notion: sem a chave, só falharia
-            print("Erro: Falta GEMINI_API_KEY no .env. Sem ela o curador não roda; para só ver o que seria "
-                  "importado, use --dry-run.", file=sys.stderr)
-            return 1
-        with SessionLocal() as db:
-            relatorio = importar(leitor, db, dry_run=opcoes.dry_run, limite_paginas=opcoes.limite_paginas,
-                                 teto_usd=opcoes.teto_usd)
-    except ErroNotion as e:
+        conferir_configuracao(opcoes.dry_run)  # antes de ler o Notion: sem a chave, toda página só falharia
+        relatorio = executar(leitor, dry_run=opcoes.dry_run, limite_paginas=opcoes.limite_paginas,
+                             teto_usd=opcoes.teto_usd)
+    except (ErroNotion, FaltaConfiguracao) as e:
         print(f"Erro: {e}", file=sys.stderr)
         return 1
     except Exception as e:  # a mensagem NÃO é mostrada: ela pode ter texto de página (ex.: os parâmetros de um SQL)

@@ -216,7 +216,7 @@ def test_erro_inesperado_nao_mostra_a_mensagem(monkeypatch, falso, capsys):
     def quebrar(*args, **kwargs):
         raise RuntimeError("TEXTO-DE-PAGINA-NO-ERRO")
 
-    monkeypatch.setattr(importar_notion, "importar", quebrar)
+    monkeypatch.setattr(importar_notion, "executar", quebrar)
 
     codigo, saida, erro = rodar(falso, capsys)
 
