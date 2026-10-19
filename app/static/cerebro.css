@@ -391,7 +391,7 @@ select option { background: #15163c; color: var(--tinta); }
 .exemplo:hover { background: rgba(127, 128, 255, 0.12); }
 
 /* ---------- listas (fila, playbook, briefing) ---------- */
-.tela-lista { overflow-y: auto; display: grid; gap: 14px; align-content: start; padding: 0 4px 28px 0; scrollbar-width: thin; scrollbar-color: rgba(184, 150, 255, 0.3) transparent; }
+.tela-lista { overflow-y: auto; display: grid; gap: 14px; align-content: start; grid-auto-rows: max-content; padding: 0 4px 28px 0; scrollbar-width: thin; scrollbar-color: rgba(184, 150, 255, 0.3) transparent; }
 .resumo-lista { margin: 0; font: 500 11px var(--f-dado); letter-spacing: 0.1em; text-transform: uppercase; color: var(--nevoa); }
 .lista { display: grid; gap: 14px; max-width: 980px; }
 .item { display: grid; gap: 10px; padding: 18px 20px; border-radius: 20px; color: var(--tinta); }
@@ -585,3 +585,7 @@ select option { background: #15163c; color: var(--tinta); }
 .item .sel input { width: 18px; height: 18px; accent-color: var(--ciano); cursor: pointer; }
 .item.selecionado { outline: 2px solid var(--ciano); outline-offset: -2px; }
 .item.fonte .motivo-fonte { margin: 0; color: var(--alerta); font-size: 13px; }
+
+/* Playbook: separador entre os filtros e o "mostrar mais" de cada etapa */
+.filtros .separador { width: 1px; height: 22px; margin: 0 4px; background: var(--borda); }
+.grupo .mais { margin-top: 12px; }

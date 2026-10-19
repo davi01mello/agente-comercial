@@ -139,7 +139,7 @@
     conversa: [],
     ocupado: false,
     reg: { conversa: [], proposta: null, ocupado: false },
-    filtro: { secao: null, segmento: null, busca: "", historico: false },
+    filtro: { secao: null, segmento: null, busca: "", historico: false, origem: null, mostrar: {} },
     fontes: null,  // o resumo de GET /fontes/resumo
     filtroFontes: { status: null, busca: "" },
     fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [] },
@@ -1264,6 +1264,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
   function chip(rotulo, ativo, aoClicar) {
     return el("button", { type: "button", class: "chip", "aria-pressed": String(Boolean(ativo)), onclick: aoClicar }, rotulo);
   }
+  const POR_PAGINA_PLAYBOOK = 12;  // por etapa do funil: centenas de cartões de uma vez ficam lentos e cansam
   function pintarPlaybook() {
     const todos = itensDoPlaybook();
     const funil = $("#funil");
@@ -1274,7 +1275,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
       funil.append(el("button", {
         type: "button", class: `etapa${n ? " cheia" : ""}`, "aria-pressed": String(estado.filtro.secao === chave),
         "aria-label": `${nome}: ${n} ${n === 1 ? "item" : "itens"}`,
-        onclick: () => { estado.filtro.secao = estado.filtro.secao === chave ? null : chave; pintarPlaybook(); },
+        onclick: () => { estado.filtro.secao = estado.filtro.secao === chave ? null : chave; estado.filtro.mostrar = {}; pintarPlaybook(); },
       }, el("span", { class: "no", text: String(n) }), el("span", { text: nome })));
     });
 
@@ -1282,12 +1283,22 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     filtros.replaceChildren();
     const busca = el("input", { type: "search", id: "busca-playbook", class: "busca", placeholder: "Buscar no playbook", "aria-label": "Buscar no playbook" });
     busca.value = estado.filtro.busca;
-    busca.addEventListener("input", () => { estado.filtro.busca = busca.value; pintarGrupos(); });
-    filtros.append(busca, chip("Todos os segmentos", !estado.filtro.segmento, () => { estado.filtro.segmento = null; pintarPlaybook(); }));
+    busca.addEventListener("input", () => { estado.filtro.busca = busca.value; estado.filtro.mostrar = {}; pintarGrupos(); });
+    const refiltrar = (mudar) => () => { mudar(); estado.filtro.mostrar = {}; pintarPlaybook(); };
+    filtros.append(busca, chip("Todos os segmentos", !estado.filtro.segmento, refiltrar(() => { estado.filtro.segmento = null; })));
     for (const s of [...new Set(estado.itens.map((i) => i.segmento).filter(Boolean))].sort()) {
-      filtros.append(chip(capital(s), estado.filtro.segmento === s, () => { estado.filtro.segmento = s; pintarPlaybook(); }));
+      filtros.append(chip(capital(s), estado.filtro.segmento === s, refiltrar(() => { estado.filtro.segmento = s; })));
     }
-    filtros.append(chip("Incluir histórico a validar", estado.filtro.historico, () => { estado.filtro.historico = !estado.filtro.historico; pintarPlaybook(); }));
+    // De onde veio o item (Notion, Chat, Drive...). Só aparece quando há mais de uma origem.
+    const origens = [...new Set(todos.map((i) => i.fonte).filter(Boolean))];
+    if (origens.length > 1) {
+      if (estado.filtro.origem && !origens.includes(estado.filtro.origem)) estado.filtro.origem = null;
+      filtros.append(el("span", { class: "separador", "aria-hidden": "true" }),
+        chip("Todas as origens", !estado.filtro.origem, refiltrar(() => { estado.filtro.origem = null; })),
+        ...origens.sort().map((o) => chip(`${ORIGEM_ITEM[o] || o} (${todos.filter((i) => i.fonte === o).length})`, estado.filtro.origem === o,
+          refiltrar(() => { estado.filtro.origem = estado.filtro.origem === o ? null : o; }))));
+    }
+    filtros.append(chip("Incluir histórico a validar", estado.filtro.historico, refiltrar(() => { estado.filtro.historico = !estado.filtro.historico; })));
     pintarGrupos();
   }
   function pintarGrupos() {
@@ -1298,6 +1309,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     const itens = itensDoPlaybook().filter((i) =>
       (!f.secao || i.secao === f.secao) &&
       (!f.segmento || !i.segmento || i.segmento === f.segmento) &&
+      (!f.origem || i.fonte === f.origem) &&
       (!termo || normalizar(`${i.titulo} ${i.descricao}`).includes(termo)));
     if (!itens.length) {
       const nadaAinda = itensDoPlaybook().length === 0;
@@ -1311,10 +1323,16 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     SECOES.forEach(([chave, nome], i) => {
       const doGrupo = itens.filter((x) => x.secao === chave);
       if (!doGrupo.length) return;
+      const quantos = f.mostrar[chave] || POR_PAGINA_PLAYBOOK;
       box.append(el("section", { class: "grupo", "aria-label": nome },
         el("h2", {}, el("span", { class: "num", text: String(i + 1).padStart(2, "0") }), nome,
           el("span", { class: "qtd", text: `${doGrupo.length} ${doGrupo.length === 1 ? "item" : "itens"}` })),
-        el("div", { class: "grade" }, doGrupo.map(cartaoPlaybook))));
+        el("div", { class: "grade" }, doGrupo.slice(0, quantos).map(cartaoPlaybook)),
+        doGrupo.length > quantos
+          ? el("button", { type: "button", class: "btn fantasma mais",
+              onclick: () => { f.mostrar[chave] = quantos + POR_PAGINA_PLAYBOOK; pintarGrupos(); } },
+            `Mostrar mais ${Math.min(POR_PAGINA_PLAYBOOK, doGrupo.length - quantos)} (restam ${doGrupo.length - quantos})`)
+          : null));
     });
   }
   function cartaoPlaybook(it) {

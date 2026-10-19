@@ -79,3 +79,19 @@ def test_modo_ao_vivo_nao_mistura_itens_de_exemplo():
     assert js.count("aoVivo() ? estado.itens : [...estado.itens, ...EXEMPLOS]") == 2  # acharItem e baseUtil
     assert "ATALHOS_CHAT.filter((_, i) => !aoVivo() || i > 0)" in js  # o atalho do caso fictício de hotelaria
     assert "aoVivo() ? null : el(\"div\", { class: \"exemplos\" }" in js  # relatos de exemplo só na demonstração
+
+
+def test_playbook_pagina_e_filtra_por_origem():
+    """Centenas de itens: o Playbook mostra uma página por etapa do funil e deixa filtrar por origem."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert "POR_PAGINA_PLAYBOOK" in js
+    assert "Todas as origens" in js
+    assert "(!f.origem || i.fonte === f.origem)" in js
+
+
+def test_listas_nao_encolhem_a_faixa_do_funil():
+    """Com muitos cartões o grid encolhia o funil para 30px: as linhas precisam do tamanho do conteúdo."""
+    with TestClient(app) as client:
+        css = client.get("/static/cerebro.css").text
+    assert "grid-auto-rows: max-content" in css
