@@ -46,3 +46,27 @@ def test_fila_mostra_tambem_o_historico_a_validar():
         js = client.get("/static/cerebro.js").text
     assert 'i.status === "proposto" || i.status === "historico_a_validar"' in js
 
+
+
+def test_fila_pede_todas_as_paginas_de_itens():
+    """A API entrega no máximo 100 por chamada: sem paginar, uma importação grande esconderia itens da Fila."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert "offset=${offset}" in js
+    assert "itensDoStatus" in js
+
+
+def test_fila_aprova_em_lote_com_confirmacao():
+    """Aprovar vários de uma vez passa por um segundo clique e usa o mesmo endpoint de cada item."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert "aprovarSelecionados" in js
+    assert "sem ler um a um" in js  # a confirmação diz o que está sendo feito
+    assert 'chamar("POST", `/insights/${id}/aprovar`' in js
+
+
+def test_tela_de_fontes_mostra_o_motivo():
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert "f.motivo" in js
+    assert "motivo-fonte" in js

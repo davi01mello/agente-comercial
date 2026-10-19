@@ -142,6 +142,7 @@
     filtro: { secao: null, segmento: null, busca: "", historico: false },
     fontes: null,  // o resumo de GET /fontes/resumo
     filtroFontes: { status: null, busca: "" },
+    fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [] },
     proximoId: 100,
     focoAntes: null,
   };
@@ -424,13 +425,24 @@
       return "demo";
     }
   }
+  // A API entrega no máximo 100 itens por chamada: sem pedir as páginas seguintes, a Fila de uma importação grande
+  // (centenas de itens vindos do Notion) mostraria só os 100 mais recentes e esconderia o resto.
+  async function itensDoStatus(status) {
+    const porId = new Map();
+    for (let offset = 0; ; offset += 100) {
+      const r = await chamar("GET", `/insights?status=${status}&limit=100&offset=${offset}`);
+      for (const i of r.itens) porId.set(i.id, i);
+      if (!r.itens.length || offset + r.itens.length >= r.total) break;
+    }
+    return [...porId.values()];
+  }
   async function carregarItens() {
     if (!aoVivo()) return;
     try {
-      const respostas = await Promise.all(
-        ["validado", "consolidado", "proposto", "historico_a_validar"].map((s) => chamar("GET", `/insights?status=${s}&limit=100`)),
+      const porStatus = await Promise.all(
+        ["validado", "consolidado", "proposto", "historico_a_validar"].map(itensDoStatus),
       );
-      estado.itens = respostas.flatMap((r) => r.itens).map((i) => ({ ...i, codigo: `INS-${i.id}` }));
+      estado.itens = porStatus.flat().map((i) => ({ ...i, codigo: `INS-${i.id}` }));
     } catch (e) {
       aviso(`Não consegui carregar os itens: ${e.message}`, "erro");
     }
@@ -943,18 +955,112 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
   }
 
   // ---------------------------------------------------------------- fila
+  const ORIGEM_ITEM = { chat: "Chat", notion: "Notion", drive: "Drive", canva: "Canva", reuniao: "Reunião" };
+  const POR_PAGINA_FILA = 30;
+  let barraLote = null;
+
   function pintarFila() {
     const box = $("#lista-fila");
     box.replaceChildren();
+    const f = estado.fila;
     const itens = estado.itens.filter(estaNaFila);
+    for (const id of [...f.selecionados]) if (!itens.some((i) => i.id === id)) f.selecionados.delete(id);  // já decididos
     if (!itens.length) {
       box.append(el("div", { class: "painel vidro" }, vazio("A Fila está vazia",
         "Quando alguém registrar um insight, ele aparece aqui para ser aprovado ou rejeitado.",
         el("a", { class: "btn primario", href: "#registrar", text: "Registrar um insight" }))));
       return;
     }
+    const origens = [...new Set(itens.map((i) => i.fonte))];
+    if (f.origem && !origens.includes(f.origem)) f.origem = null;
+    const visiveis = itens.filter((i) => !f.origem || i.fonte === f.origem);
+    f.visiveis = visiveis;
+
     box.append(el("p", { class: "resumo-lista", text: `${itens.length} ${itens.length === 1 ? "item esperando" : "itens esperando"} revisão` }));
-    for (const it of itens) box.append(cartaoFila(it));
+    if (origens.length > 1) {
+      box.append(el("div", { class: "filtros" },
+        chip(`Todas (${itens.length})`, !f.origem, () => { f.origem = null; f.mostrar = POR_PAGINA_FILA; pintarFila(); }),
+        ...origens.map((o) => chip(`${ORIGEM_ITEM[o] || o} (${itens.filter((i) => i.fonte === o).length})`, f.origem === o,
+          () => { f.origem = f.origem === o ? null : o; f.mostrar = POR_PAGINA_FILA; pintarFila(); }))));
+    }
+    barraLote = el("div", { class: "barra-lote vidro", role: "region", "aria-label": "Aprovar vários de uma vez" });
+    box.append(barraLote);
+    atualizarBarraLote();
+
+    for (const it of visiveis.slice(0, f.mostrar)) box.append(cartaoFila(it));
+    if (visiveis.length > f.mostrar) {
+      box.append(el("button", { type: "button", class: "btn fantasma",
+        onclick: () => { f.mostrar += POR_PAGINA_FILA; pintarFila(); } },
+        `Mostrar mais ${Math.min(POR_PAGINA_FILA, visiveis.length - f.mostrar)} (restam ${visiveis.length - f.mostrar})`));
+    }
+  }
+  function atualizarBarraLote() {
+    if (!barraLote) return;
+    const f = estado.fila;
+    const n = f.selecionados.size;
+    const todosMarcados = f.visiveis.length > 0 && f.visiveis.every((i) => f.selecionados.has(i.id));
+    if (f.aprovando) {
+      barraLote.replaceChildren(el("span", { class: "lote-info", role: "status",
+        text: `Aprovando ${f.aprovando.feitos} de ${f.aprovando.total}…` }));
+      return;
+    }
+    barraLote.replaceChildren(...[  // replaceChildren(null) escreveria o texto "null": só entra o que existe
+      el("button", { type: "button", class: "btn fantasma",
+        onclick: () => {
+          if (todosMarcados) for (const i of f.visiveis) f.selecionados.delete(i.id);
+          else for (const i of f.visiveis) f.selecionados.add(i.id);
+          f.confirmando = false;
+          for (const c of $$("#lista-fila .sel input")) c.checked = f.selecionados.has(Number(c.dataset.id));
+          for (const c of $$("#lista-fila .item")) c.classList.toggle("selecionado", f.selecionados.has(Number(c.dataset.id)));
+          atualizarBarraLote();
+        } }, todosMarcados ? "Desmarcar todos" : `Selecionar todos (${f.visiveis.length})`),
+      el("span", { class: "lote-info", text: n ? `${n} ${n === 1 ? "selecionado" : "selecionados"}` : "Marque os itens que quer aprovar de uma vez" }),
+      n && !f.confirmando
+        ? el("button", { type: "button", class: "btn primario",
+            onclick: () => { f.confirmando = true; atualizarBarraLote(); } }, n === 1 ? "Aprovar o item selecionado" : `Aprovar ${n} selecionados`)
+        : null,
+      n && f.confirmando
+        ? el("button", { type: "button", class: "btn primario", onclick: aprovarSelecionados },
+            `Confirmar: aprovar ${n} sem ler um a um`)
+        : null,
+      n && f.confirmando
+        ? el("button", { type: "button", class: "btn fantasma",
+            onclick: () => { f.confirmando = false; atualizarBarraLote(); } }, "Cancelar")
+        : null].filter(Boolean));
+  }
+  async function aprovarSelecionados() {
+    const autor = exigirAutor();
+    if (!autor) return;
+    const f = estado.fila;
+    const ids = [...f.selecionados];
+    f.confirmando = false;
+    f.aprovando = { feitos: 0, total: ids.length };
+    atualizarBarraLote();
+    let aprovados = 0;
+    const falhas = [];
+    let semServidor = false;
+    for (const id of ids) {
+      try {
+        if (aoVivo()) await chamar("POST", `/insights/${id}/aprovar`, { por_quem: autor });
+        else { const it = itemPorId(id); if (it) it.status = "validado"; }
+        aprovados += 1;
+        f.selecionados.delete(id);
+      } catch (e) {
+        falhas.push(`INS-${id}`);
+        if (e.status === 0) { semServidor = true; break; }  // sem servidor: não adianta tentar os outros
+      }
+      f.aprovando.feitos += 1;
+      atualizarBarraLote();
+    }
+    f.aprovando = null;
+    if (aoVivo()) await carregarItens();
+    if (aprovados) { cena.pulsar(); }
+    const restantes = semServidor ? ids.length - aprovados : falhas.length;
+    aviso(restantes
+      ? `${aprovados} aprovados. ${restantes} não foram aprovados${semServidor ? " (o servidor parou de responder)" : `: ${falhas.slice(0, 5).join(", ")}${falhas.length > 5 ? "…" : ""}`}. Continuam marcados.`
+      : `${aprovados} ${aprovados === 1 ? "item aprovado" : "itens aprovados"}. Já aparecem no Playbook.`, restantes ? "erro" : "ok");
+    atualizarNumeros();
+    pintarFila();
   }
   function cartaoFila(it) {
     const idMotivo = `motivo-${it.id}`;
@@ -964,7 +1070,18 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
       el("div", { class: "botoes" },
         el("button", { type: "button", class: "btn perigo", onclick: () => decidir(it, "rejeitar", $(`#${idMotivo}`).value) }, "Confirmar rejeição"),
         el("button", { type: "button", class: "btn fantasma", onclick: () => { motivo.hidden = true; } }, "Cancelar")));
-    const card = el("article", { class: "item vidro" },
+    const marcado = estado.fila.selecionados.has(it.id);
+    const caixa = el("input", { type: "checkbox", "data-id": String(it.id), checked: marcado ? "" : null,
+      "aria-label": `Selecionar ${it.codigo}: ${it.titulo}` });
+    caixa.addEventListener("change", () => {
+      const f = estado.fila;
+      if (caixa.checked) f.selecionados.add(it.id); else f.selecionados.delete(it.id);
+      f.confirmando = false;
+      card.classList.toggle("selecionado", caixa.checked);
+      atualizarBarraLote();
+    });
+    const card = el("article", { class: marcado ? "item vidro selecionado" : "item vidro", "data-id": String(it.id) },
+      el("label", { class: "sel" }, caixa, el("span", { text: "Selecionar" })),
       metaItem(it),
       el("h3", { text: it.titulo }),
       el("p", { class: "desc", text: it.descricao }),
@@ -1056,6 +1173,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
         el("span", { class: `etiqueta estado-${cor}`, text: rotulo })),
       el("h3", {}, titulo),
       el("p", { class: "explica", text: explica }),
+      f.motivo ? el("p", { class: "motivo-fonte", text: `Motivo: ${f.motivo}` }) : null,
       el("div", { class: "linha-evid" },
         gerou ? el("span", { class: "evid", text: `Itens gerados: ${gerou}` }) : null,
         el("span", { text: `Editada em ${dataHora(f.editado_em)} · lida em ${dataHora(f.importado_em)}` })));
