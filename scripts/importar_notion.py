@@ -91,7 +91,7 @@ def formatar(relatorio: Relatorio) -> str:
     if r.a_curar:
         media = estimativa.custo_usd / len(r.a_curar)
         linhas.append(
-            f"Custo estimado do curador: {_dolares(estimativa.custo_usd)} ({estimativa.chamadas} chamadas, "
+            f"Custo estimado do curador: {_dolares(estimativa.custo_usd)} (até {estimativa.chamadas} chamadas, "
             f"~{_numero(estimativa.tokens_entrada)} tokens de entrada e ~{_numero(estimativa.tokens_saida)} de saída; "
             f"média de {_dolares(media)} por página)"
         )

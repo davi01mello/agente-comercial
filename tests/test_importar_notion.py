@@ -236,8 +236,8 @@ def test_estimativa_de_um_trecho_de_3_mil_caracteres_e_comparavel_com_a_do_davi(
 
     assert estimativa.chamadas == 2
     assert estimativa.tokens_entrada == 1976 + 60 + 750 + 1187
-    assert estimativa.tokens_saida == 900
-    assert estimativa.custo_usd == pytest.approx(0.00635, abs=0.00001)
+    assert estimativa.tokens_saida == 1250 + 100
+    assert estimativa.custo_usd == pytest.approx(0.00804, abs=0.00001)
 
 
 def test_estimativa_usa_os_precos_do_env_e_soma_os_trechos(monkeypatch):
@@ -248,7 +248,7 @@ def test_estimativa_usa_os_precos_do_env_e_soma_os_trechos(monkeypatch):
     estimativa = estimar(partes)
 
     assert estimativa.chamadas == 4
-    assert estimativa.custo_usd == pytest.approx((2 * (1976 + 60 + 1000 + 1187) * 1 + 2 * 900 * 10) / 1_000_000)
+    assert estimativa.custo_usd == pytest.approx((2 * (1976 + 60 + 1000 + 1187) * 1 + 2 * 1350 * 10) / 1_000_000)
 
 
 def test_sem_trechos_custo_zero():

@@ -52,13 +52,12 @@ _NOME_DO_CAMPO = {"titulo": "título", "conteudo": "conteúdo"}
 
 # --- estimativa de custo (--dry-run e teto de gasto), SEM chamar o modelo -------------------------------------
 # Medidos com o count_tokens do Gemini (ADR-003 §4): as instruções do curador, o prompt de relações e a linha de
-# candidato. SUPOSIÇÕES (não há medição ainda): os tokens de saída. Conferir com o custo do log depois da 1ª rodada
-# real e ajustar aqui (ADR-005).
+# candidato. A saída do curador foi medida na 1ª rodada real (ADR-005 §5): 282 chamadas, média de 1.223 tokens.
 TOKENS_INSTRUCOES_CURADOR = 1976  # base.md + curador.md (medido)
 TOKENS_EXTRA_CURAR = 60  # o embrulho <texto_do_usuario> e o aviso de turno (estimado)
-TOKENS_SAIDA_CURAR = 800  # SUPOSIÇÃO: o JSON da proposta (~350) mais o raciocínio
+TOKENS_SAIDA_CURAR = 1250  # medido: ~280 do JSON da proposta + ~940 de raciocínio (era 800, uma suposição)
 TOKENS_ENTRADA_RELACIONAR = 1187  # 257 do prompt + 30 candidatos × 26 (o pior caso) + ~150 do item novo
-TOKENS_SAIDA_RELACIONAR = 100  # SUPOSIÇÃO
+TOKENS_SAIDA_RELACIONAR = 100  # medido: 145 em 16 chamadas; o pior caso da entrada já cobre a diferença
 CARACTERES_POR_TOKEN = 4  # acertou o formato enxuto do consultor (70 estimados contra 73 medidos, ADR-004 §1)
 
 
