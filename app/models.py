@@ -5,9 +5,11 @@ Mudou alguma coisa aqui? Gere a migração: alembic revision --autogenerate -m "
 from datetime import date, datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -43,6 +45,14 @@ STATUS_FONTE = [
     "pulada_duplicata",  # mesmo conteúdo de outra fonte
     "removida",  # saiu do Notion (lixeira, apagada ou sem compartilhamento)
 ]
+# Uma execução da importação (decisões no ADR-005):
+STATUS_EXECUCAO = [
+    "rodando",
+    "concluida",
+    "parou_no_teto",  # o curador parou antes de estourar o teto: o que falta continua a_curar para a próxima
+    "erro",  # caiu no meio (o que estava pela metade não entrou) ou o servidor parou com ela rodando
+]
+FASES_EXECUCAO = ["sincronizando", "curando", "fim"]
 
 
 class Insight(Base):
@@ -130,15 +140,30 @@ class Fonte(Base):
 
 
 class ExecucaoImportacao(Base):
-    """Uma execução do scripts/importar_notion.py (o --dry-run não grava). O relatório completo (puladas com motivo,
-    insights e custo) é impresso no fim da execução; aqui ficam as contagens que a spec pede."""
+    """Uma execução da importação, pelo script ou pela API (POST /fontes/sincronizar). O --dry-run também fica
+    registrado (dry_run=True), para a tela acompanhar a simulação; ele não muda as fontes, e o /fontes/resumo o
+    ignora. As contagens são gravadas a cada página, para a tela acompanhar; o relatório completo (títulos e motivos)
+    só o script imprime."""
 
     __tablename__ = "execucoes_importacao"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     inicio: Mapped[datetime] = mapped_column(DateTime)  # UTC
-    fim: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # None: a execução ainda roda ou caiu
+    fim: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # None: a execução ainda roda
     paginas_lidas: Mapped[int] = mapped_column(Integer, default=0)
     paginas_novas: Mapped[int] = mapped_column(Integer, default=0)
     paginas_alteradas: Mapped[int] = mapped_column(Integer, default=0)
     paginas_falhas: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="rodando")  # um de STATUS_EXECUCAO
+    fase: Mapped[str] = mapped_column(String(20), default="sincronizando")  # um de FASES; no erro, onde parou
+    dry_run: Mapped[bool] = mapped_column(Boolean, default=False)
+    paginas_puladas: Mapped[int] = mapped_column(Integer, default=0)
+    paginas_removidas: Mapped[int] = mapped_column(Integer, default=0)
+    paginas_curadas: Mapped[int] = mapped_column(Integer, default=0)
+    insights_propostos: Mapped[int] = mapped_column(Integer, default=0)
+    gasto_usd: Mapped[float] = mapped_column(Float, default=0.0)  # o custo real do curador até aqui
+    teto_usd: Mapped[float | None] = mapped_column(Float, nullable=True)  # None no dry-run (o curador não roda)
+    estimativa_usd: Mapped[float | None] = mapped_column(Float, nullable=True)  # None até a sincronização acabar
+    # Só o tipo do erro ("ErroNotion (401)", "RuntimeError") ou "interrompida": NUNCA a mensagem, que pode ter
+    # texto de página (o SQLAlchemy põe os parâmetros do SQL nela).
+    erro: Mapped[str | None] = mapped_column(String(100), nullable=True)

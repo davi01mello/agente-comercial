@@ -12,7 +12,11 @@ Quando uma página já importada passa pela triagem de novo (mudou) ou sai do No
 revisou viram `obsoleto`; os aprovados não mudam (ADR-005 §3).
 
 Rodar duas vezes seguidas não muda nada: página com o mesmo `last_edited_time` nem é relida, e página relida com o
-mesmo hash não gera nada novo. O `--dry-run` faz as mesmas leituras e a mesma triagem, mas não grava nada.
+mesmo hash não gera nada novo. O `--dry-run` faz as mesmas leituras e a mesma triagem, mas não muda nenhuma fonte nem
+chama o modelo: só a execução é gravada (com dry_run=True).
+
+Toda execução fica em `execucoes_importacao`, com o status, a fase e as contagens gravados a cada página: é por ali
+que a tela acompanha uma execução pedida pela API (POST /fontes/sincronizar).
 
 Nunca loga texto de página nem título: o log tem só contagens. O relatório (impresso pelo script) mostra títulos,
 e o título com dado pessoal sai omitido.
@@ -156,43 +160,59 @@ class Relatorio:
 
 # --- a execução ---------------------------------------------------------------------------------------------
 
+def nova_execucao(db: Session, *, dry_run: bool = False, teto_usd: float | None = None) -> ExecucaoImportacao:
+    """A linha da execução, `rodando`, gravada já: a API devolve o id antes de o trabalho começar."""
+    execucao = ExecucaoImportacao(inicio=_agora(), status="rodando", fase="sincronizando", dry_run=dry_run,
+                                  teto_usd=None if dry_run else teto_usd)
+    db.add(execucao)
+    db.commit()
+    return execucao
+
+
 def importar(
     leitor: LeitorNotion, db: Session, *, dry_run: bool = False, limite_paginas: int | None = None,
-    teto_usd: float | None = None,
+    teto_usd: float | None = None, execucao_id: int | None = None,
 ) -> Relatorio:
-    """Roda uma importação. Fora do dry-run, registra a execução (início, fim e as contagens da spec).
+    """Roda uma importação e a registra em `execucoes_importacao` (o dry-run também, com dry_run=True). Com
+    `execucao_id`, usa a execução que a API já criou (nova_execucao); sem ele, cria uma.
 
     O curador só roda fora do dry-run e com `teto_usd` (o script sempre passa um): sem teto, as páginas só esperam.
     Levanta ErroNotion se a lista de páginas não puder ser lida (token inválido, sem rede...). Uma página que falha
     sozinha (no Notion ou no curador) não derruba a execução: vira uma "falha" e é tentada de novo na próxima vez.
+    O que derruba a execução a deixa `erro`, com só o tipo do erro (a mensagem pode ter texto de página).
     """
     if teto_usd is not None and teto_usd <= 0:
         raise ValueError("O teto de gasto precisa ser maior que zero.")
-    relatorio = Relatorio(dry_run=dry_run, teto_usd=teto_usd)
-    execucao = None
-    if not dry_run:
-        execucao = ExecucaoImportacao(inicio=_agora())
-        db.add(execucao)
-        db.commit()
-        relatorio.execucao_id = execucao.id
+    if execucao_id is None:
+        execucao = nova_execucao(db, dry_run=dry_run, teto_usd=teto_usd)
+    else:
+        execucao = db.get(ExecucaoImportacao, execucao_id)
+    relatorio = Relatorio(dry_run=dry_run, teto_usd=teto_usd, execucao_id=execucao.id)
+    erro = None
     try:
-        _sincronizar(leitor, db, relatorio, limite_paginas)
+        _sincronizar(leitor, db, relatorio, limite_paginas, execucao)
+        execucao.estimativa_usd = relatorio.estimativa.custo_usd
         if not dry_run and teto_usd is not None:
-            _curar(db, relatorio, teto_usd)
-    except BaseException:
+            execucao.fase = "curando"
+            _gravar_progresso(db, execucao, relatorio)
+            _curar(db, relatorio, teto_usd, execucao)
+    except BaseException as e:
         db.rollback()  # o que estava pela metade não entra; a execução é fechada abaixo, numa transação limpa
+        erro = _nome_do_erro(e)
         raise
     finally:
         relatorio.requisicoes_notion = leitor.requisicoes
-        if execucao is not None:
-            execucao.fim = _agora()
-            execucao.paginas_lidas = relatorio.lidas
-            execucao.paginas_novas = len(relatorio.novas)
-            execucao.paginas_alteradas = len(relatorio.alteradas)
-            execucao.paginas_falhas = len(relatorio.falhas) + len(relatorio.falhas_do_curador)
-            db.commit()
+        execucao.fim = _agora()
+        if erro is None:
+            execucao.status = "parou_no_teto" if relatorio.parou_no_teto else "concluida"
+            execucao.fase = "fim"
+        else:  # a fase fica onde estava: diz em que parte a execução caiu
+            execucao.status, execucao.erro = "erro", erro
+        _gravar_progresso(db, execucao, relatorio)
         logger.info(json.dumps({  # só números: nunca título nem texto
             "evento": "importacao_notion",
+            "execucao_id": execucao.id,
+            "status": execucao.status,
             "dry_run": dry_run,
             "lidas": relatorio.lidas,
             "novas": len(relatorio.novas),
@@ -211,7 +231,30 @@ def importar(
     return relatorio
 
 
-def _sincronizar(leitor: LeitorNotion, db: Session, relatorio: Relatorio, limite_paginas: int | None) -> None:
+def _gravar_progresso(db: Session, execucao: ExecucaoImportacao, relatorio: Relatorio) -> None:
+    """As contagens da execução até aqui, num commit curto (a tela lê enquanto a execução roda). Só é chamada entre
+    uma página e outra, quando a sessão não tem nada pela metade: o commit não leva junto uma página incompleta."""
+    execucao.paginas_lidas = relatorio.lidas
+    execucao.paginas_novas = len(relatorio.novas)
+    execucao.paginas_alteradas = len(relatorio.alteradas)
+    execucao.paginas_puladas = len(relatorio.puladas)
+    execucao.paginas_removidas = len(relatorio.removidas)
+    execucao.paginas_falhas = len(relatorio.falhas) + len(relatorio.falhas_do_curador)
+    execucao.paginas_curadas = len(relatorio.curadas)
+    execucao.insights_propostos = relatorio.insights_propostos
+    execucao.gasto_usd = relatorio.custo_real_usd
+    db.commit()
+
+
+def _nome_do_erro(e: BaseException) -> str:
+    """O que a execução guarda do erro: o tipo e, do Notion, o código HTTP. Nunca a mensagem."""
+    status = e.status if isinstance(e, ErroNotion) else None
+    return f"{type(e).__name__} ({status})" if status is not None else type(e).__name__
+
+
+def _sincronizar(
+    leitor: LeitorNotion, db: Session, relatorio: Relatorio, limite_paginas: int | None, execucao: ExecucaoImportacao
+) -> None:
     busca = leitor.paginas(limite=limite_paginas)
     vistas: set[str] = set()
     hashes: dict[str, str] = {}  # hash -> título das páginas tratadas nesta execução (duplicatas no dry-run)
@@ -219,6 +262,7 @@ def _sincronizar(leitor: LeitorNotion, db: Session, relatorio: Relatorio, limite
         vistas.add(pagina["id"])
         relatorio.lidas += 1
         _sincronizar_pagina(leitor, db, pagina, relatorio, hashes)
+        _gravar_progresso(db, execucao, relatorio)
 
     if busca.completa:
         _conferir_removidas(leitor, db, vistas, relatorio)
@@ -412,7 +456,7 @@ def _obsoletar_pendentes(db: Session, url: str, motivo: str, relatorio: Relatori
 
 # --- curar ----------------------------------------------------------------------------------------------------
 
-def _curar(db: Session, relatorio: Relatorio, teto_usd: float) -> None:
+def _curar(db: Session, relatorio: Relatorio, teto_usd: float, execucao: ExecucaoImportacao) -> None:
     """O curador nas fontes que esperam por ele, uma página por vez e dentro do teto de gasto.
 
     Antes de cada página: o gasto real até ali + FOLGA_DO_TETO × a estimativa dela precisa caber no teto. Se não
@@ -432,6 +476,7 @@ def _curar(db: Session, relatorio: Relatorio, teto_usd: float) -> None:
             if gasto.sem_contagem > sem_contagem:  # custo desconhecido: conta como a estimativa (pessimista)
                 custo = max(custo, estimativa)
             relatorio.custo_real_usd += custo
+            _gravar_progresso(db, execucao, relatorio)
 
 
 def _curar_pagina(db: Session, pagina: PaginaLida, relatorio: Relatorio) -> None:

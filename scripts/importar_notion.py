@@ -5,9 +5,10 @@
     python -m scripts.importar_notion                       # importa e roda o curador (teto padrão: US$ 1)
     python -m scripts.importar_notion --teto-usd 0.50       # o mesmo, com outro teto de gasto
 
-Precisa de NOTION_TOKEN no .env e, fora do --dry-run, de GEMINI_API_KEY. O --dry-run não grava nada e não chama o
-modelo. Conteúdo REAL do comercial só com a chave PAGA do Gemini (ADR-005 §4.4). O relatório sai no terminal (os
-títulos aparecem nele; título com dado pessoal sai omitido). O log (stderr) tem só números, nunca texto.
+Precisa de NOTION_TOKEN no .env e, fora do --dry-run, de GEMINI_API_KEY. O --dry-run não muda nenhuma fonte e não
+chama o modelo (só a execução fica registrada, com dry_run=True). Conteúdo REAL do comercial só com a chave PAGA do
+Gemini (ADR-005 §4.4). O relatório sai no terminal (os títulos aparecem nele; título com dado pessoal sai omitido). O
+log (stderr) tem só números, nunca texto.
 """
 import argparse
 import logging
@@ -46,7 +47,7 @@ def argumentos(args: list[str] | None = None) -> argparse.Namespace:
         description="Importa as páginas do Notion compartilhadas com a integração para a tabela fontes.",
     )
     parser.add_argument("--dry-run", action="store_true",
-                        help="só lista o que faria e estima tokens e custo (não grava nada, não chama o modelo)")
+                        help="só lista o que faria e estima tokens e custo (não muda as fontes, não chama o modelo)")
     parser.add_argument("--limite-paginas", type=_inteiro_positivo, metavar="N",
                         help="lê só as N primeiras páginas (as mais antigas pela data de edição)")
     parser.add_argument("--teto-usd", type=_dolares_positivos, default=1.0, metavar="US$",
@@ -67,8 +68,8 @@ def formatar(relatorio: Relatorio) -> str:
     """O relatório da execução, como a spec pede: lidas / novas / alteradas / puladas (com motivo) / custo estimado."""
     r = relatorio
     linhas = [
-        "SIMULAÇÃO (--dry-run): nada foi gravado e o modelo não foi chamado." if r.dry_run
-        else f"Importação do Notion: execução #{r.execucao_id}",
+        f"SIMULAÇÃO (--dry-run, execução #{r.execucao_id}): nenhuma fonte mudou e o modelo não foi chamado."
+        if r.dry_run else f"Importação do Notion: execução #{r.execucao_id}",
         f"Páginas lidas: {r.lidas} · novas: {len(r.novas)} · alteradas: {len(r.alteradas)} · "
         f"sem mudança: {len(r.sem_mudanca)} · puladas: {len(r.puladas)} · falhas: {len(r.falhas)} · "
         f"removidas: {len(r.removidas)}",

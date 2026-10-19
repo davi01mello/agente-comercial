@@ -22,9 +22,12 @@ def test_fontes_tem_os_campos_da_spec_e_o_motivo():
     }
 
 
-def test_execucoes_tem_exatamente_os_campos_da_spec():
+def test_execucoes_tem_os_campos_da_spec_e_os_da_t4c():
+    """Os campos da spec, mais os que a tela usa para acompanhar uma execução pela API (T4c)."""
     assert colunas("execucoes_importacao") == {
         "id", "inicio", "fim", "paginas_lidas", "paginas_novas", "paginas_alteradas", "paginas_falhas",
+        "status", "fase", "dry_run", "paginas_puladas", "paginas_removidas", "paginas_curadas", "insights_propostos",
+        "gasto_usd", "teto_usd", "estimativa_usd", "erro",
     }
 
 
@@ -62,3 +65,5 @@ def test_contagens_da_execucao_comecam_em_zero():
         db.commit()
         assert (execucao.paginas_lidas, execucao.paginas_novas, execucao.paginas_alteradas,
                 execucao.paginas_falhas, execucao.fim) == (0, 0, 0, 0, None)
+        assert (execucao.status, execucao.fase, execucao.dry_run, execucao.gasto_usd, execucao.erro) \
+            == ("rodando", "sincronizando", False, 0.0, None)

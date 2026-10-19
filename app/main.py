@@ -293,10 +293,15 @@ def listar_fontes(filtro: Annotated[FiltroFontes, Query()], db: Db):
 
 @app.get("/fontes/resumo", response_model=ResumoFontes)
 def resumo_fontes(db: Db):
-    """Os números do topo da tela: quantas páginas em cada estado, por origem, e a última sincronização."""
+    """Os números do topo da tela: quantas páginas em cada estado, por origem, e a última sincronização (o dry-run
+    não conta: ele não muda as fontes)."""
     por_status = dict(db.execute(select(Fonte.status, func.count()).group_by(Fonte.status)).all())
     por_origem = dict(db.execute(select(Fonte.origem, func.count()).group_by(Fonte.origem)).all())
-    recentes = select(ExecucaoImportacao).order_by(ExecucaoImportacao.inicio.desc(), ExecucaoImportacao.id.desc())
+    recentes = (
+        select(ExecucaoImportacao)
+        .where(ExecucaoImportacao.dry_run.is_(False))
+        .order_by(ExecucaoImportacao.inicio.desc(), ExecucaoImportacao.id.desc())
+    )
     ultima = db.scalar(recentes.limit(1))
     return ResumoFontes(
         total=sum(por_status.values()),

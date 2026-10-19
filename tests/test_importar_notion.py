@@ -171,16 +171,17 @@ def test_sem_chave_do_gemini_para_antes_de_ler(monkeypatch, falso, capsys):
 
 # --- dry-run ------------------------------------------------------------------------------------------------
 
-def test_dry_run_nao_grava_nada_e_lista_o_que_faria(falso, capsys):
+def test_dry_run_nao_muda_as_fontes_e_lista_o_que_faria(falso, capsys):
     codigo, saida, _ = rodar(falso, capsys, "--dry-run")
 
     assert codigo == 0
-    assert saida.startswith("SIMULAÇÃO (--dry-run): nada foi gravado e o modelo não foi chamado.")
+    assert saida.startswith("SIMULAÇÃO (--dry-run, execução #")
+    assert "): nenhuma fonte mudou e o modelo não foi chamado." in saida.splitlines()[0]
     assert "Para o curador: 6 páginas, 6 trechos" in saida
     assert "Custo estimado do curador: US$ " in saida
     assert "Curador:" not in saida
     assert contar(Fonte) == 0
-    assert contar(ExecucaoImportacao) == 0
+    assert contar(ExecucaoImportacao) == 1  # a execução fica registrada, com dry_run=True
 
 
 def test_limite_de_paginas_chega_na_importacao(falso, capsys):

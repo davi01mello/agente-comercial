@@ -128,3 +128,17 @@ def test_resumo_conta_por_status_e_origem_e_traz_a_ultima_execucao(client):
     ultima = depois["ultima_execucao"]
     campos = ("paginas_lidas", "paginas_novas", "paginas_alteradas", "paginas_falhas")
     assert tuple(ultima[c] for c in campos) == (7, 3, 2, 1)
+
+
+def test_resumo_ignora_o_dry_run(client):
+    """O dry-run não muda as fontes: a "última sincronização" do topo da tela é a última de verdade."""
+    with SessionLocal() as db:
+        real = ExecucaoImportacao(inicio=datetime(2100, 1, 1, 8, 0), status="concluida", fase="fim", paginas_lidas=5)
+        simulacao = ExecucaoImportacao(inicio=datetime(2100, 1, 2, 8, 0), status="concluida", fase="fim",
+                                       dry_run=True, paginas_lidas=9)
+        db.add_all([real, simulacao])
+        db.commit()
+
+    ultima = client.get("/fontes/resumo").json()["ultima_execucao"]
+
+    assert (ultima["id"], ultima["paginas_lidas"]) == (real.id, 5)
