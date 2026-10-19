@@ -142,6 +142,7 @@
     filtro: { secao: null, segmento: null, busca: "", historico: false, origem: null, mostrar: {} },
     fontes: null,  // o resumo de GET /fontes/resumo
     filtroFontes: { status: null, busca: "" },
+    sync: { id: null, dry: false, exec: null, acompanhando: false, teto: 1 },
     fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [] },
     proximoId: 100,
     focoAntes: null,
@@ -1186,11 +1187,109 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     return el("div", { class: "painel vidro passo-a-passo" },
       vazio("Nenhuma página lida ainda", "Quando o Cérebro ler o Notion, cada página aparece aqui, com o que aconteceu com ela."),
       el("ol", {},
-        el("li", {}, "No .env, preencha ", el("code", { text: "NOTION_TOKEN" }), " (a integração só enxerga as páginas compartilhadas com ela)."),
-        el("li", {}, "Simule sem gravar nada: ", el("code", { text: "python -m scripts.importar_notion --dry-run" })),
-        el("li", {}, "Importe de verdade: ", el("code", { text: "python -m scripts.importar_notion" }), ". Depois volte aqui."),
+        el("li", {}, "No .env do servidor, preencha ", el("code", { text: "NOTION_TOKEN" }), " (a integração só enxerga as páginas compartilhadas com ela)."),
+        el("li", {}, "Clique em ", el("b", { text: "Só simular" }), " acima: lê o Notion e estima o custo, sem gravar nada."),
+        el("li", {}, "Clique em ", el("b", { text: "Sincronizar agora" }), ". Os itens propostos aparecem na Fila."),
       ));
   }
+
+  // ---- sincronizar o Notion pela tela (POST /fontes/sincronizar + GET /fontes/execucoes/{id})
+  const FASE_SYNC = { sincronizando: "Lendo o Notion…", curando: "O curador está propondo itens…", fim: "Terminando…" };
+  const POR_PAGINA_FONTES = 50;
+  let painelSync = null;  // o elemento do painel na tela de Fontes (recriado a cada pintarFontes)
+
+  function usd(v, casas = 4) { return `US$ ${Number(v || 0).toFixed(casas).replace(".", ",")}`; }
+  function resumoDaExecucao(e) {
+    const c = e.contagens;
+    const partes = [`${c.lidas} lidas`, `${c.novas} novas`, `${c.alteradas} alteradas`, `${c.puladas} puladas`];
+    if (c.removidas) partes.push(`${c.removidas} removidas`);
+    if (c.falhas) partes.push(`${c.falhas} com falha`);
+    if (!e.dry_run) partes.push(`${c.curadas} curadas`, `${c.insights_propostos} itens propostos`);
+    return partes.join(" · ");
+  }
+  function fraseFinal(e) {
+    if (e.status === "erro") {
+      return e.erro === "interrompida"
+        ? "A sincronização foi interrompida (o servidor reiniciou). O que estava pela metade não entrou: rode de novo."
+        : `A sincronização deu erro (${e.erro || "desconhecido"}). O que estava pela metade não entrou: tente de novo.`;
+    }
+    if (e.dry_run) return `Simulação concluída, nada foi gravado. Estimativa do curador: ${usd(e.estimativa_usd)}.`;
+    if (e.status === "parou_no_teto") {
+      return `Parou no teto de gasto (${usd(e.gasto_usd)} de ${usd(e.teto_usd, 2)}). Clique em Sincronizar agora de novo para continuar de onde parou.`;
+    }
+    return `Sincronização concluída. ${e.contagens.insights_propostos} itens propostos, ${usd(e.gasto_usd)} gastos. Eles estão na Fila.`;
+  }
+  function pintarPainelSync() {
+    if (!painelSync || !painelSync.isConnected) return;
+    const sy = estado.sync;
+    const e = sy.exec;
+    const rodando = Boolean(sy.id) && (!e || e.status === "rodando");
+    const filhos = [];
+    if (rodando) {
+      const fase = e ? FASE_SYNC[e.fase] || "Trabalhando…" : "Começando…";
+      filhos.push(
+        el("div", { class: "sync-linha", role: "status" },
+          el("span", { class: "girando", "aria-hidden": "true" }),
+          el("b", { text: `${sy.dry ? "Simulando" : "Sincronizando"}: ${fase}` })),
+        e ? el("p", { class: "sync-num", text: resumoDaExecucao(e) }) : null,
+        e && !e.dry_run ? el("p", { class: "sync-num", text: `Gasto do curador: ${usd(e.gasto_usd)} de ${usd(e.teto_usd, 2)}` }) : null,
+        el("p", { class: "dica", text: "Pode trocar de tela ou fechar a aba: a sincronização continua no servidor." }));
+    } else {
+      if (e) {
+        filhos.push(el("p", { class: `sync-final${e.status === "erro" ? " erro" : ""}`, text: fraseFinal(e) }),
+          el("p", { class: "sync-num", text: resumoDaExecucao(e) }));
+      }
+      const teto = el("input", { type: "number", id: "sync-teto", min: "0.01", step: "0.25", value: String(sy.teto), "aria-label": "Teto de gasto do curador, em dólares" });
+      teto.addEventListener("change", () => {
+        const v = Number(String(teto.value).replace(",", "."));
+        if (v > 0) sy.teto = v; else teto.value = String(sy.teto);
+      });
+      filhos.push(el("div", { class: "sync-acoes" },
+        el("button", { type: "button", class: "btn primario", onclick: () => iniciarSincronizacao(false) }, "Sincronizar agora"),
+        el("button", { type: "button", class: "btn fantasma", onclick: () => iniciarSincronizacao(true) }, "Só simular"),
+        el("label", { class: "sync-teto" }, "Teto de gasto (US$)", teto)));
+    }
+    painelSync.replaceChildren(...filhos.filter(Boolean));
+  }
+  async function iniciarSincronizacao(dry) {
+    const sy = estado.sync;
+    if (sy.id && (!sy.exec || sy.exec.status === "rodando")) return;
+    try {
+      const r = await chamar("POST", "/fontes/sincronizar", { origem: "notion", dry_run: dry, teto_usd: sy.teto });
+      acompanharExecucao(r.execucao_id, dry);
+    } catch (e) {
+      if (e.status === 409) {  // já há uma rodando (aberta por outra pessoa ou outra aba): só acompanha
+        const m = /#(\d+)/.exec(e.message);
+        if (m) acompanharExecucao(Number(m[1]), false);
+      }
+      aviso(e.message, "erro");
+    }
+  }
+  async function acompanharExecucao(id, dry) {
+    const sy = estado.sync;
+    if (sy.id === id && sy.acompanhando) return;
+    Object.assign(sy, { id, dry, exec: null, acompanhando: true });
+    pintarPainelSync();
+    let falhasDeRede = 0;
+    while (sy.id === id) {
+      try {
+        sy.exec = await chamar("GET", `/fontes/execucoes/${id}`);
+        falhasDeRede = 0;
+      } catch {
+        falhasDeRede += 1;
+        if (falhasDeRede >= 5) { aviso("Perdi o contato com o servidor. Recarregue a página para ver como terminou.", "erro"); break; }
+      }
+      pintarPainelSync();
+      if (sy.exec && sy.exec.status !== "rodando") {
+        aviso(fraseFinal(sy.exec), sy.exec.status === "erro" ? "erro" : "ok");
+        if (!sy.exec.dry_run) { await carregarItens(); atualizarNumeros(); if (estado.tela === "fontes") pintarFontes(); }
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    sy.acompanhando = false;
+  }
+
   async function pintarFontes() {
     const box = $("#fontes-conteudo");
     if (!aoVivo()) {
@@ -1198,44 +1297,65 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
         "No modo demonstração não há páginas importadas. Rode o app com o uvicorn e importe o Notion.")));
       return;
     }
-    let resumo, lista;
+    let resumo;
     try {
-      [resumo, lista] = await Promise.all([chamar("GET", "/fontes/resumo"), chamar("GET", "/fontes?limit=200")]);
+      resumo = await chamar("GET", "/fontes/resumo");
     } catch (e) {
       aviso(`Não consegui carregar as fontes: ${e.message}`, "erro");
       return;
     }
     estado.fontes = resumo;
     atualizarNumeros();
-    if (!resumo.total) { box.replaceChildren(orientacaoFontes()); return; }
+
+    const ultima = resumo.ultima_execucao;
+    const sy = estado.sync;
+    if (ultima && !ultima.fim && !sy.id) acompanharExecucao(ultima.id, false);  // reabriu a tela com uma rodando
+    painelSync = el("div", { class: "painel vidro sync", "aria-label": "Sincronizar o Notion" });
+    if (!resumo.total) { box.replaceChildren(painelSync, orientacaoFontes()); pintarPainelSync(); return; }
 
     const por = resumo.por_status;
-    const n = (...chaves) => chaves.reduce((s, c) => s + (por[c] || 0), 0);
-    const ultima = resumo.ultima_execucao;
+    const n = (...chaves) => chaves.reduce((t, c) => t + (por[c] || 0), 0);
     const quando = ultima
       ? `Última sincronização: ${dataHora(ultima.fim || ultima.inicio)}${ultima.fim ? "" : " (não terminou)"} · ${ultima.paginas_lidas} lidas, ${ultima.paginas_novas} novas, ${ultima.paginas_alteradas} alteradas${ultima.paginas_falhas ? `, ${ultima.paginas_falhas} com falha` : ""}`
       : "Nenhuma sincronização registrada.";
-
     const filtro = estado.filtroFontes;
+
+    // A lista vem do servidor, já filtrada e paginada: são milhares de páginas.
+    const linhas = el("div", { class: "lista" });
+    const rodape = el("div", { class: "rodape-fontes" });
+    let carregadas = 0;
+    let total = 0;
+    async function carregarLista(reiniciar) {
+      const params = new URLSearchParams({ limit: String(POR_PAGINA_FONTES), offset: String(reiniciar ? 0 : carregadas) });
+      if (filtro.status) params.set("status", filtro.status);
+      if (filtro.busca.trim()) params.set("q", filtro.busca.trim());
+      let lista;
+      try { lista = await chamar("GET", `/fontes?${params}`); }
+      catch (e) { aviso(`Não consegui carregar as fontes: ${e.message}`, "erro"); return; }
+      if (reiniciar) { linhas.replaceChildren(); carregadas = 0; }
+      total = lista.total;
+      for (const f of lista.itens) linhas.append(cartaoFonte(f));
+      carregadas += lista.itens.length;
+      if (!total) linhas.replaceChildren(el("div", { class: "painel vidro" }, vazio("Nada com esse filtro", "Tire o filtro ou mude a busca.")));
+      rodape.replaceChildren(...(total > carregadas
+        ? [el("p", { class: "resumo-lista", text: `Mostrando ${carregadas} de ${total}` }),
+           el("button", { type: "button", class: "btn fantasma", onclick: () => carregarLista(false) },
+             `Mostrar mais ${Math.min(POR_PAGINA_FONTES, total - carregadas)}`)]
+        : total ? [el("p", { class: "resumo-lista", text: `${total} ${total === 1 ? "página" : "páginas"}` })] : []));
+    }
 
     const busca = el("input", { type: "search", class: "busca", placeholder: "Buscar pelo título", "aria-label": "Buscar fonte pelo título" });
     busca.value = filtro.busca;
-    const aoBuscar = () => { filtro.busca = busca.value; pintarLinhas(); };
-    const linhas = el("div", { class: "lista" });
-    function pintarLinhas() {
-      const itens = lista.itens.filter((f) =>
-        (!filtro.status || f.status === filtro.status) &&
-        (!filtro.busca || f.titulo.toLowerCase().includes(filtro.busca.toLowerCase())));
-      linhas.replaceChildren(...(itens.length
-        ? itens.map(cartaoFonte)
-        : [el("div", { class: "painel vidro" }, vazio("Nada com esse filtro", "Tire o filtro ou mude a busca."))]));
-    }
-    busca.addEventListener("input", aoBuscar);
-
+    let espera = null;
+    busca.addEventListener("input", () => {
+      filtro.busca = busca.value;
+      clearTimeout(espera);
+      espera = setTimeout(() => carregarLista(true), 300);
+    });
     const chips = el("div", { class: "filtros" }, busca,
       chip(`Todas (${resumo.total})`, !filtro.status, () => { filtro.status = null; pintarFontes(); }),
-      ...Object.keys(STATUS_FONTE).filter((s) => por[s]).map((s) =>
-        chip(`${STATUS_FONTE[s][0]} (${por[s]})`, filtro.status === s, () => { filtro.status = filtro.status === s ? null : s; pintarFontes(); })));
+      ...Object.keys(STATUS_FONTE).filter((st) => por[st]).map((st) =>
+        chip(`${STATUS_FONTE[st][0]} (${por[st]})`, filtro.status === st, () => { filtro.status = filtro.status === st ? null : st; pintarFontes(); })));
 
     box.replaceChildren(
       el("div", { class: "fontes-resumo" },
@@ -1244,15 +1364,13 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
         numeroCartao(n("a_curar", "falha"), "esperando o curador", "var(--alerta)"),
         numeroCartao(n(...PULADAS), "puladas", "var(--risco)"),
         numeroCartao(n("removida"), "removidas")),
-      el("div", { class: "barra-fontes" },
-        el("span", { text: quando }),
-        el("span", { class: "dica", text: "Para sincronizar: python -m scripts.importar_notion (pelo botão chega na T4c)" })),
+      painelSync,
+      el("div", { class: "barra-fontes" }, el("span", { text: quando })),
       chips,
-      ...(lista.total > lista.itens.length
-        ? [el("p", { class: "resumo-lista", text: `Mostrando as ${lista.itens.length} mais recentes de ${lista.total}` })]
-        : []),
-      linhas);
-    pintarLinhas();
+      linhas,
+      rodape);
+    pintarPainelSync();  // só pinta depois de entrar na tela (o painel desconectado é ignorado)
+    carregarLista(true);
   }
 
   // ---------------------------------------------------------------- playbook

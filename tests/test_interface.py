@@ -37,7 +37,7 @@ def test_tela_de_fontes_esta_no_menu_e_na_pagina():
         pagina = client.get("/").text
         js = client.get("/static/cerebro.js").text
     assert 'data-tela="fontes"' in pagina and 'href="#fontes"' in pagina
-    assert '"/fontes/resumo"' in js and '"/fontes?limit=200"' in js
+    assert '"/fontes/resumo"' in js and "/fontes?${params}" in js
 
 
 def test_fila_mostra_tambem_o_historico_a_validar():
@@ -95,3 +95,24 @@ def test_listas_nao_encolhem_a_faixa_do_funil():
     with TestClient(app) as client:
         css = client.get("/static/cerebro.css").text
     assert "grid-auto-rows: max-content" in css
+
+
+def test_tela_de_fontes_sincroniza_pela_api():
+    """O botão chama a API da T4c e acompanha a execução; não manda mais rodar o script no terminal."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert 'chamar("POST", "/fontes/sincronizar"' in js
+    assert "`/fontes/execucoes/${id}`" in js
+    assert "Sincronizar agora" in js and "Só simular" in js
+    assert "pelo botão chega na T4c" not in js and "pelo botão chega na T4c" not in html
+
+
+def test_tela_de_fontes_pagina_e_filtra_no_servidor():
+    """São milhares de páginas: filtro, busca e "mostrar mais" vão na query de GET /fontes, não no navegador."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert "POR_PAGINA_FONTES" in js
+    assert 'params.set("status", filtro.status)' in js
+    assert 'params.set("q", filtro.busca.trim())' in js
+    assert "/fontes?limit=200" not in js
