@@ -1,4 +1,5 @@
 """Configuração do app, lida das variáveis de ambiente (.env)."""
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +21,15 @@ class Settings(BaseSettings):
     # Token da integração interna do Notion (T4). Só no .env: nunca no código, no chat ou em log.
     notion_token: str = ""
     app_env: str = "dev"
+
+    @field_validator("database_url")
+    @classmethod
+    def _driver_do_postgres(cls, url: str) -> str:
+        """A Railway entrega `postgresql://...` (ou `postgres://...`); o SQLAlchemy precisa do driver no nome."""
+        for prefixo in ("postgres://", "postgresql://"):
+            if url.startswith(prefixo):
+                return "postgresql+psycopg://" + url[len(prefixo):]
+        return url
 
 
 settings = Settings()
