@@ -36,15 +36,20 @@ def propor(texto: str, autor: str, conversa: list[MensagemHistorico], db: Sessio
         return _propor(texto, autor, conversa, turno, ultimo_turno, db)
 
 
-def propor_lote(texto: str, autor: str, fonte: Fonte, fonte_ref: str, db: Session) -> PropostaCuradoria:
+def propor_lote(
+    texto: str, autor: str, fonte: Fonte, fonte_ref: str, db: Session, *, barrar_dado_pessoal: bool = True
+) -> PropostaCuradoria:
     """O curador sem ninguém para responder (importação do Notion): uma proposta por texto, sem perguntas.
 
     Roda como último turno: o modelo é avisado de que não deve perguntar e, se perguntar, a pergunta vira aviso.
     `autor`, `fonte` e `fonte_ref` são do código (ex.: "importação Notion", "notion" e a url da página).
     Confere o dado pessoal de novo, mesmo que quem chama já tenha feito a triagem: a regra não pode depender disso.
+    A única exceção é `barrar_dado_pessoal=False`, que só o Drive usa (decisão do Davi: o documento é privado e não
+    é mascarado nem pulado); aí o dado pessoal vira aviso na proposta, como no Registrar, em vez de barrar.
     Levanta dominio.DadoPessoalNaEntrada (sem chamar o modelo) e llm.ErroLLM, como `propor`.
     """
-    _barrar_dado_pessoal(texto, [])
+    if barrar_dado_pessoal:
+        _barrar_dado_pessoal(texto, [])
     with llm.com_prazo():
         return _propor(texto, autor, [], 1, True, db, fonte=fonte, fonte_ref=fonte_ref)
 

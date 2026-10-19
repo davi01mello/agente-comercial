@@ -209,6 +209,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
   transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
 .cita:hover { background: rgba(127, 215, 255, 0.22); border-color: var(--ciano); box-shadow: 0 0 12px -2px var(--ciano); }
+/* [DOC-n]: documento do Drive ainda não revisado. Tracejado e âmbar: não é a base aprovada. */
+a.cita.doc { text-decoration: none; border-style: dashed; border-color: rgba(255, 207, 112, 0.7); }
+a.cita.doc:hover { background: rgba(255, 207, 112, 0.18); border-color: var(--alerta); box-shadow: 0 0 12px -2px var(--alerta); }
+.msg .docs-citados { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.16); }
+.msg .docs-citados .nota { margin: 0 0 4px; padding: 0; border: 0; }
+.msg .docs-citados ul { margin: 0; font-size: 12.5px; }
+.msg .docs-citados a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.msg .docs-citados .pasta-doc { color: rgba(236, 235, 255, 0.6); }
 
 .doca {
   display: grid; gap: 10px;
@@ -560,7 +568,7 @@ select option { background: #15163c; color: var(--tinta); }
 .cartao-numero { --c: var(--tinta); display: grid; gap: 6px; padding: 16px 18px; border-radius: 18px; }
 .cartao-numero b { font: 700 32px/1 var(--f-display); font-variant-numeric: tabular-nums; color: var(--c); }
 .cartao-numero span { font: 500 10.5px/1.3 var(--f-dado); letter-spacing: 0.07em; text-transform: uppercase; color: var(--nevoa); }
-.barra-fontes { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 18px; max-width: 980px; margin: 0 0 14px; font-size: 13px; color: var(--nevoa); }
+.barra-fontes { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 6px 18px; max-width: 980px; margin: 0 0 14px; font-size: 13px; color: var(--nevoa); }
 .barra-fontes .dica { font: 400 11.5px var(--f-dado); color: var(--apagado); }
 #fontes-conteudo .filtros { max-width: 980px; margin-bottom: 14px; }
 #fontes-conteudo .resumo-lista { margin-bottom: 10px; }
@@ -571,6 +579,7 @@ select option { background: #15163c; color: var(--tinta); }
 .etiqueta.estado-alerta { color: var(--alerta); border-color: rgba(255, 207, 112, 0.45); background: rgba(255, 207, 112, 0.1); }
 .etiqueta.estado-risco { color: var(--risco); border-color: rgba(255, 138, 160, 0.45); background: rgba(255, 138, 160, 0.1); }
 .etiqueta.estado-mudo { color: var(--apagado); }
+.etiqueta.pasta { color: var(--nevoa); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .origem { color: var(--ciano); text-decoration: none; border-bottom: 1px dotted var(--ciano); }
 .passo-a-passo { max-width: 760px; }
 .passo-a-passo ol { margin: 0 auto 14px; padding-left: 22px; max-width: 62ch; color: var(--nevoa); display: grid; gap: 8px; }
@@ -590,8 +599,9 @@ select option { background: #15163c; color: var(--tinta); }
 .filtros .separador { width: 1px; height: 22px; margin: 0 4px; background: var(--borda); }
 .grupo .mais { margin-top: 12px; }
 
-/* Fontes: sincronizar o Notion pela tela */
+/* Fontes: sincronizar o Notion ou o Drive pela tela */
 .painel.sync { display: grid; gap: 10px; max-width: 980px; margin: 0 0 14px; padding: 16px 20px; }
+.sync-origem { display: flex; flex-wrap: wrap; gap: 8px; }
 .sync-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .sync-teto { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: var(--nevoa); font-size: 12.5px; }
 .sync-teto input { width: 78px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--borda); background: var(--campo); color: var(--tinta); }

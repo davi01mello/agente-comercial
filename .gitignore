@@ -22,3 +22,8 @@ htmlcov/
 
 # Respostas da última rodada do golden set (geradas por pytest -m live tests/golden)
 tests/golden/ultima_execucao.md
+
+# Credenciais do Google (conta de serviço): nunca no repositório
+*service-account*.json
+*credenciais*.json
+*credentials*.json

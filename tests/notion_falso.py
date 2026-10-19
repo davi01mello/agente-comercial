@@ -123,17 +123,20 @@ class NotionFalso:
 
 
 def limpar_banco_da_importacao(db) -> None:
-    """Apaga o que a importação do Notion gravou no banco de TESTE (temporário). As páginas do workspace fictício têm
-    ids fixos, então cada teste da importação começa do zero."""
+    """Apaga o que a importação (do Notion e do Drive) gravou no banco de TESTE (temporário). As páginas do workspace
+    fictício têm ids fixos, então cada teste da importação começa do zero."""
     from sqlalchemy import delete, select
 
-    from app.models import ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Relacao
+    from app import busca
+    from app.models import ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Relacao, TrechoDocumento
 
-    ids = list(db.scalars(select(Insight.id).where(Insight.fonte == "notion")))
+    busca.limpar_cache()  # os ids do SQLite voltam a ser usados: o índice da busca em memória não pode sobreviver
+    ids = list(db.scalars(select(Insight.id).where(Insight.fonte.in_(["notion", "drive"]))))
     if ids:
         db.execute(delete(Relacao).where(Relacao.insight_id.in_(ids) | Relacao.relacionado_id.in_(ids)))
         db.execute(delete(HistoricoStatus).where(HistoricoStatus.insight_id.in_(ids)))
         db.execute(delete(Insight).where(Insight.id.in_(ids)))
+    db.execute(delete(TrechoDocumento))
     db.execute(delete(Fonte))
     db.execute(delete(ExecucaoImportacao))
     db.commit()

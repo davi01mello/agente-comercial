@@ -22,6 +22,17 @@ class Settings(BaseSettings):
     notion_token: str = ""
     app_env: str = "dev"
 
+    # Google Drive (T6). A conta de serviço lê a pasta com o escopo drive.readonly. A credencial vem de UMA destas:
+    # o caminho do JSON (GOOGLE_APPLICATION_CREDENTIALS, no computador) ou o conteúdo do JSON
+    # (GOOGLE_SERVICE_ACCOUNT_JSON, na Railway). Só no .env: nunca no código, no chat ou em log.
+    google_application_credentials: str = ""
+    google_service_account_json: str = ""
+    drive_pasta_id: str = ""  # a pasta "Conhecimento Comercial" (a raiz da leitura, com as subpastas)
+    drive_max_mb: int = 30  # arquivo maior que isto não é baixado (os PDFs de slides de 50 MB não têm texto mesmo)
+    drive_max_trechos: int = 12  # documento com mais trechos (~96 mil caracteres) fica só na busca, sem ir ao curador
+    drive_sync_intervalo_min: int = 0  # 0 = desligado; >0: o servidor sincroniza o Drive sozinho a cada N minutos
+    drive_sync_teto_usd: float = 0.5  # o teto de gasto do curador em cada sincronização automática
+
     @field_validator("database_url")
     @classmethod
     def _driver_do_postgres(cls, url: str) -> str:

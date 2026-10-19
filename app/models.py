@@ -33,7 +33,7 @@ EVIDENCIA = {1: "opiniao", 2: "observacao_unica", 3: "padrao_repetido", 4: "resu
 FONTES = ["chat", "notion", "drive", "canva", "reuniao"]
 TIPOS_RELACAO = ["reforca", "contradiz", "duplica", "substitui"]
 MOTIVO_MAX = 200  # o tamanho de fontes.motivo
-ORIGENS = ["notion"]  # de onde vêm as fontes importadas (o Drive entra na Fase 2)
+ORIGENS = ["notion", "drive"]  # de onde vêm as fontes importadas
 # Status de uma fonte (decisões no docs/adr-005-importacao-notion.md):
 STATUS_FONTE = [
     "a_curar",  # passou na triagem e espera o curador (ou a execução parou no teto de gasto)
@@ -41,7 +41,8 @@ STATUS_FONTE = [
     "falha",  # o curador falhou nela; nada dela foi gravado e a próxima execução tenta de novo
     "vazia",  # quase sem texto: não vai ao modelo
     "pulada_dado_pessoal",  # e-mail, CPF, CNPJ ou telefone: NUNCA vai ao modelo (e o texto não é guardado)
-    "pulada_longa",  # grande demais mesmo dividida em trechos
+    "pulada_longa",  # grande demais mesmo dividida em trechos (Notion), ou arquivo acima do limite de MB (Drive)
+    "so_busca",  # Drive: o consultor acha o documento na busca, mas ele não vai ao curador (planilha, longo demais)
     "pulada_duplicata",  # mesmo conteúdo de outra fonte
     "removida",  # saiu do Notion (lixeira, apagada ou sem compartilhamento)
 ]
@@ -134,9 +135,25 @@ class Fonte(Base):
     editado_em: Mapped[datetime] = mapped_column(DateTime)  # last_edited_time do Notion, em UTC
     importado_em: Mapped[datetime] = mapped_column(DateTime)  # quando ESTE conteúdo (este hash) foi lido, em UTC
     status: Mapped[str] = mapped_column(String(30))  # um de STATUS_FONTE
+    categoria: Mapped[str | None] = mapped_column(String(300), nullable=True)  # Drive: a subpasta ("Resumo Comercial")
     # Por que foi pulada, falhou ou saiu do Notion ("e-mail no conteúdo", "6 trechos (limite 5)"). NUNCA o dado em
     # si. None quando a fonte está a_curar ou importada. A tela de Fontes mostra.
     motivo: Mapped[str | None] = mapped_column(String(MOTIVO_MAX), nullable=True)
+
+
+class TrechoDocumento(Base):
+    """Um pedaço (~1.500 caracteres) do texto de um documento do Drive, para a busca do consultor. É a segunda
+    destinação do documento (a primeira é o curador, que propõe itens para a Fila): o consultor cita o documento como
+    [DOC-n], com o aviso de que ele ainda não foi revisado. Apagados e refeitos quando o documento muda; somem com a
+    fonte."""
+
+    __tablename__ = "trechos_documento"
+    __table_args__ = (Index("ix_trechos_documento_fonte_id", "fonte_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fonte_id: Mapped[int] = mapped_column(ForeignKey("fontes.id", ondelete="CASCADE"))
+    ordem: Mapped[int] = mapped_column(Integer)
+    texto: Mapped[str] = mapped_column(Text)
 
 
 class ExecucaoImportacao(Base):
@@ -148,6 +165,7 @@ class ExecucaoImportacao(Base):
     __tablename__ = "execucoes_importacao"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    origem: Mapped[str] = mapped_column(String(20), default="notion", server_default="notion")  # um de ORIGENS
     inicio: Mapped[datetime] = mapped_column(DateTime)  # UTC
     fim: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # None: a execução ainda roda
     paginas_lidas: Mapped[int] = mapped_column(Integer, default=0)

@@ -116,3 +116,27 @@ def test_tela_de_fontes_pagina_e_filtra_no_servidor():
     assert 'params.set("status", filtro.status)' in js
     assert 'params.set("q", filtro.busca.trim())' in js
     assert "/fontes?limit=200" not in js
+
+
+def test_chat_mostra_os_documentos_do_drive_com_aviso_de_nao_revisado():
+    """[DOC-n] vira link para o Drive só se o servidor mandou o documento; o link é https e abre fora da página."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        css = client.get("/static/cerebro.css").text
+    assert r"\[(DOC-\d+)\]" in js
+    assert "function chipDocumento(" in js and "linkSeguro(doc.url)" in js
+    assert "r.documentos" in js
+    assert "ainda não revisados" in js
+    assert "a.cita.doc" in css
+
+
+def test_tela_de_fontes_escolhe_notion_ou_drive_e_mostra_o_so_na_busca():
+    """O painel de sincronizar manda a origem escolhida; o status novo e a pasta do Drive aparecem nos cartões."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert '{ origem: sy.origem, dry_run: dry, teto_usd: sy.teto }' in js
+    assert 'origem: "notion", dry_run' not in js
+    assert "so_busca:" in js and "STATUS_FONTE_DRIVE" in js
+    assert "f.categoria" in js
+    assert 'params.set("origem", filtro.origem)' in js
+    assert "ultima_por_origem" in js

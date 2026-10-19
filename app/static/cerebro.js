@@ -141,8 +141,8 @@
     reg: { conversa: [], proposta: null, ocupado: false },
     filtro: { secao: null, segmento: null, busca: "", historico: false, origem: null, mostrar: {} },
     fontes: null,  // o resumo de GET /fontes/resumo
-    filtroFontes: { status: null, busca: "" },
-    sync: { id: null, dry: false, exec: null, acompanhando: false, teto: 1 },
+    filtroFontes: { status: null, busca: "", origem: null },
+    sync: { id: null, dry: false, exec: null, acompanhando: false, teto: 1, origem: "notion" },
     fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [] },
     proximoId: 100,
     focoAntes: null,
@@ -517,31 +517,32 @@
   }
 
   // Texto do modelo -> parágrafos, listas, negrito e citações clicáveis (sem HTML do modelo).
-  function inline(txt) {
+  function inline(txt, docs) {
     const partes = [];
-    const re = /\[((?:EX|INS)-\d+)\]|\*\*([^*]+)\*\*/g;
+    const re = /\[((?:EX|INS)-\d+)\]|\[(DOC-\d+)\]|\*\*([^*]+)\*\*/g;
     let i = 0, m;
     while ((m = re.exec(txt))) {
       if (m.index > i) partes.push(document.createTextNode(txt.slice(i, m.index)));
       if (m[1]) partes.push(chipCitacao(m[1]));
-      else partes.push(el("strong", { text: m[2] }));
+      else if (m[2]) partes.push(chipDocumento(m[2], docs));
+      else partes.push(el("strong", { text: m[3] }));
       i = re.lastIndex;
     }
     if (i < txt.length) partes.push(document.createTextNode(txt.slice(i)));
     return partes;
   }
-  function formatar(texto) {
+  function formatar(texto, docs) {
     const frag = document.createDocumentFragment();
     for (const bloco of String(texto).trim().split(/\n{2,}/)) {
       const linhas = bloco.split("\n").filter((l) => l.trim());
       if (!linhas.length) continue;
       if (linhas.every((l) => /^\s*[-*•]\s+/.test(l))) {
-        frag.append(el("ul", {}, linhas.map((l) => el("li", {}, inline(l.replace(/^\s*[-*•]\s+/, ""))))));
+        frag.append(el("ul", {}, linhas.map((l) => el("li", {}, inline(l.replace(/^\s*[-*•]\s+/, ""), docs)))));
       } else if (linhas.every((l) => /^\s*\d+[.)]\s+/.test(l))) {
-        frag.append(el("ol", {}, linhas.map((l) => el("li", {}, inline(l.replace(/^\s*\d+[.)]\s+/, ""))))));
+        frag.append(el("ol", {}, linhas.map((l) => el("li", {}, inline(l.replace(/^\s*\d+[.)]\s+/, ""), docs)))));
       } else {
         const p = el("p");
-        linhas.forEach((l, i) => { if (i) p.append(el("br")); p.append(...inline(l)); });
+        linhas.forEach((l, i) => { if (i) p.append(el("br")); p.append(...inline(l, docs)); });
         frag.append(p);
       }
     }
@@ -552,11 +553,35 @@
     return el("button", { type: "button", class: "cita", title: item ? item.titulo : "Abrir item", onclick: () => abrirItem(codigo) }, codigo);
   }
 
-  function adicionarMsg(caixa, { papel, texto, quem, nota, extra }) {
+  // [DOC-n]: um documento do Drive que o consultor leu mas o time ainda não revisou. Abre o documento no Drive.
+  // Só vira link se o servidor mandou esse documento junto com a resposta (o modelo não inventa um destino).
+  function chipDocumento(codigo, docs) {
+    const doc = (docs || []).find((d) => `DOC-${d.id}` === codigo);
+    const url = doc ? linkSeguro(doc.url) : null;
+    if (!url) return document.createTextNode(`[${codigo}]`);
+    return el("a", {
+      class: "cita doc", href: url, target: "_blank", rel: "noopener noreferrer",
+      title: `Documento do Drive ainda não revisado: ${doc.titulo}${doc.categoria ? ` (${doc.categoria})` : ""}`,
+    }, codigo);
+  }
+  // Rodapé da resposta com os documentos que ela cita: o aviso de que não passaram pela revisão do time.
+  function rodapeDocumentos(texto, docs) {
+    const citados = (docs || []).filter((d) => texto.includes(`[DOC-${d.id}]`) && linkSeguro(d.url));
+    if (!citados.length) return null;
+    return el("div", { class: "docs-citados" },
+      el("p", { class: "nota", text: "Documentos do Drive, ainda não revisados pelo time:" }),
+      el("ul", {}, citados.map((d) => el("li", {},
+        el("a", { href: d.url, target: "_blank", rel: "noopener noreferrer", text: d.titulo }),
+        d.categoria ? el("span", { class: "pasta-doc", text: ` · ${d.categoria}` }) : null))));
+  }
+
+  function adicionarMsg(caixa, { papel, texto, quem, nota, extra, docs }) {
     const linha = el("div", { class: `linha${papel === "eu" ? " eu" : ""}` });
     if (papel !== "eu") linha.append(orbeEm("av"));
-    const bolha = el("div", { class: `msg ${papel}` }, el("span", { class: "quem", text: quem }), formatar(texto));
+    const bolha = el("div", { class: `msg ${papel}` }, el("span", { class: "quem", text: quem }), formatar(texto, docs));
     if (extra) bolha.append(extra);
+    const citados = rodapeDocumentos(texto, docs);
+    if (citados) bolha.append(citados);
     if (nota) bolha.append(el("p", { class: "nota", text: nota }));
     bolha.append(el("span", { class: "hora", text: hora() }));
     linha.append(bolha);
@@ -577,7 +602,7 @@
   const TOPO = {
     registrar: ["Registrar", "Conte o que aconteceu. O curador organiza, e você revisa antes de mandar para a Fila."],
     fila: ["Fila de curadoria", "Itens propostos e itens vindos de fontes antigas esperando aprovação. Nada entra no playbook sem alguém aprovar."],
-    fontes: ["Fontes", "As páginas que o Cérebro leu e o que virou item. Nada daqui entra no playbook sem passar pela Fila."],
+    fontes: ["Fontes", "O que o Cérebro leu do Notion e do Drive e o que virou item. Nada daqui entra no playbook sem passar pela Fila."],
     playbook: ["Playbook", "O que o time já validou, na ordem do funil."],
     briefing: ["Briefing de reunião", "Prévia da T9: um roteiro montado só com o que está na base."],
   };
@@ -694,14 +719,17 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     const indicador = digitando(caixa);
     try {
       let resposta;
+      let docs = [];
       if (aoVivo()) {
-        resposta = (await chamar("POST", "/chat", { mensagem: texto, historico: estado.conversa.slice(-30) })).resposta;
+        const r = await chamar("POST", "/chat", { mensagem: texto, historico: estado.conversa.slice(-30) });
+        resposta = r.resposta;
+        docs = r.documentos || [];
       } else {
         await esperar(900 + Math.random() * 700);
         resposta = respostaDemo(texto);
       }
       indicador.remove();
-      adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", nota: aoVivo() ? null : NOTA_DEMO });
+      adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", nota: aoVivo() ? null : NOTA_DEMO, docs });
       estado.conversa.push({ role: "user", text: texto }, { role: "model", text: resposta });
       cena.pulsar();
     } catch (e) {
@@ -1140,7 +1168,19 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     pulada_dado_pessoal: ["Dado pessoal", "risco", "Tem e-mail, CPF, CNPJ ou telefone, então nunca vai ao modelo. Para ela entrar, limpe o dado na página de origem."],
     pulada_longa: ["Longa demais", "alerta", "Passa de 5 trechos. Divida a página na origem para ela entrar."],
     pulada_duplicata: ["Duplicata", "mudo", "Tem o mesmo conteúdo de outra página já lida."],
+    so_busca: ["Só na busca", "alerta", "O chat acha trechos dela, mas ela não foi ao curador (planilha ou documento longo demais para virar itens)."],
     removida: ["Removida", "mudo", "Saiu da origem (apagada ou sem compartilhamento). Os itens ainda não revisados viraram obsoletos."],
+  };
+  // O Drive tem outras razões e outros remédios que o Notion: a explicação muda com a origem.
+  const STATUS_FONTE_DRIVE = {
+    a_curar: "Passou na triagem e espera o curador propor itens a partir dele.",
+    importada: "O curador já propôs itens a partir dele. Eles estão na Fila, esperando aprovação.",
+    falha: "O curador falhou neste documento. A próxima sincronização tenta de novo.",
+    vazia: "Sem texto que dê para ler (PDF só de imagem, arquivo em branco ou formato não suportado). Não vai ao curador nem à busca. Para entrar, salve como Google Doc ou PDF com texto.",
+    pulada_longa: "Arquivo grande demais para baixar (veja o limite no motivo). Divida-o ou salve uma versão menor no Drive para ele entrar.",
+    pulada_duplicata: "Tem o mesmo conteúdo de outro arquivo já lido.",
+    removida: "Saiu da pasta do Drive (apagado, movido ou sem acesso). Os itens ainda não revisados viraram obsoletos.",
+    so_busca: "O chat acha trechos dele (marcados [DOC-n]), mas ele não foi ao curador: é planilha ou documento longo demais para virar itens.",
   };
   const PULADAS = ["vazia", "pulada_dado_pessoal", "pulada_longa", "pulada_duplicata"];
   const ROTULO_ITEM = { historico_a_validar: "na Fila", proposto: "na Fila", validado: "aprovado", consolidado: "consolidado", obsoleto: "obsoleto" };
@@ -1166,7 +1206,8 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     return partes.length ? partes.join(" · ") : null;
   }
   function cartaoFonte(f) {
-    const [rotulo, cor, explica] = STATUS_FONTE[f.status] || [f.status, "mudo", ""];
+    const [rotulo, cor, explicaPadrao] = STATUS_FONTE[f.status] || [f.status, "mudo", ""];
+    const explica = (f.origem === "drive" && STATUS_FONTE_DRIVE[f.status]) || explicaPadrao;
     const url = linkSeguro(f.url);
     const titulo = url
       ? el("a", { href: url, target: "_blank", rel: "noopener noreferrer", text: f.titulo })
@@ -1175,6 +1216,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     return el("article", { class: "item fonte vidro" },
       el("div", { class: "meta" },
         el("span", { class: "etiqueta", text: ORIGEM[f.origem] || f.origem }),
+        f.categoria ? el("span", { class: "etiqueta pasta", text: f.categoria }) : null,
         el("span", { class: `etiqueta estado-${cor}`, text: rotulo })),
       el("h3", {}, titulo),
       el("p", { class: "explica", text: explica }),
@@ -1185,16 +1227,24 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
   }
   function orientacaoFontes() {
     return el("div", { class: "painel vidro passo-a-passo" },
-      vazio("Nenhuma página lida ainda", "Quando o Cérebro ler o Notion, cada página aparece aqui, com o que aconteceu com ela."),
+      vazio("Nada lido ainda", "Quando o Cérebro ler o Notion ou o Drive, cada página ou documento aparece aqui, com o que aconteceu com ele."),
       el("ol", {},
-        el("li", {}, "No .env do servidor, preencha ", el("code", { text: "NOTION_TOKEN" }), " (a integração só enxerga as páginas compartilhadas com ela)."),
+        el("li", {}, "No .env do servidor, preencha ", el("code", { text: "NOTION_TOKEN" }), " (Notion: a integração só enxerga as páginas compartilhadas com ela) ou ",
+          el("code", { text: "DRIVE_PASTA_ID" }), " e a credencial do Google (Drive: a pasta precisa estar compartilhada com a conta de serviço)."),
+        el("li", {}, "Escolha a origem (Notion ou Drive) no painel acima."),
         el("li", {}, "Clique em ", el("b", { text: "Só simular" }), " acima: lê o Notion e estima o custo, sem gravar nada."),
         el("li", {}, "Clique em ", el("b", { text: "Sincronizar agora" }), ". Os itens propostos aparecem na Fila."),
       ));
   }
 
-  // ---- sincronizar o Notion pela tela (POST /fontes/sincronizar + GET /fontes/execucoes/{id})
-  const FASE_SYNC = { sincronizando: "Lendo o Notion…", curando: "O curador está propondo itens…", fim: "Terminando…" };
+  // ---- sincronizar o Notion ou o Drive pela tela (POST /fontes/sincronizar + GET /fontes/execucoes/{id})
+  const FASE_SYNC = { curando: "O curador está propondo itens…", fim: "Terminando…" };
+  const FONTE_DA_SYNC = { notion: "Notion", drive: "Drive" };
+  function faseDaSync(e) {
+    if (!e) return "Começando…";
+    if (e.fase === "sincronizando") return `Lendo o ${FONTE_DA_SYNC[e.origem] || "origem"}…`;
+    return FASE_SYNC[e.fase] || "Trabalhando…";
+  }
   const POR_PAGINA_FONTES = 50;
   let painelSync = null;  // o elemento do painel na tela de Fontes (recriado a cada pintarFontes)
 
@@ -1226,7 +1276,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     const rodando = Boolean(sy.id) && (!e || e.status === "rodando");
     const filhos = [];
     if (rodando) {
-      const fase = e ? FASE_SYNC[e.fase] || "Trabalhando…" : "Começando…";
+      const fase = faseDaSync(e);
       filhos.push(
         el("div", { class: "sync-linha", role: "status" },
           el("span", { class: "girando", "aria-hidden": "true" }),
@@ -1244,6 +1294,8 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
         const v = Number(String(teto.value).replace(",", "."));
         if (v > 0) sy.teto = v; else teto.value = String(sy.teto);
       });
+      filhos.push(el("div", { class: "sync-origem", role: "group", "aria-label": "O que sincronizar" },
+        ...Object.entries(FONTE_DA_SYNC).map(([o, nome]) => chip(nome, sy.origem === o, () => { sy.origem = o; pintarPainelSync(); }))));
       filhos.push(el("div", { class: "sync-acoes" },
         el("button", { type: "button", class: "btn primario", onclick: () => iniciarSincronizacao(false) }, "Sincronizar agora"),
         el("button", { type: "button", class: "btn fantasma", onclick: () => iniciarSincronizacao(true) }, "Só simular"),
@@ -1255,7 +1307,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     const sy = estado.sync;
     if (sy.id && (!sy.exec || sy.exec.status === "rodando")) return;
     try {
-      const r = await chamar("POST", "/fontes/sincronizar", { origem: "notion", dry_run: dry, teto_usd: sy.teto });
+      const r = await chamar("POST", "/fontes/sincronizar", { origem: sy.origem, dry_run: dry, teto_usd: sy.teto });
       acompanharExecucao(r.execucao_id, dry);
     } catch (e) {
       if (e.status === 409) {  // já há uma rodando (aberta por outra pessoa ou outra aba): só acompanha
@@ -1310,14 +1362,17 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     const ultima = resumo.ultima_execucao;
     const sy = estado.sync;
     if (ultima && !ultima.fim && !sy.id) acompanharExecucao(ultima.id, false);  // reabriu a tela com uma rodando
-    painelSync = el("div", { class: "painel vidro sync", "aria-label": "Sincronizar o Notion" });
+    painelSync = el("div", { class: "painel vidro sync", "aria-label": "Sincronizar o Notion ou o Drive" });
     if (!resumo.total) { box.replaceChildren(painelSync, orientacaoFontes()); pintarPainelSync(); return; }
 
     const por = resumo.por_status;
     const n = (...chaves) => chaves.reduce((t, c) => t + (por[c] || 0), 0);
-    const quando = ultima
-      ? `Última sincronização: ${dataHora(ultima.fim || ultima.inicio)}${ultima.fim ? "" : " (não terminou)"} · ${ultima.paginas_lidas} lidas, ${ultima.paginas_novas} novas, ${ultima.paginas_alteradas} alteradas${ultima.paginas_falhas ? `, ${ultima.paginas_falhas} com falha` : ""}`
-      : "Nenhuma sincronização registrada.";
+    const frasesDeSync = Object.entries(FONTE_DA_SYNC).map(([o, nome]) => {
+      const u = (resumo.ultima_por_origem || {})[o] || (!resumo.ultima_por_origem && o === "notion" ? ultima : null);
+      return u
+        ? `${nome}: ${dataHora(u.fim || u.inicio)}${u.fim ? "" : " (não terminou)"} · ${u.paginas_lidas} lidos, ${u.paginas_novas} novos, ${u.paginas_alteradas} alterados${u.paginas_falhas ? `, ${u.paginas_falhas} com falha` : ""}`
+        : `${nome}: nunca sincronizado`;
+    });
     const filtro = estado.filtroFontes;
 
     // A lista vem do servidor, já filtrada e paginada: são milhares de páginas.
@@ -1328,6 +1383,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     async function carregarLista(reiniciar) {
       const params = new URLSearchParams({ limit: String(POR_PAGINA_FONTES), offset: String(reiniciar ? 0 : carregadas) });
       if (filtro.status) params.set("status", filtro.status);
+      if (filtro.origem) params.set("origem", filtro.origem);
       if (filtro.busca.trim()) params.set("q", filtro.busca.trim());
       let lista;
       try { lista = await chamar("GET", `/fontes?${params}`); }
@@ -1341,7 +1397,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
         ? [el("p", { class: "resumo-lista", text: `Mostrando ${carregadas} de ${total}` }),
            el("button", { type: "button", class: "btn fantasma", onclick: () => carregarLista(false) },
              `Mostrar mais ${Math.min(POR_PAGINA_FONTES, total - carregadas)}`)]
-        : total ? [el("p", { class: "resumo-lista", text: `${total} ${total === 1 ? "página" : "páginas"}` })] : []));
+        : total ? [el("p", { class: "resumo-lista", text: `${total} ${total === 1 ? "fonte" : "fontes"}` })] : []));
     }
 
     const busca = el("input", { type: "search", class: "busca", placeholder: "Buscar pelo título", "aria-label": "Buscar fonte pelo título" });
@@ -1352,20 +1408,26 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
       clearTimeout(espera);
       espera = setTimeout(() => carregarLista(true), 300);
     });
+    const origens = Object.keys(resumo.por_origem || {}).filter((o) => resumo.por_origem[o]);
+    if (filtro.origem && !origens.includes(filtro.origem)) filtro.origem = null;
     const chips = el("div", { class: "filtros" }, busca,
-      chip(`Todas (${resumo.total})`, !filtro.status, () => { filtro.status = null; pintarFontes(); }),
+      ...(origens.length > 1 ? origens.sort().map((o) =>
+        chip(`${ORIGEM[o] || o} (${resumo.por_origem[o]})`, filtro.origem === o,
+          () => { filtro.origem = filtro.origem === o ? null : o; pintarFontes(); })) : []),
+      chip(`Todas (${resumo.total})`, !filtro.status && !filtro.origem, () => { filtro.status = null; filtro.origem = null; pintarFontes(); }),
       ...Object.keys(STATUS_FONTE).filter((st) => por[st]).map((st) =>
         chip(`${STATUS_FONTE[st][0]} (${por[st]})`, filtro.status === st, () => { filtro.status = filtro.status === st ? null : st; pintarFontes(); })));
 
     box.replaceChildren(
       el("div", { class: "fontes-resumo" },
-        numeroCartao(resumo.total, "páginas lidas"),
+        numeroCartao(resumo.total, "fontes lidas"),
         numeroCartao(n("importada"), "viraram itens", "var(--ok)"),
         numeroCartao(n("a_curar", "falha"), "esperando o curador", "var(--alerta)"),
         numeroCartao(n(...PULADAS), "puladas", "var(--risco)"),
+        numeroCartao(n("so_busca"), "só na busca", "var(--alerta)"),
         numeroCartao(n("removida"), "removidas")),
       painelSync,
-      el("div", { class: "barra-fontes" }, el("span", { text: quando })),
+      el("div", { class: "barra-fontes" }, ...frasesDeSync.map((t, i) => el("span", { text: `${i ? "" : "Última sincronização · "}${t}` }))),
       chips,
       linhas,
       rodape);

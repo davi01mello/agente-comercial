@@ -12,7 +12,8 @@ Chat "Perguntar" ──► consultor (Gemini) ──► playbook + fontes ──
 ## Decisões
 - Python + FastAPI + SQLAlchemy: uma linguagem só, simples de aprender e de deployar.
 - SQLite no dev (zero instalação); Postgres no Railway em produção (só muda `DATABASE_URL`).
-- Sem RAG no v0: o playbook validado + páginas do Notion cabem no contexto do modelo.
-  RAG (embeddings) entra quando o Drive entrar.
+- Sem RAG: o playbook validado cabe no contexto do modelo. Os documentos do Drive entram por uma busca de palavras
+  (BM25, `app/busca.py`) que traz os melhores trechos a cada pergunta, citados como [DOC-n] (ADR-006). Embeddings
+  (T8) só se o acervo crescer muito.
 - Todo acesso ao modelo (Gemini) passa por `app/llm.py`. Prompts são arquivos em `app/prompts/`, versionados.
 - Nada vira regra sem aprovação humana.

@@ -170,3 +170,10 @@ def test_normalizar_segmento_e_idempotente():
         uma_vez = dominio.normalizar_segmento(s)
         assert dominio.normalizar_segmento(uma_vez) == uma_vez
 
+
+
+def test_tipos_de_dados_pessoais_diz_o_tipo_sem_repetir_o_dado():
+    tipos = dominio.tipos_de_dados_pessoais("Ana (ana@acme.com.br), (81) 99876-5432, CNPJ 02.472.105/0001-79")
+
+    assert tipos == ["e-mail", "CNPJ", "telefone"]
+    assert dominio.tipos_de_dados_pessoais("Texto sem nenhum dado de cliente.") == []

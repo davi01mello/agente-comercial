@@ -112,6 +112,23 @@ com o que o time aprovou. Decisões no `docs/adr-005-importacao-notion.md`.
   (ADR-005 §5).
 - Testes sem rede: `tests/notion_falso.py` serve o workspace FICTÍCIO de `tests/fixtures/notion/workspace.json`.
 
+### Importar o Drive (T6)
+
+A pasta "Conhecimento Comercial" do Drive entra pelo mesmo curador do Notion, e **também fica pesquisável no chat**
+(o consultor cita como `[DOC-n]`, avisando que o documento ainda não foi revisado). Decisão do time: nos documentos do
+Drive o dado pessoal **não** é mascarado nem pulado (só avisado). Detalhes no [ADR-006](docs/adr-006-importacao-drive.md).
+
+1. Crie a conta de serviço e compartilhe a pasta com ela (passo a passo em [docs/deploy-railway.md](docs/deploy-railway.md)).
+2. No `.env`: `DRIVE_PASTA_ID` e `GOOGLE_APPLICATION_CREDENTIALS` (caminho do JSON da conta de serviço).
+3. Confira sem gastar: `python -m scripts.sincronizar_drive --dry-run` (e `pytest -m live tests/live`, que só lista e lê).
+4. Sincronize: `python -m scripts.sincronizar_drive` (`--teto-usd 1` limita o gasto do curador), ou pelo botão da tela de
+   Fontes, escolhendo **Drive**. Com `DRIVE_SYNC_INTERVALO_MIN=15` o servidor faz isso sozinho a cada 15 minutos.
+
+- Lê docx, PDF **com texto** (PDF de imagem fica `vazia`: não há OCR), xlsx, csv, txt, md e Google Docs/Planilhas/Slides.
+- Arquivo acima de `DRIVE_MAX_MB` (30) não é baixado. Planilha ou documento com mais de `DRIVE_MAX_TRECHOS` (12) trechos
+  vai **só para a busca** (`so_busca`), não para o curador.
+- Testes sem rede: `tests/drive_falso.py` serve arquivos SINTÉTICOS; nenhum documento real do CITi vai para o Git.
+
 **Banco e migrações (Alembic):** as tabelas não são mais criadas pelo app. Mudou `app/models.py`? Gere a migração com `alembic revision --autogenerate -m "o que mudou"`, revise o arquivo gerado em `migrations/versions/` e rode `alembic upgrade head`. Nunca edite uma migração que já foi para a main. No SQLite o app liga as chaves estrangeiras (`PRAGMA foreign_keys=ON`, em `app/db.py`), como o Postgres faz: relação para insight inexistente dá erro também no dev. Se uma migração futura precisar recriar uma tabela (batch), teste `upgrade`, `downgrade` e `upgrade` de novo antes do PR.
 
 ## Estrutura
@@ -129,14 +146,19 @@ app/
   markdown_notion.py  blocos do Notion → markdown
   trechos.py     página grande → trechos que cabem no curador
   importacao.py  importação do Notion: sincroniza com a tabela fontes, faz a triagem e o relatório (o script e o
-                 POST /fontes/sincronizar usam as mesmas funções)
+                 POST /fontes/sincronizar usam as mesmas funções); o curador em lote serve também ao Drive
+  drive.py       ÚNICO lugar que fala com o Google Drive (conta de serviço, só leitura)
+  extrair_texto.py  docx, pdf, xlsx, csv, txt → texto
+  importacao_drive.py  importação do Drive (incremental, com teto) e os trechos de busca
+  busca.py       busca nos documentos (BM25 em Python): os trechos que o consultor recebe como [DOC-n]
+  agendador.py   sincronização automática do Drive (DRIVE_SYNC_INTERVALO_MIN)
   prompts/       prompts em arquivos .md (versionados no Git)
   templates/     página da interface (index.html)
   static/        CSS e JS da interface
 knowledge/       exemplos.md: a base v0 da T2 (FICTÍCIA). O consultor não lê mais; o modo demonstração da tela
                  tem uma cópia própria
 docs/            ideia, modelo do playbook, arquitetura, perguntas-teste
-scripts/         linha de comando: python -m scripts.importar_notion
+scripts/         linha de comando: python -m scripts.importar_notion e python -m scripts.sincronizar_drive
 tests/           testes automáticos
 migrations/      migrações do banco (Alembic); versions/ = histórico do schema
 data/            banco SQLite local (não vai pro Git)

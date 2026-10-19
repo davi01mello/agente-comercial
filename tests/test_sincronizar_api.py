@@ -206,7 +206,7 @@ def test_sem_chave_do_gemini_so_o_dry_run_roda(monkeypatch, client, falso):
 
 @pytest.mark.parametrize("corpo", [
     '{}',
-    '{"origem": "drive"}',
+    '{"origem": "canva"}',
     '{"origem": "notion", "limite_paginas": 0}',
     '{"origem": "notion", "teto_usd": 0}',
     '{"origem": "notion", "teto_usd": -1}',
