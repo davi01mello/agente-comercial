@@ -292,7 +292,7 @@ def test_rota_erro_do_modelo_vira_502(monkeypatch):
     assert "fora do formato" in r.json()["detail"]
 
 
-@pytest.mark.parametrize("corpo", [{"texto": "", "autor": "Rafael"}, {"texto": "x", "autor": ""}, {"texto": "x"}])
+@pytest.mark.parametrize("corpo", [{"texto": ""}, {"autor": "Rafael"}])
 def test_rota_body_invalido_vira_422(corpo):
     with TestClient(app) as client:
         assert client.post("/registrar/propor", json=corpo).status_code == 422

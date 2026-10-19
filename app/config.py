@@ -33,6 +33,16 @@ class Settings(BaseSettings):
     drive_sync_intervalo_min: int = 0  # 0 = desligado; >0: o servidor sincroniza o Drive sozinho a cada N minutos
     drive_sync_teto_usd: float = 0.5  # o teto de gasto do curador em cada sincronização automática
 
+    # Login (T5): entrar com a conta Google do CITi. O cliente OAuth se cria no Google Cloud (docs/deploy-railway.md).
+    # Sem GOOGLE_CLIENT_ID no dev, o login fica desligado (entra como "Dev local"). Em produção (APP_ENV=prod) o app
+    # NÃO sobe sem login configurado. Só no .env: nunca no código, no chat ou em log.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    session_secret: str = ""  # assina o cookie de sessão; em prod: uma string longa e aleatória, só do servidor
+    app_url: str = "http://localhost:8000"  # o endereço PÚBLICO do app: o Google volta em APP_URL/auth/callback
+    auth_dominio: str = "citi.org.br"  # só e-mails deste domínio entram
+    sessao_dias: int = 7
+
     @field_validator("database_url")
     @classmethod
     def _driver_do_postgres(cls, url: str) -> str:

@@ -71,12 +71,15 @@ class InsightBase(BaseModel):
 class InsightCreate(InsightBase):
     """Body de POST /insights.
 
+    O `autor` é a pessoa logada (T5): o que vier no corpo é ignorado, ninguém registra em nome de outra pessoa.
+
     Não tem `status`: todo item nasce `proposto`, e quem decide isso é o código, não quem chama a API.
     Campos a mais no JSON (ex.: "status": "consolidado") são ignorados em silêncio.
     """
 
     model_config = ConfigDict(extra="ignore")
 
+    autor: str | None = Field(default=None, max_length=100)  # ignorado: vale a pessoa logada
     relacoes: list[RelacaoIn] = Field(default=[], max_length=10)
 
 
@@ -186,7 +189,6 @@ class RegistrarIn(BaseModel):
     """Body de POST /registrar/propor. Como no /chat, o navegador reenvia a conversa inteira a cada turno."""
 
     texto: str = Field(min_length=1, max_length=8000)
-    autor: str = Field(min_length=1, max_length=100)
     conversa: list[MensagemHistorico] = Field(default=[], max_length=10)
 
 
@@ -202,12 +204,10 @@ class PropostaCuradoria(BaseModel):
 # --- fila -----------------------------------------------------------------------------------
 
 class AprovarIn(BaseModel):
-    """Body de POST /insights/{id}/aprovar. Sem login por enquanto: quem decide se identifica em texto livre
-    (quando entrar o login, na T5, passa a vir da sessão)."""
+    """Body de POST /insights/{id}/aprovar (vazio). Quem decide é a pessoa logada (T5): um `por_quem` no corpo, se
+    vier, é ignorado."""
 
     model_config = ConfigDict(str_strip_whitespace=True)
-
-    por_quem: str = Field(min_length=1, max_length=100)
 
 
 class RejeitarIn(AprovarIn):

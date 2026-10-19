@@ -61,7 +61,7 @@ def test_aprovar_muda_para_validado_e_grava_historico(client):
 
     assert r.status_code == 200
     assert r.json()["status"] == "validado"
-    assert historico(id_) == [CRIACAO, ("proposto", "validado", "Davi", None)]
+    assert historico(id_) == [CRIACAO, ("proposto", "validado", "Rafael", None)]
 
 
 def test_item_aprovado_aparece_na_lista_de_validados(client):
@@ -84,7 +84,7 @@ def test_historico_a_validar_tambem_pode_ser_aprovado(client):
     r = client.post(f"/insights/{id_}/aprovar", json={"por_quem": "Davi"})
 
     assert r.json()["status"] == "validado"
-    assert historico(id_)[-1] == ("historico_a_validar", "validado", "Davi", None)
+    assert historico(id_)[-1] == ("historico_a_validar", "validado", "Rafael", None)
 
 
 def test_rejeitar_grava_motivo_no_item_e_no_historico(client):
@@ -95,7 +95,7 @@ def test_rejeitar_grava_motivo_no_item_e_no_historico(client):
     assert r.status_code == 200
     assert r.json()["status"] == "obsoleto"
     assert r.json()["motivo_obsolescencia"] == "repete o INS-3"  # espaços das pontas removidos
-    assert historico(id_) == [CRIACAO, ("proposto", "obsoleto", "Davi", "repete o INS-3")]
+    assert historico(id_) == [CRIACAO, ("proposto", "obsoleto", "Rafael", "repete o INS-3")]
 
 
 def test_resposta_traz_as_relacoes_do_item(client):
@@ -131,7 +131,7 @@ def test_aprovar_duas_vezes_vira_422(client):
 
     assert r.status_code == 422
     assert "de 'validado' para 'validado'" in r.json()["detail"]  # a mensagem do dominio, que a tela mostra
-    assert historico(id_) == [CRIACAO, ("proposto", "validado", "Davi", None)]  # uma aprovação só
+    assert historico(id_) == [CRIACAO, ("proposto", "validado", "Rafael", None)]  # uma aprovação só
 
 
 @pytest.mark.parametrize("rota, corpo", [
@@ -158,12 +158,15 @@ def test_item_inexistente_vira_404(client, rota):
     assert "INS-999999" in r.json()["detail"]
 
 
-@pytest.mark.parametrize("corpo", [{}, {"por_quem": "   "}])
-def test_aprovar_sem_por_quem_vira_422(client, corpo):
+@pytest.mark.parametrize("corpo", [None, {}, {"por_quem": "Fulano (outra pessoa)"}])
+def test_quem_aprova_e_a_pessoa_logada_e_nao_o_corpo(client, corpo):
+    """T5: o `por_quem` não é mais do corpo. Sem corpo, ou com um nome qualquer nele, vale a sessão."""
     id_ = criar(client)
 
-    assert client.post(f"/insights/{id_}/aprovar", json=corpo).status_code == 422
-    assert historico(id_) == [CRIACAO]
+    r = client.post(f"/insights/{id_}/aprovar", **({} if corpo is None else {"json": corpo}))
+
+    assert r.status_code == 200
+    assert historico(id_) == [CRIACAO, ("proposto", "validado", "Rafael", None)]
 
 
 # --- concorrência ---------------------------------------------------------------------------
@@ -184,4 +187,4 @@ def test_duas_pessoas_ao_mesmo_tempo_a_segunda_recebe_422(client):
 
     assert erro.value.status_code == 422
     assert "Recarregue a Fila" in erro.value.detail
-    assert historico(id_) == [CRIACAO, ("proposto", "validado", "Davi", None)]
+    assert historico(id_) == [CRIACAO, ("proposto", "validado", "Rafael", None)]

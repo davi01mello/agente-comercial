@@ -84,6 +84,19 @@ class Insight(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class Usuario(Base):
+    """Quem já entrou com a conta Google do CITi (T5). A sessão é um cookie assinado; esta tabela é o registro de
+    quem entrou e quando (o nome daqui é o `autor` dos itens e o `por_quem` do histórico)."""
+
+    __tablename__ = "usuarios"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(200), unique=True)  # minúsculas
+    nome: Mapped[str] = mapped_column(String(100))
+    criado_em: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    ultimo_acesso: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class Relacao(Base):
     """Liga dois insights: `insight_id` reforça/contradiz/duplica/substitui `relacionado_id`."""
 
