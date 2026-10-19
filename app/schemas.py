@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 
 from app import dominio
-from app.models import FONTES, SECOES, STATUS, STATUS_FONTE, TIPOS, TIPOS_RELACAO
+from app.models import FONTES, ORIGENS, SECOES, STATUS, STATUS_FONTE, TIPOS, TIPOS_RELACAO
 
 # Valores permitidos: a lista mora em app/models.py (fonte única). Valor fora da lista -> 422 automático.
 Tipo = Literal[*TIPOS]
@@ -258,3 +258,18 @@ class ResumoFontes(BaseModel):
     por_origem: dict[str, int]
     ultima_execucao: ExecucaoOut | None = None
 
+
+class SincronizarIn(BaseModel):
+    """POST /fontes/sincronizar: as mesmas opções do scripts/importar_notion.py."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    origem: Literal[*ORIGENS]
+    dry_run: bool = False
+    limite_paginas: int | None = Field(default=None, ge=1)
+    # allow_inf_nan=False: um 1e999 no JSON vira infinito, e um teto infinito não seria teto
+    teto_usd: float = Field(default=1.0, gt=0, allow_inf_nan=False, description="ignorado no dry-run")
+
+
+class SincronizarOut(BaseModel):
+    execucao_id: int

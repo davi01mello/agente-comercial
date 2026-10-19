@@ -27,11 +27,12 @@ import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app import curadoria, dominio, llm, markdown_notion, trechos
 from app.config import settings
+from app.db import SessionLocal
 from app.models import MOTIVO_MAX, ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Relacao
 from app.notion import ErroNotion, LeitorNotion, na_lixeira, url_da_pagina
 from app.trechos import Trecho
@@ -159,6 +160,43 @@ class Relatorio:
 
 
 # --- a execução ---------------------------------------------------------------------------------------------
+
+class FaltaConfiguracao(Exception):
+    """Falta algo no .env para esta execução. A mensagem já vem pronta para quem pediu."""
+
+
+def conferir_configuracao(dry_run: bool) -> None:
+    """Antes de ler o Notion. Fora do dry-run, sem a chave do Gemini o curador não roda, e toda página viraria
+    `falha`. O NOTION_TOKEN é conferido pelo LeitorNotion, quando ele é criado."""
+    if not dry_run and not settings.gemini_api_key:
+        raise FaltaConfiguracao("Falta GEMINI_API_KEY no .env. Sem ela o curador não roda; para só ver o que seria "
+                                "importado, use o dry-run.")
+
+
+def executar(
+    leitor: LeitorNotion, *, dry_run: bool = False, limite_paginas: int | None = None, teto_usd: float | None = None,
+    execucao_id: int | None = None,
+) -> Relatorio:
+    """A importação com a própria sessão do banco: a porta de entrada da API (em segundo plano, quando a sessão da
+    requisição já fechou). Os erros são os de `importar`."""
+    with SessionLocal() as db:
+        return importar(leitor, db, dry_run=dry_run, limite_paginas=limite_paginas, teto_usd=teto_usd,
+                        execucao_id=execucao_id)
+
+
+def marcar_interrompidas(db: Session) -> int:
+    """Na subida do servidor: uma execução que ainda está `rodando` é de um servidor que parou no meio dela (caiu,
+    foi morto, ou levou dois Ctrl+C: o 1º, e o --reload, esperam a execução acabar). Ela vira `erro`, "interrompida";
+    sem isso, travaria o POST /fontes/sincronizar (409) para sempre. O que ela já gravou fica: cada página entra
+    inteira ou não entra. Devolve quantas mudaram."""
+    resultado = db.execute(
+        update(ExecucaoImportacao)
+        .where(ExecucaoImportacao.status == "rodando")
+        .values(status="erro", erro="interrompida", fim=_agora())
+    )
+    db.commit()
+    return resultado.rowcount
+
 
 def nova_execucao(db: Session, *, dry_run: bool = False, teto_usd: float | None = None) -> ExecucaoImportacao:
     """A linha da execução, `rodando`, gravada já: a API devolve o id antes de o trabalho começar."""

@@ -2,21 +2,25 @@
 
 As tabelas do banco são criadas e atualizadas pelas migrações: rode `alembic upgrade head` antes.
 """
+import json
 import logging
+import threading
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app import curadoria, dominio, knowledge, llm
-from app.db import get_db
+from app import curadoria, dominio, importacao, knowledge, llm
+from app.db import SessionLocal, get_db
 from app.models import ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Relacao
+from app.notion import ErroNotion, LeitorNotion
 from app.schemas import (
     AprovarIn,
     ChatIn,
@@ -34,6 +38,8 @@ from app.schemas import (
     RejeitarIn,
     RelacaoOut,
     ResumoFontes,
+    SincronizarIn,
+    SincronizarOut,
 )
 
 # Logs do app (app.llm, app.knowledge...) no terminal, ao lado dos do uvicorn. O uvicorn só configura os loggers
@@ -43,10 +49,20 @@ _log_do_app.setLevel(logging.INFO)
 _saida_do_log = logging.StreamHandler()  # escreve no terminal (stderr), como o uvicorn
 _saida_do_log.setFormatter(logging.Formatter("%(levelname)s:     [%(name)s] %(message)s"))
 _log_do_app.addHandler(_saida_do_log)
+logger = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
-app = FastAPI(title="Cérebro Comercial CITi")
+
+@asynccontextmanager
+async def ciclo_de_vida(_app: FastAPI):
+    """Na subida: a execução da importação que ficou `rodando` é de um servidor que parou no meio dela."""
+    with SessionLocal() as db:
+        importacao.marcar_interrompidas(db)
+    yield
+
+
+app = FastAPI(title="Cérebro Comercial CITi", lifespan=ciclo_de_vida)
 
 # Interface: CSS, JS e o que mais a página precisar ficam em app/static (sem build, servidos como estão).
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
@@ -254,8 +270,9 @@ def _mudar_status(db: Session, insight_id: int, para: str, por_quem: str, motivo
 
 
 # --- fontes ---------------------------------------------------------------------------------
-# Só leitura: quem traz as páginas é o scripts/importar_notion.py. Estas rotas alimentam a tela de Fontes.
-# Nunca devolvem o texto das páginas (`markdown`), só título, link, estado e quantos itens saíram delas.
+# Quem traz as páginas é a importação (app/importacao.py), pelo scripts/importar_notion.py ou pelo POST
+# /fontes/sincronizar. As rotas alimentam a tela de Fontes e nunca devolvem o texto das páginas (`markdown`): só título,
+# link, estado e quantos itens saíram delas.
 
 @app.get("/fontes", response_model=ListaFontes)
 def listar_fontes(filtro: Annotated[FiltroFontes, Query()], db: Db):
@@ -310,3 +327,57 @@ def resumo_fontes(db: Db):
         ultima_execucao=ExecucaoOut.model_validate(ultima) if ultima else None,
     )
 
+
+# --- sincronizar ----------------------------------------------------------------------------
+
+# A conferência do 409 e a criação da execução são uma coisa só: sem a trava, duas requisições ao mesmo tempo veriam
+# "nenhuma rodando" e criariam duas. A trava vale dentro de um processo (o uvicorn de um worker só, como no dev).
+_uma_sincronizacao_por_vez = threading.Lock()
+
+
+def leitor_notion() -> LeitorNotion:
+    """O leitor do Notion da sincronização. Os testes trocam pelo Notion falso (app.dependency_overrides)."""
+    try:
+        return LeitorNotion()
+    except ErroNotion as e:  # falta o NOTION_TOKEN no .env
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+
+@app.post("/fontes/sincronizar", response_model=SincronizarOut, status_code=202)
+def sincronizar_fontes(
+    dados: SincronizarIn, tarefas: BackgroundTasks, db: Db, leitor: Annotated[LeitorNotion, Depends(leitor_notion)]
+):
+    """Começa uma importação do Notion em segundo plano e devolve o id da execução na hora. Acompanhe pelo
+    GET /fontes/execucoes/{id}. As mesmas regras do scripts/importar_notion.py: o dry-run não muda as fontes nem chama
+    o modelo, e o curador para antes de passar do teto. 409 se já houver uma importação (não dry-run) rodando."""
+    # T5: exigir papel admin
+    try:
+        importacao.conferir_configuracao(dados.dry_run)
+    except importacao.FaltaConfiguracao as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    with _uma_sincronizacao_por_vez:
+        rodando = db.scalar(
+            select(ExecucaoImportacao.id)
+            .where(ExecucaoImportacao.status == "rodando", ExecucaoImportacao.dry_run.is_(False))
+            .limit(1)
+        )
+        if rodando is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Já há uma importação rodando (execução #{rodando}). Acompanhe em /fontes/execucoes/{rodando}.",
+            )
+        execucao = importacao.nova_execucao(db, dry_run=dados.dry_run, teto_usd=dados.teto_usd)
+
+    tarefas.add_task(_sincronizar_em_segundo_plano, leitor, execucao.id, dados)
+    return SincronizarOut(execucao_id=execucao.id)
+
+
+def _sincronizar_em_segundo_plano(leitor: LeitorNotion, execucao_id: int, dados: SincronizarIn) -> None:
+    """Roda depois que a resposta saiu, com a própria sessão do banco (importacao.executar)."""
+    try:
+        importacao.executar(leitor, dry_run=dados.dry_run, limite_paginas=dados.limite_paginas,
+                            teto_usd=dados.teto_usd, execucao_id=execucao_id)
+    except Exception as e:  # a execução já ficou `erro`, com o tipo; a mensagem pode ter texto de página
+        logger.warning(json.dumps({"evento": "sincronizacao_falhou", "execucao_id": execucao_id,
+                                   "erro": type(e).__name__}))
