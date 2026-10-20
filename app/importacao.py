@@ -568,7 +568,9 @@ def _curar_pagina(db: Session, pagina: PaginaLida, relatorio: Relatorio, origem:
         _falhou(db, fonte, pagina, relatorio, f"o item proposto tem possível dado pessoal ({onde})")
         return
 
-    motivo_do_item = f"Importado {origem.rotulo} (execução #{relatorio.execucao_id})"
+    motivo_do_item = f"Importado {origem.rotulo}"
+    if relatorio.execucao_id is not None:  # o anexo do chat não tem execução
+        motivo_do_item += f" (execução #{relatorio.execucao_id})"
     for proposta in propostas:
         item = Insight(**proposta.insight.model_dump(), status="historico_a_validar")  # nunca validado
         db.add(item)

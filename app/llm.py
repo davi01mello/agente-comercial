@@ -20,7 +20,7 @@ from google.genai import errors, types
 from pydantic import BaseModel, ValidationError
 
 from app.config import settings
-from app.schemas import PropostaLLM, RelacoesLLM
+from app.schemas import BriefingLLM, PropostaLLM, RelacoesLLM
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +311,10 @@ def _resumo_do_erro(e: ValidationError) -> str:
     return "; ".join(linhas)
 
 
-def _gerar_json(funcao: str, schema: type[M], system: str, contents: list[types.Content]) -> M:
+def _gerar_json(
+    funcao: str, schema: type[M], system: str, contents: list[types.Content], *, quem: str = "O curador",
+    modelo: str | None = None,
+) -> M:
     """Pede ao modelo um JSON no formato `schema` e confere com o Pydantic.
 
     Se vier fora do formato, devolve o erro ao modelo e pede de novo, UMA vez. Na segunda falha, ErroLLM.
@@ -327,7 +330,7 @@ def _gerar_json(funcao: str, schema: type[M], system: str, contents: list[types.
     client = _client()
 
     with com_prazo():  # se quem chamou (curadoria.propor) já abriu o prazo, as duas chamadas dividem o mesmo
-        resp = _chamar(client, funcao, model=settings.model_curador, contents=contents, config=config)
+        resp = _chamar(client, funcao, model=modelo or settings.model_curador, contents=contents, config=config)
         try:
             return schema.model_validate_json(resp.text or "")
         except ValidationError as e:
@@ -339,13 +342,13 @@ def _gerar_json(funcao: str, schema: type[M], system: str, contents: list[types.
             ]
 
         resp = _chamar(
-            client, f"{funcao}:correcao_json", model=settings.model_curador, contents=contents, config=config
+            client, f"{funcao}:correcao_json", model=modelo or settings.model_curador, contents=contents, config=config
         )
         try:
             return schema.model_validate_json(resp.text or "")
         except ValidationError as e:
             raise ErroLLM(
-                "O curador devolveu uma resposta fora do formato duas vezes. Tente de novo ou reescreva o texto."
+                f"{quem} devolveu uma resposta fora do formato duas vezes. Tente de novo ou reescreva o texto."
             ) from e
 
 
@@ -383,6 +386,20 @@ def curar(texto: str, conversa: list[dict], turno: int, ultimo_turno: bool) -> P
     contents.append(_mensagem("user", f"{_como_dado(texto)}\n{aviso_turno}"))
     system = "\n\n".join([carregar_prompt("base"), carregar_prompt("curador")])
     return _gerar_json("curar", PropostaLLM, system, contents)
+
+
+def briefar(segmento: str, tipo_reuniao: str, contexto: str, itens: str, documentos: str = "") -> BriefingLLM:
+    """Monta o briefing da reunião só com os itens aprovados selecionados (`itens`, uma linha por item, como a base do
+    consultor) e os documentos do Drive que a busca achou (`documentos`, ou ""). O contexto da pessoa vai como DADO."""
+    camadas = [carregar_prompt("base"), carregar_prompt("briefing"), "# ITENS SELECIONADOS\n\n" + itens]
+    if documentos:
+        camadas.append("# DOCUMENTOS DO DRIVE (AINDA NÃO REVISADOS)\n\n" + documentos)
+    pedido = (
+        f"Segmento: {segmento}\nTipo de reunião: {tipo_reuniao}\n"
+        f"Contexto da pessoa:\n{_como_dado(contexto or '(nenhum)')}"
+    )
+    return _gerar_json("briefar", BriefingLLM, "\n\n".join(camadas), [_mensagem("user", pedido)],
+                       quem="O briefing", modelo=settings.model_consultor)
 
 
 def relacionar(item_novo: str, candidatos: str) -> RelacoesLLM:

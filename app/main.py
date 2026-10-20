@@ -11,36 +11,56 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import agendador, auth, busca, curadoria, dominio, importacao, importacao_drive, knowledge, llm
+from app import (
+    agendador,
+    anexos,
+    auth,
+    briefing,
+    busca,
+    curadoria,
+    dominio,
+    importacao,
+    importacao_drive,
+    knowledge,
+    lacunas,
+    llm,
+)
 from app.auth import Logada
 from app.config import settings
 from app.db import SessionLocal, get_db
 from app.drive import ErroDrive, LeitorDrive
-from app.models import ORIGENS, ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Relacao
+from app.models import ORIGENS, ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Lacuna, Relacao
 from app.notion import ErroNotion, LeitorNotion
 from app.schemas import (
+    AnexoOut,
     AprovarIn,
+    BriefingIn,
+    BriefingOut,
     ChatIn,
     ChatOut,
+    ChatRegistrarIn,
     ContagensExecucao,
     DocumentoCitavel,
     ExecucaoDetalhe,
     ExecucaoOut,
     FiltroFontes,
     FiltroInsights,
+    FiltroLacunas,
     FonteOut,
     InsightCreate,
     InsightOut,
+    LacunaOut,
     ListaFontes,
     ListaInsights,
+    ListaLacunas,
     PropostaCuradoria,
     RegistrarIn,
     RejeitarIn,
@@ -112,7 +132,7 @@ def home(request: Request):
 
 
 @app.post("/chat", response_model=ChatOut)
-def chat(dados: ChatIn, db: Db, _pessoa: Logada):
+def chat(dados: ChatIn, db: Db, pessoa: Logada):
     """Consultor: recebe a pergunta + o histórico e responde com os itens aprovados do banco, citando [INS-n]."""
     # Dado pessoal é barrado ANTES do modelo (como no /registrar/propor): depois que o texto sai daqui, não volta.
     # Só o que o usuário escreveu é conferido; as falas do modelo nasceram de textos que já passaram por aqui.
@@ -132,11 +152,72 @@ def chat(dados: ChatIn, db: Db, _pessoa: Logada):
                                  knowledge.montar_documentos(achados))
     except llm.ErroLLM as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
+    lacuna = lacunas.registrar(db, dados.mensagem, pessoa.nome) if lacunas.e_lacuna(resposta) else None
     return ChatOut(
         resposta=resposta,
         documentos=[DocumentoCitavel(id=a.fonte_id, titulo=a.titulo, url=a.url, categoria=a.categoria)
                     for a in achados],
+        lacuna_id=lacuna.id if lacuna else None,
     )
+
+
+@app.post("/chat/registrar", response_model=PropostaCuradoria)
+def chat_registrar(dados: ChatRegistrarIn, db: Db, pessoa: Logada):
+    """"Registrar isso", a partir do chat: transforma o que a pessoa contou na conversa em PROPOSTA do curador, com a
+    mesma barreira de dado pessoal e o mesmo rascunho do /registrar/propor. NÃO grava nada: quem grava é o POST
+    /insights (com `lacuna_id`, se veio de uma lacuna), depois que a pessoa confere. O relato é o `texto` ou as últimas
+    mensagens dela no histórico."""
+    relato = dados.texto or _relato_da_conversa(dados)
+    if not relato:
+        raise HTTPException(status_code=422, detail="Não há o que registrar: escreva o relato ou conte algo no chat.")
+    if dados.lacuna_id is not None and db.get(Lacuna, dados.lacuna_id) is None:
+        raise HTTPException(status_code=404, detail="Essa lacuna não existe.")
+    try:
+        return curadoria.propor(relato, pessoa.nome, [], db)
+    except dominio.RegraDeNegocio as e:  # dado pessoal no relato: barrado antes de chamar o modelo
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except llm.ErroLLM as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+RELATO_ULTIMAS_FALAS = 3  # as últimas falas da pessoa que viram o relato quando ela não escreveu um texto
+
+
+def _relato_da_conversa(dados: ChatRegistrarIn) -> str:
+    falas = [h.text.strip() for h in dados.historico if h.role == "user" and h.text.strip()]
+    return "\n\n".join(falas[-RELATO_ULTIMAS_FALAS:])[:8000]
+
+
+# --- briefing -------------------------------------------------------------------------------
+
+@app.post("/briefing", response_model=BriefingOut)
+def montar_briefing(dados: BriefingIn, db: Db, _pessoa: Logada):
+    """Roteiro da reunião só com a base: cases, perfil do segmento, condução, objeções e estrutura da proposta, cada
+    ponto com as fontes que o sustentam e o que a base NÃO cobre. Não grava nada. O `contexto` passa pela barreira de
+    dado pessoal antes de ir ao modelo."""
+    try:
+        dominio.exigir_sem_dados_pessoais(contexto=dados.contexto)
+        return briefing.montar(db, dados)
+    except dominio.RegraDeNegocio as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except llm.ErroLLM as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+# --- lacunas --------------------------------------------------------------------------------
+
+@app.get("/lacunas", response_model=ListaLacunas)
+def listar_lacunas(filtro: Annotated[FiltroLacunas, Query()], db: Db):
+    """O que o time perguntou e a base não soube responder, as mais repetidas primeiro."""
+    grupos = lacunas.agrupar(db, filtro.status, filtro.limit)
+    return ListaLacunas(itens=[LacunaOut(**vars(g)) for g in grupos])
+
+
+@app.post("/lacunas/{lacuna_id}/resolver", status_code=204)
+def resolver_lacuna(lacuna_id: int, db: Db):
+    """Tira da lista aberta (e as parecidas junto): alguém já cobriu o assunto (ou ele não interessa)."""
+    if not lacunas.resolver(db, lacuna_id):
+        raise HTTPException(status_code=404, detail="Essa lacuna não existe.")
 
 
 # --- insights -------------------------------------------------------------------------------
@@ -162,6 +243,9 @@ def criar_insight(dados: InsightCreate, db: Db, pessoa: Logada):
                    "Troque por algo genérico (\"o cliente\", \"[e-mail]\") e envie de novo. Nada foi gravado.",
         ) from e
 
+    if dados.lacuna_id is not None and db.get(Lacuna, dados.lacuna_id) is None:
+        raise HTTPException(status_code=422, detail="Essa lacuna não existe.")
+
     if _acabou_de_ser_criado(db, dados, pessoa.nome):
         raise HTTPException(
             status_code=409,
@@ -175,13 +259,15 @@ def criar_insight(dados: InsightCreate, db: Db, pessoa: Logada):
         lista = ", ".join(f"INS-{i}" for i in faltando)
         raise HTTPException(status_code=422, detail=f"Relação com item que não existe: {lista}.")
 
-    item = Insight(**dados.model_dump(exclude={"relacoes", "autor"}), autor=pessoa.nome, status="proposto")
+    item = Insight(**dados.model_dump(exclude={"relacoes", "autor", "lacuna_id"}), autor=pessoa.nome, status="proposto")
     db.add(item)
     db.flush()  # manda o INSERT agora para o banco gerar o item.id (ainda dá para desfazer tudo)
     relacoes = [Relacao(insight_id=item.id, relacionado_id=i, tipo=tipo) for i, tipo in pares]
     db.add_all(relacoes)
     db.add(HistoricoStatus(insight_id=item.id, de=None, para="proposto", por_quem=pessoa.nome))
     db.commit()  # item + relações + histórico entram juntos (ou nada entra)
+    if dados.lacuna_id is not None:
+        lacunas.resolver(db, dados.lacuna_id, item.id)  # o assunto da lacuna agora tem um item (esperando a Fila)
     return _para_saida(item, relacoes)
 
 
@@ -324,7 +410,12 @@ def listar_fontes(filtro: Annotated[FiltroFontes, Query()], db: Db):
     pagina = consulta.order_by(Fonte.editado_em.desc(), Fonte.id.desc()).limit(filtro.limit).offset(filtro.offset)
     fontes = list(db.scalars(pagina))
 
-    # Itens gerados por cada fonte da página, numa consulta só (o item guarda a url da fonte em fonte_ref)
+    return ListaFontes(itens=_fontes_com_itens(db, fontes), total=total, limit=filtro.limit, offset=filtro.offset)
+
+
+def _fontes_com_itens(db: Session, fontes: list[Fonte]) -> list[FonteOut]:
+    """As fontes como a tela mostra, com os itens que o curador tirou de cada uma (numa consulta só: o item guarda a
+    url da fonte em fonte_ref)."""
     itens_por_url: dict[str, dict[str, int]] = {}
     if fontes:
         linhas = db.execute(
@@ -340,7 +431,7 @@ def listar_fontes(filtro: Annotated[FiltroFontes, Query()], db: Db):
         item = FonteOut.model_validate(f)
         item.itens = itens_por_url.get(f.url, {})
         saida.append(item)
-    return ListaFontes(itens=saida, total=total, limit=filtro.limit, offset=filtro.offset)
+    return saida
 
 
 @app.get("/fontes/resumo", response_model=ResumoFontes)
@@ -400,6 +491,80 @@ def _criar_leitor(origem: str):
     app.dependency_overrides, que é como os testes põem o Notion e o Drive falsos."""
     fabrica = LEITORES[origem]
     return app.dependency_overrides.get(fabrica, fabrica)()
+
+
+# --- anexo no chat --------------------------------------------------------------------------
+
+AVISO_DO_ANEXO = {
+    "a_curar": "Anexo guardado. O consultor já acha o texto na busca e o curador está propondo itens para a Fila.",
+    "so_busca": "Anexo guardado só para a busca: o consultor acha o texto, mas ele não vai ao curador.",
+    "vazia": "Não achei texto no arquivo, então nada foi guardado.",
+    "pulada_dado_pessoal": "O arquivo tem possível dado pessoal. Nada foi guardado nem enviado ao modelo: troque "
+                           "por algo genérico e anexe de novo.",
+}
+
+
+@app.post("/fontes/anexo", response_model=AnexoOut, status_code=201)
+def anexar(tarefas: BackgroundTasks, db: Db, pessoa: Logada, arquivo: Annotated[UploadFile, File()]):
+    """Anexo do chat (docx, pdf, xlsx, csv, txt ou md, até 10 MB) vira fonte: o texto fica na busca do consultor (como
+    [DOC-n], "ainda não revisado") e o curador propõe itens para a Fila em segundo plano. O arquivo em si não é
+    guardado. Dado pessoal barra tudo (nada é guardado nem enviado ao modelo). O mesmo texto anexado de novo devolve a
+    fonte que já existe (`ja_existia`). Acompanhe o curador em GET /fontes/{id}."""
+    nome = arquivo.filename or "anexo"
+    conteudo = arquivo.file.read(anexos.MAX_BYTES + 1)
+    try:
+        recebido = anexos.receber(db, nome, conteudo, pessoa.nome)
+    except anexos.ErroDoAnexo as e:
+        raise HTTPException(status_code=e.status_http, detail=str(e)) from e
+
+    fonte = recebido.fonte
+    if recebido.curar:
+        tarefas.add_task(anexos.curar, fonte.id)
+    pesquisavel = fonte.status in ("a_curar", "so_busca", "importada", "falha")
+    return AnexoOut(
+        fonte=_fontes_com_itens(db, [fonte])[0],
+        ja_existia=recebido.ja_existia,
+        curando=recebido.curar,
+        documento=DocumentoCitavel(id=fonte.id, titulo=fonte.titulo, url=fonte.url, categoria=fonte.categoria)
+        if pesquisavel else None,
+        aviso="Esse anexo já tinha sido enviado antes." if recebido.ja_existia else AVISO_DO_ANEXO.get(fonte.status),
+    )
+
+
+def _anexo_ou_404(db: Session, fonte_id: int) -> Fonte:
+    fonte = db.get(Fonte, fonte_id)
+    if fonte is None or fonte.origem != anexos.UPLOAD.nome or fonte.status == "removida":
+        raise HTTPException(status_code=404, detail="Esse anexo não existe.")
+    return fonte
+
+
+@app.get("/fontes/{fonte_id}", response_model=FonteOut)
+def ver_fonte(fonte_id: int, db: Db):
+    """Uma fonte (para acompanhar o curador de um anexo: `status` vira `importada` ou `falha`, e `itens` mostra o que
+    entrou na Fila)."""
+    fonte = db.get(Fonte, fonte_id)
+    if fonte is None:
+        raise HTTPException(status_code=404, detail="Essa fonte não existe.")
+    return _fontes_com_itens(db, [fonte])[0]
+
+
+@app.get("/fontes/{fonte_id}/texto", response_class=PlainTextResponse)
+def texto_do_anexo(fonte_id: int, db: Db):
+    """O texto extraído de um anexo (é o link do [DOC-n] dele, já que o arquivo original não é guardado)."""
+    fonte = _anexo_ou_404(db, fonte_id)
+    if not fonte.markdown:
+        raise HTTPException(status_code=404, detail="Esse anexo não tem texto guardado.")
+    return PlainTextResponse(f"{fonte.titulo}\n\n{fonte.markdown}", headers={"X-Content-Type-Options": "nosniff"})
+
+
+@app.post("/fontes/{fonte_id}/curar", status_code=202)
+def curar_anexo(fonte_id: int, tarefas: BackgroundTasks, db: Db):
+    """Tenta o curador de novo num anexo que falhou (ou que ficou `a_curar` porque o servidor reiniciou)."""
+    fonte = _anexo_ou_404(db, fonte_id)
+    if fonte.status not in importacao.A_CURAR:
+        raise HTTPException(status_code=409, detail=f"Este anexo está '{fonte.status}': não há o que curar.")
+    tarefas.add_task(anexos.curar, fonte.id)
+    return {"fonte_id": fonte.id}
 
 
 @app.post("/fontes/sincronizar", response_model=SincronizarOut, status_code=202)

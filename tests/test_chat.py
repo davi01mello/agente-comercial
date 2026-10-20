@@ -37,7 +37,7 @@ def test_chat_ok(client, recebido):
     r = client.post("/chat", json={"mensagem": "E se disser que está caro?", "historico": historico})
 
     assert r.status_code == 200
-    assert r.json() == {"resposta": "Proponha um piloto [INS-2].", "documentos": []}
+    assert r.json() == {"resposta": "Proponha um piloto [INS-2].", "documentos": [], "lacuna_id": None}
     assert recebido[0]["mensagem"] == "E se disser que está caro?"
     assert recebido[0]["historico"] == historico
 

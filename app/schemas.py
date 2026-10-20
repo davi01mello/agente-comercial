@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from app import dominio
 from app.models import (
@@ -80,6 +80,7 @@ class InsightCreate(InsightBase):
     model_config = ConfigDict(extra="ignore")
 
     autor: str | None = Field(default=None, max_length=100)  # ignorado: vale a pessoa logada
+    lacuna_id: int | None = Field(default=None, ge=1)  # vem de uma lacuna do consultor: ela sai da lista aberta
     relacoes: list[RelacaoIn] = Field(default=[], max_length=10)
 
 
@@ -140,9 +141,21 @@ class DocumentoCitavel(BaseModel):
 
 
 class ChatOut(BaseModel):
-    """O que POST /chat devolve. `documentos`: os do Drive que o consultor recebeu (podem ou não estar na resposta)."""
+    """O que POST /chat devolve. `documentos`: os do Drive que o consultor recebeu (podem ou não estar na resposta).
+    `lacuna_id`: preenchido quando a resposta admite que a base não cobre o tema (a tela oferece "Registrar isso" e
+    manda este id de volta no POST /chat/registrar e no POST /insights)."""
     resposta: str
     documentos: list[DocumentoCitavel] = []
+    lacuna_id: int | None = None
+
+
+class ChatRegistrarIn(BaseModel):
+    """Body de POST /chat/registrar ("Registrar isso", a partir da conversa do chat).
+
+    Sem `texto`, o relato é montado com as últimas mensagens DA PESSOA no `historico` (as do modelo não entram)."""
+    texto: str | None = Field(default=None, min_length=1, max_length=8000)
+    historico: list[MensagemHistorico] = Field(default=[], max_length=30)
+    lacuna_id: int | None = Field(default=None, ge=1)
 
 
 # --- curador --------------------------------------------------------------------------------
@@ -220,6 +233,114 @@ class RejeitarIn(AprovarIn):
     motivo: str | None = Field(default=None, max_length=2000)
 
 
+# --- briefing -------------------------------------------------------------------------------
+
+TipoReuniao = Literal["diagnostico", "proposta", "negociacao"]
+
+
+class BriefingIn(BaseModel):
+    """Body de POST /briefing."""
+
+    segmento: Segmento = Field(min_length=1)
+    tipo_reuniao: TipoReuniao = "diagnostico"
+    contexto: str | None = Field(default=None, max_length=1500, description="o que a pessoa já sabe da reunião")
+
+    @field_validator("segmento")
+    @classmethod
+    def _segmento_nao_vazio(cls, valor: str) -> str:
+        if not valor:
+            raise ValueError("Diga o segmento da reunião.")
+        return valor
+
+
+class PontoLLM(BaseModel):
+    texto: str = Field(description="o ponto, curto (até ~220 caracteres)")
+    fontes: list[str] = Field(description='ids que sustentam o ponto, ex.: ["INS-12", "DOC-7"]')
+
+
+class BriefingLLM(BaseModel):
+    """O que o MODELO devolve para o briefing (ainda não conferido: o código descarta ponto sem fonte válida)."""
+
+    resumo: str
+    cases: list[PontoLLM]
+    perfil: list[PontoLLM]
+    roteiro: list[PontoLLM]
+    objecoes: list[PontoLLM]
+    proposta: list[PontoLLM]
+    lacunas: list[str]
+
+
+class FonteDoPonto(BaseModel):
+    codigo: str  # "INS-12" ou "DOC-7"
+    titulo: str
+    tipo: Literal["item", "documento"]
+    url: str | None = None  # do documento
+
+
+class PontoOut(BaseModel):
+    texto: str
+    fontes: list[FonteDoPonto]
+    evidencia_minima: int | None = None  # a MENOR evidência entre os itens citados (None: só documento)
+    nao_revisado: bool = False  # cita documento do Drive que o time ainda não revisou
+
+
+class SecaoOut(BaseModel):
+    chave: Literal["cases", "perfil", "roteiro", "objecoes", "proposta"]
+    titulo: str
+    pontos: list[PontoOut]
+
+
+class ItemDoBriefing(BaseModel):
+    """Um item aprovado que entrou na seleção (o modelo só pôde usar estes)."""
+
+    id: int
+    codigo: str
+    titulo: str
+    tipo: str
+    secao: str
+    evidencia: int
+    de_outro_segmento: bool = False
+
+
+class BriefingOut(BaseModel):
+    segmento: str
+    tipo_reuniao: TipoReuniao
+    resumo: str
+    secoes: list[SecaoOut]
+    lacunas: list[str]  # o que a base não cobre para esta reunião (as do código primeiro, depois as do modelo)
+    itens: list[ItemDoBriefing]
+    documentos: list[DocumentoCitavel] = []
+    avisos: list[str] = []
+    usou_modelo: bool = True
+
+
+# --- lacunas ---------------------------------------------------------------------------------
+
+class LacunaOut(BaseModel):
+    """Perguntas parecidas que o consultor não soube responder, juntas. `id` é da mais antiga do grupo."""
+    id: int
+    pergunta: str  # a mais recente do grupo
+    vezes: int
+    pessoas: int
+    primeira_em: datetime
+    ultima_em: datetime
+    status: Literal["aberta", "resolvida"]
+    resolvida_por_insight_id: int | None = None
+
+
+class ListaLacunas(BaseModel):
+    itens: list[LacunaOut]
+
+
+class FiltroLacunas(BaseModel):
+    """Query string de GET /lacunas. Ex.: /lacunas?status=aberta&limit=20"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["aberta", "resolvida"] = "aberta"
+    limit: int = Field(default=50, ge=1, le=200)
+
+
 # --- fontes (a tela de Fontes) ----------------------------------------------------------------
 
 class FiltroFontes(BaseModel):
@@ -249,6 +370,17 @@ class FonteOut(BaseModel):
     editado_em: datetime
     importado_em: datetime
     itens: dict[str, int] = {}  # itens que o curador propôs a partir dela: status do item -> quantos
+
+
+class AnexoOut(BaseModel):
+    """Resposta de POST /fontes/anexo. `fonte.status` diz o que aconteceu: `a_curar` (o curador roda em segundo plano:
+    consulte GET /fontes/{id}), `so_busca`, `vazia`, `pulada_dado_pessoal` (nada foi guardado nem enviado ao modelo)."""
+
+    fonte: FonteOut
+    ja_existia: bool  # o mesmo texto já tinha sido anexado antes
+    curando: bool  # o curador foi disparado agora
+    documento: DocumentoCitavel | None = None  # presente quando o consultor já acha o anexo na busca
+    aviso: str | None = None
 
 
 class ListaFontes(BaseModel):

@@ -13,6 +13,7 @@ from pathlib import Path
 
 MAX_CARACTERES = 600_000  # um livro: acima disto o resto é cortado (e a busca ainda acha o que veio antes)
 MAX_LINHAS_PLANILHA = 5_000
+MAX_PAGINAS_PDF = 400  # acima disto o resto é ignorado (o texto de 400 páginas já passa do limite de caracteres)
 
 MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -127,7 +128,7 @@ def _pdf(caminho: Path) -> str:
         raise ErroDeLeitura("PDF protegido por senha")
     paginas = []
     total = 0
-    for pagina in leitor.pages:  # uma página por vez: para no limite sem ler o resto do arquivo
+    for pagina in leitor.pages[:MAX_PAGINAS_PDF]:  # uma página por vez: para no limite sem ler o resto do arquivo
         texto = (pagina.extract_text() or "").strip()
         if texto:
             paginas.append(texto)
