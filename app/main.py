@@ -19,28 +19,32 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import agendador, auth, busca, curadoria, dominio, importacao, importacao_drive, knowledge, llm
+from app import agendador, auth, busca, curadoria, dominio, importacao, importacao_drive, knowledge, lacunas, llm
 from app.auth import Logada
 from app.config import settings
 from app.db import SessionLocal, get_db
 from app.drive import ErroDrive, LeitorDrive
-from app.models import ORIGENS, ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Relacao
+from app.models import ORIGENS, ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Lacuna, Relacao
 from app.notion import ErroNotion, LeitorNotion
 from app.schemas import (
     AprovarIn,
     ChatIn,
     ChatOut,
+    ChatRegistrarIn,
     ContagensExecucao,
     DocumentoCitavel,
     ExecucaoDetalhe,
     ExecucaoOut,
     FiltroFontes,
     FiltroInsights,
+    FiltroLacunas,
     FonteOut,
     InsightCreate,
     InsightOut,
+    LacunaOut,
     ListaFontes,
     ListaInsights,
+    ListaLacunas,
     PropostaCuradoria,
     RegistrarIn,
     RejeitarIn,
@@ -112,7 +116,7 @@ def home(request: Request):
 
 
 @app.post("/chat", response_model=ChatOut)
-def chat(dados: ChatIn, db: Db, _pessoa: Logada):
+def chat(dados: ChatIn, db: Db, pessoa: Logada):
     """Consultor: recebe a pergunta + o histórico e responde com os itens aprovados do banco, citando [INS-n]."""
     # Dado pessoal é barrado ANTES do modelo (como no /registrar/propor): depois que o texto sai daqui, não volta.
     # Só o que o usuário escreveu é conferido; as falas do modelo nasceram de textos que já passaram por aqui.
@@ -132,11 +136,56 @@ def chat(dados: ChatIn, db: Db, _pessoa: Logada):
                                  knowledge.montar_documentos(achados))
     except llm.ErroLLM as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
+    lacuna = lacunas.registrar(db, dados.mensagem, pessoa.nome) if lacunas.e_lacuna(resposta) else None
     return ChatOut(
         resposta=resposta,
         documentos=[DocumentoCitavel(id=a.fonte_id, titulo=a.titulo, url=a.url, categoria=a.categoria)
                     for a in achados],
+        lacuna_id=lacuna.id if lacuna else None,
     )
+
+
+@app.post("/chat/registrar", response_model=PropostaCuradoria)
+def chat_registrar(dados: ChatRegistrarIn, db: Db, pessoa: Logada):
+    """"Registrar isso", a partir do chat: transforma o que a pessoa contou na conversa em PROPOSTA do curador, com a
+    mesma barreira de dado pessoal e o mesmo rascunho do /registrar/propor. NÃO grava nada: quem grava é o POST
+    /insights (com `lacuna_id`, se veio de uma lacuna), depois que a pessoa confere. O relato é o `texto` ou as últimas
+    mensagens dela no histórico."""
+    relato = dados.texto or _relato_da_conversa(dados)
+    if not relato:
+        raise HTTPException(status_code=422, detail="Não há o que registrar: escreva o relato ou conte algo no chat.")
+    if dados.lacuna_id is not None and db.get(Lacuna, dados.lacuna_id) is None:
+        raise HTTPException(status_code=404, detail="Essa lacuna não existe.")
+    try:
+        return curadoria.propor(relato, pessoa.nome, [], db)
+    except dominio.RegraDeNegocio as e:  # dado pessoal no relato: barrado antes de chamar o modelo
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except llm.ErroLLM as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+RELATO_ULTIMAS_FALAS = 3  # as últimas falas da pessoa que viram o relato quando ela não escreveu um texto
+
+
+def _relato_da_conversa(dados: ChatRegistrarIn) -> str:
+    falas = [h.text.strip() for h in dados.historico if h.role == "user" and h.text.strip()]
+    return "\n\n".join(falas[-RELATO_ULTIMAS_FALAS:])[:8000]
+
+
+# --- lacunas --------------------------------------------------------------------------------
+
+@app.get("/lacunas", response_model=ListaLacunas)
+def listar_lacunas(filtro: Annotated[FiltroLacunas, Query()], db: Db):
+    """O que o time perguntou e a base não soube responder, as mais repetidas primeiro."""
+    grupos = lacunas.agrupar(db, filtro.status, filtro.limit)
+    return ListaLacunas(itens=[LacunaOut(**vars(g)) for g in grupos])
+
+
+@app.post("/lacunas/{lacuna_id}/resolver", status_code=204)
+def resolver_lacuna(lacuna_id: int, db: Db):
+    """Tira da lista aberta (e as parecidas junto): alguém já cobriu o assunto (ou ele não interessa)."""
+    if not lacunas.resolver(db, lacuna_id):
+        raise HTTPException(status_code=404, detail="Essa lacuna não existe.")
 
 
 # --- insights -------------------------------------------------------------------------------
@@ -162,6 +211,9 @@ def criar_insight(dados: InsightCreate, db: Db, pessoa: Logada):
                    "Troque por algo genérico (\"o cliente\", \"[e-mail]\") e envie de novo. Nada foi gravado.",
         ) from e
 
+    if dados.lacuna_id is not None and db.get(Lacuna, dados.lacuna_id) is None:
+        raise HTTPException(status_code=422, detail="Essa lacuna não existe.")
+
     if _acabou_de_ser_criado(db, dados, pessoa.nome):
         raise HTTPException(
             status_code=409,
@@ -175,13 +227,15 @@ def criar_insight(dados: InsightCreate, db: Db, pessoa: Logada):
         lista = ", ".join(f"INS-{i}" for i in faltando)
         raise HTTPException(status_code=422, detail=f"Relação com item que não existe: {lista}.")
 
-    item = Insight(**dados.model_dump(exclude={"relacoes", "autor"}), autor=pessoa.nome, status="proposto")
+    item = Insight(**dados.model_dump(exclude={"relacoes", "autor", "lacuna_id"}), autor=pessoa.nome, status="proposto")
     db.add(item)
     db.flush()  # manda o INSERT agora para o banco gerar o item.id (ainda dá para desfazer tudo)
     relacoes = [Relacao(insight_id=item.id, relacionado_id=i, tipo=tipo) for i, tipo in pares]
     db.add_all(relacoes)
     db.add(HistoricoStatus(insight_id=item.id, de=None, para="proposto", por_quem=pessoa.nome))
     db.commit()  # item + relações + histórico entram juntos (ou nada entra)
+    if dados.lacuna_id is not None:
+        lacunas.resolver(db, dados.lacuna_id, item.id)  # o assunto da lacuna agora tem um item (esperando a Fila)
     return _para_saida(item, relacoes)
 
 

@@ -80,6 +80,7 @@ class InsightCreate(InsightBase):
     model_config = ConfigDict(extra="ignore")
 
     autor: str | None = Field(default=None, max_length=100)  # ignorado: vale a pessoa logada
+    lacuna_id: int | None = Field(default=None, ge=1)  # vem de uma lacuna do consultor: ela sai da lista aberta
     relacoes: list[RelacaoIn] = Field(default=[], max_length=10)
 
 
@@ -140,9 +141,21 @@ class DocumentoCitavel(BaseModel):
 
 
 class ChatOut(BaseModel):
-    """O que POST /chat devolve. `documentos`: os do Drive que o consultor recebeu (podem ou não estar na resposta)."""
+    """O que POST /chat devolve. `documentos`: os do Drive que o consultor recebeu (podem ou não estar na resposta).
+    `lacuna_id`: preenchido quando a resposta admite que a base não cobre o tema (a tela oferece "Registrar isso" e
+    manda este id de volta no POST /chat/registrar e no POST /insights)."""
     resposta: str
     documentos: list[DocumentoCitavel] = []
+    lacuna_id: int | None = None
+
+
+class ChatRegistrarIn(BaseModel):
+    """Body de POST /chat/registrar ("Registrar isso", a partir da conversa do chat).
+
+    Sem `texto`, o relato é montado com as últimas mensagens DA PESSOA no `historico` (as do modelo não entram)."""
+    texto: str | None = Field(default=None, min_length=1, max_length=8000)
+    historico: list[MensagemHistorico] = Field(default=[], max_length=30)
+    lacuna_id: int | None = Field(default=None, ge=1)
 
 
 # --- curador --------------------------------------------------------------------------------
@@ -218,6 +231,33 @@ class RejeitarIn(AprovarIn):
     """
 
     motivo: str | None = Field(default=None, max_length=2000)
+
+
+# --- lacunas ---------------------------------------------------------------------------------
+
+class LacunaOut(BaseModel):
+    """Perguntas parecidas que o consultor não soube responder, juntas. `id` é da mais antiga do grupo."""
+    id: int
+    pergunta: str  # a mais recente do grupo
+    vezes: int
+    pessoas: int
+    primeira_em: datetime
+    ultima_em: datetime
+    status: Literal["aberta", "resolvida"]
+    resolvida_por_insight_id: int | None = None
+
+
+class ListaLacunas(BaseModel):
+    itens: list[LacunaOut]
+
+
+class FiltroLacunas(BaseModel):
+    """Query string de GET /lacunas. Ex.: /lacunas?status=aberta&limit=20"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["aberta", "resolvida"] = "aberta"
+    limit: int = Field(default=50, ge=1, le=200)
 
 
 # --- fontes (a tela de Fontes) ----------------------------------------------------------------

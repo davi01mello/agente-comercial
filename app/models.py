@@ -30,10 +30,11 @@ SECOES = [
 ]
 STATUS = ["proposto", "validado", "consolidado", "obsoleto", "historico_a_validar"]
 EVIDENCIA = {1: "opiniao", 2: "observacao_unica", 3: "padrao_repetido", 4: "resultado_medido"}
-FONTES = ["chat", "notion", "drive", "canva", "reuniao"]
+FONTES = ["chat", "notion", "drive", "canva", "reuniao", "upload"]
 TIPOS_RELACAO = ["reforca", "contradiz", "duplica", "substitui"]
 MOTIVO_MAX = 200  # o tamanho de fontes.motivo
-ORIGENS = ["notion", "drive"]  # de onde vêm as fontes importadas
+ORIGENS = ["notion", "drive"]  # de onde vêm as fontes importadas (as que o POST /fontes/sincronizar sincroniza)
+ORIGENS_DE_FONTE = [*ORIGENS, "upload"]  # o "upload" é o anexo que a pessoa manda pelo chat (ADR-008)
 # Status de uma fonte (decisões no docs/adr-005-importacao-notion.md):
 STATUS_FONTE = [
     "a_curar",  # passou na triagem e espera o curador (ou a execução parou no teto de gasto)
@@ -95,6 +96,24 @@ class Usuario(Base):
     nome: Mapped[str] = mapped_column(String(100))
     criado_em: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     ultimo_acesso: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class Lacuna(Base):
+    """Uma pergunta que o consultor NÃO soube responder ("A base não cobre ..."). Cada vez que acontece vira uma linha;
+    as parecidas (mesma `chave`) são agrupadas na hora de mostrar. É a lista do que o time precisa registrar. A pergunta
+    já passou pela barreira de dado pessoal do /chat antes de chegar aqui."""
+
+    __tablename__ = "lacunas"
+    __table_args__ = (Index("ix_lacunas_chave", "chave"), Index("ix_lacunas_status", "status"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    chave: Mapped[str] = mapped_column(String(200))  # as palavras da pergunta, sem acento: agrupa as parecidas
+    pergunta: Mapped[str] = mapped_column(String(500))
+    pessoa: Mapped[str] = mapped_column(String(100))  # quem perguntou (o nome da sessão)
+    status: Mapped[str] = mapped_column(String(20), default="aberta")  # aberta | resolvida
+    resolvida_por_insight_id: Mapped[int | None] = mapped_column(ForeignKey("insights.id"), nullable=True)
+    resolvida_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class Relacao(Base):
