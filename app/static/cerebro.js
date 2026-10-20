@@ -146,6 +146,7 @@
     fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [] },
     proximoId: 100,
     focoAntes: null,
+    pessoa: null,  // quem entrou (GET /auth/eu): {email, nome, dev, dominio}; null na demonstração
   };
   const aoVivo = () => estado.modo === "vivo";
 
@@ -409,8 +410,63 @@
     }
     let dados = null;
     try { dados = await r.json(); } catch { /* resposta sem JSON */ }
+    if (r.status === 401 && estado.modo === "vivo") {  // a sessão acabou (ou nunca existiu): volta para a entrada
+      mostrarEntrada(estado.pessoa ? "Sua sessão acabou. Entre de novo." : "");
+      throw new ErroApi("Entre com a sua conta Google do CITi.", 401);
+    }
     if (!r.ok) throw new ErroApi(mensagemErro(r.status, dados), r.status);
     return dados;
+  }
+
+  // ---- login (T5): GET /auth/eu diz quem entrou; sem sessão, a tela de entrada cobre o app
+  const MOTIVOS_LOGIN = {
+    dominio: "Essa conta não é do CITi. Escolha a conta @citi.org.br.",
+    cancelado: "Você cancelou a entrada. Quando quiser, é só tentar de novo.",
+    erro: "Não consegui concluir a entrada. Tente de novo.",
+  };
+  function mostrarEntrada(mensagem) {
+    estado.pessoa = null;
+    const caixaAviso = $("#entrada-aviso");
+    caixaAviso.textContent = mensagem || "";
+    caixaAviso.hidden = !mensagem;
+    $("#entrada-login").hidden = false;
+    document.body.classList.add("sem-login");
+    pintarVoce();
+    $("#entrada-botao").focus({ preventScroll: true });
+  }
+  async function verificarLogin() {
+    // Volta do Google com ?login=<motivo>: mostra o motivo e limpa o endereço
+    const motivo = new URLSearchParams(location.search).get("login");
+    if (motivo) history.replaceState(null, "", location.pathname + location.hash);
+    try {
+      const r = await fetch("/auth/eu", { headers: { Accept: "application/json" } });
+      if (r.status === 401) { mostrarEntrada(MOTIVOS_LOGIN[motivo] || ""); return false; }
+      if (!r.ok) throw new Error(String(r.status));
+      estado.pessoa = await r.json();
+    } catch {
+      aviso("Não consegui confirmar quem está logado. Recarregue a página.", "erro");
+      return false;
+    }
+    $("#entrada-dominio").textContent = `@${estado.pessoa.dominio}`;
+    $("#entrada-login").hidden = true;
+    document.body.classList.remove("sem-login");
+    pintarVoce();
+    return true;
+  }
+  function pintarVoce() {
+    const caixa = $("#voce");
+    const p = estado.pessoa;
+    caixa.hidden = !p;
+    if (!p) { caixa.replaceChildren(); return; }
+    caixa.replaceChildren(
+      el("span", { class: "voce-nome", title: p.email, text: p.nome }),
+      p.dev
+        ? el("span", { class: "voce-dev", title: "O login do Google está desligado neste computador (sem GOOGLE_CLIENT_ID no .env)." }, "sem login")
+        : el("button", { type: "button", class: "btn fantasma voce-sair", onclick: sairDoApp }, "Sair"));
+  }
+  async function sairDoApp() {
+    try { await fetch("/auth/logout", { method: "POST" }); } catch { /* sai do mesmo jeito */ }
+    location.reload();
   }
   async function detectarModo() {
     if (/[?&]demo\b/.test(location.search)) return "demo";
@@ -457,13 +513,10 @@
     $("#torradas").append(t);
     setTimeout(() => t.remove(), 5600);
   }
-  function exigirAutor() {
-    const nome = $("#autor").value.trim();
-    if (nome) return nome;
-    aviso("Escreva seu nome no campo \"Você\", no topo, para registrar e aprovar itens.", "erro");
-    $("#autor").focus();
-    return null;
-  }
+  // Quem escreve, registra e aprova é a pessoa que entrou com o Google (o servidor decide o autor pela sessão: o nome
+  // daqui é só para mostrar na tela). Na demonstração (sem servidor) não há login.
+  function nomeDoUsuario() { return estado.pessoa ? estado.pessoa.nome : "Você"; }
+  function exigirAutor() { return nomeDoUsuario(); }
   function acharItem(codigo) {
     const todos = aoVivo() ? estado.itens : [...estado.itens, ...EXEMPLOS];  // ao vivo: só o que existe no banco
     return todos.find((i) => i.codigo === codigo) || null;
@@ -713,7 +766,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     if (!texto || estado.ocupado) return;
     const caixa = $("#mensagens");
     const campo = $("#campo-chat");
-    adicionarMsg(caixa, { papel: "eu", texto, quem: $("#autor").value.trim() || "Você" });
+    adicionarMsg(caixa, { papel: "eu", texto, quem: nomeDoUsuario() });
     campo.value = ""; autoAltura(campo);
     estado.ocupado = true; $("#enviar-chat").disabled = true; pensando(true);
     const indicador = digitando(caixa);
@@ -754,7 +807,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     });
     if (!aoVivo()) {
       const pergunta = ATALHOS_CHAT[0][1];
-      adicionarMsg(caixa, { papel: "eu", quem: $("#autor").value.trim() || "Você", texto: pergunta });
+      adicionarMsg(caixa, { papel: "eu", quem: nomeDoUsuario(), texto: pergunta });
       adicionarMsg(caixa, { papel: "cerebro", quem: "Cérebro", texto: RESPOSTAS_DEMO.hotelaria, nota: NOTA_DEMO });
       estado.conversa.push({ role: "user", text: pergunta }, { role: "model", text: RESPOSTAS_DEMO.hotelaria });
     }
@@ -849,7 +902,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     try {
       let proposta;
       if (aoVivo()) {
-        proposta = await chamar("POST", "/registrar/propor", { texto, autor, conversa: estado.reg.conversa.slice(-10) });
+        proposta = await chamar("POST", "/registrar/propor", { texto, conversa: estado.reg.conversa.slice(-10) });
       } else {
         await esperar(1000 + Math.random() * 600);
         proposta = curarDemo(texto, estado.reg.conversa, autor);
@@ -971,7 +1024,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     try {
       let criado;
       if (aoVivo()) {
-        criado = await chamar("POST", "/insights", { ...dados, autor, fonte: "chat" });
+        criado = await chamar("POST", "/insights", { ...dados, fonte: "chat" });
         await carregarItens();
       } else {
         criado = { ...dados, autor, fonte: "chat", id: estado.proximoId++, status: "proposto", avisos: estado.reg.proposta.avisos || [] };
@@ -1074,7 +1127,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     let semServidor = false;
     for (const id of ids) {
       try {
-        if (aoVivo()) await chamar("POST", `/insights/${id}/aprovar`, { por_quem: autor });
+        if (aoVivo()) await chamar("POST", `/insights/${id}/aprovar`);
         else { const it = itemPorId(id); if (it) it.status = "validado"; }
         aprovados += 1;
         f.selecionados.delete(id);
@@ -1139,8 +1192,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     if (acao === "rejeitar" && !(motivo && motivo.trim())) { aviso("Para rejeitar, escreva o motivo.", "erro"); return; }
     try {
       if (aoVivo()) {
-        const corpo = acao === "aprovar" ? { por_quem: autor } : { por_quem: autor, motivo: motivo.trim() };
-        await chamar("POST", `/insights/${it.id}/${acao}`, corpo);
+        await chamar("POST", `/insights/${it.id}/${acao}`, acao === "aprovar" ? undefined : { motivo: motivo.trim() });
         await carregarItens();
       } else {
         it.status = acao === "aprovar" ? "validado" : "obsoleto";
@@ -1669,9 +1721,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
   }
   function ligarEventos() {
     window.addEventListener("hashchange", rotear);
-    const autor = $("#autor");
-    autor.value = guardar.ler("cerebro.autor") || "";
-    autor.addEventListener("input", () => guardar.escrever("cerebro.autor", autor.value.trim()));
+    $("#entrada-botao").addEventListener("click", () => { $("#entrada-botao").setAttribute("aria-busy", "true"); });
 
     const formChat = $("#form-chat");
     ligarCampo($("#campo-chat"), formChat);
@@ -1702,6 +1752,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     pintarTopo("conversar");
     estado.modo = await detectarModo();
     pintarModo();
+    if (aoVivo() && !(await verificarLogin())) return;  // sem sessão: a tela de entrada fica; o Google devolve para cá
     pintarAtalhosChat();
     if (aoVivo()) estado.itens = [];
     await carregarItens();

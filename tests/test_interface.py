@@ -140,3 +140,16 @@ def test_tela_de_fontes_escolhe_notion_ou_drive_e_mostra_o_so_na_busca():
     assert "f.categoria" in js
     assert 'params.set("origem", filtro.origem)' in js
     assert "ultima_por_origem" in js
+
+
+def test_tela_tem_a_entrada_do_google_e_nao_pede_mais_o_nome():
+    """T5: quem entra é a conta Google do CITi; o campo "Seu nome" saiu e o autor vem da sessão no servidor."""
+    with TestClient(app) as client:
+        html = client.get("/").text
+        js = client.get("/static/cerebro.js").text
+    assert 'id="entrada-login"' in html and 'href="/auth/login"' in html and "Entrar com o Google" in html
+    assert 'id="autor"' not in html and "$(\"#autor\")" not in js
+    assert 'fetch("/auth/eu"' in js and 'fetch("/auth/logout"' in js
+    assert "r.status === 401" in js  # a sessão que acaba volta para a entrada
+    assert "por_quem" not in js  # o corpo não leva mais o nome de quem aprova...
+    assert "{ ...dados, autor" not in js.split("criado = await chamar")[1][:60]  # ...nem o de quem registra

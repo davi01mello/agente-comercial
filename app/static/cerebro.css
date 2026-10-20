@@ -138,15 +138,28 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .modo[data-modo="vivo"] { border-color: rgba(99, 230, 181, 0.45); color: var(--ok); }
 .voce {
-  display: flex; align-items: center; gap: 4px;
+  display: flex; align-items: center; gap: 6px;
   padding: 4px 4px 4px 14px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--borda);
 }
-.voce label { font: 500 10.5px var(--f-dado); color: var(--apagado); text-transform: uppercase; letter-spacing: 0.1em; }
-.voce input { width: 160px; background: transparent; border: 0; padding: 6px 10px; border-radius: 999px; }
-.voce input::placeholder { color: var(--apagado); }
+.voce[hidden] { display: none; }
+.voce-nome { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13.5px; color: var(--tinta); }
+.voce-dev { padding: 5px 10px; border-radius: 999px; font: 500 10.5px var(--f-dado); color: var(--ambar); border: 1px solid rgba(255, 184, 103, 0.45); text-transform: uppercase; letter-spacing: 0.08em; }
+.voce-sair { padding: 6px 14px; font-size: 12.5px; }
+
+/* Entrada (T5): cobre o app até alguém entrar com a conta Google do CITi */
+.entrada-login { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: rgba(6, 6, 28, 0.72); backdrop-filter: blur(6px); }
+.entrada-login[hidden] { display: none; }
+.cartao-login { border-radius: 26px; display: grid; justify-items: center; gap: 14px; width: min(440px, 100%); padding: 34px 30px 26px; text-align: center; }
+.cartao-login .marca-orbe.grande { width: 96px; height: 96px; animation: flutuar 7s ease-in-out infinite; }
+.cartao-login h1 { margin: 0; font: 700 26px/1.15 var(--f-display); }
+.entrada-texto { margin: 0; color: var(--nevoa); line-height: 1.5; }
+.entrada-aviso { margin: 0; padding: 10px 14px; border-radius: 14px; border: 1px solid rgba(255, 138, 160, 0.5); background: rgba(255, 138, 160, 0.1); color: #ffd3dc; font-size: 14px; }
+.entrada-botao { width: 100%; justify-content: center; text-decoration: none; padding: 13px 20px; font-size: 15px; }
+.entrada-nota { margin: 0; font-size: 12.5px; color: var(--apagado); }
+body.sem-login .app { filter: blur(3px); pointer-events: none; user-select: none; }
 
 .telas { position: relative; min-height: 0; overflow: hidden; }
 .tela { height: 100%; min-height: 0; }

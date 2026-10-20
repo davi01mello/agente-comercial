@@ -17,8 +17,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
+from starlette.middleware.sessions import SessionMiddleware
 
-from app import agendador, busca, curadoria, dominio, importacao, importacao_drive, knowledge, llm
+from app import agendador, auth, busca, curadoria, dominio, importacao, importacao_drive, knowledge, llm
+from app.auth import Logada
 from app.config import settings
 from app.db import SessionLocal, get_db
 from app.drive import ErroDrive, LeitorDrive
@@ -62,7 +64,9 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 @asynccontextmanager
 async def ciclo_de_vida(_app: FastAPI):
-    """Na subida: a execução da importação que ficou `rodando` é de um servidor que parou no meio dela."""
+    """Na subida: confere o login (em prod, sem ele o app não sobe); a execução da importação que ficou `rodando` é de
+    um servidor que parou no meio dela."""
+    auth.conferir_configuracao()
     with SessionLocal() as db:
         importacao.marcar_interrompidas(db)
     agendada = None
@@ -73,7 +77,20 @@ async def ciclo_de_vida(_app: FastAPI):
         agendada.cancel()
 
 
-app = FastAPI(title="Cérebro Comercial CITi", lifespan=ciclo_de_vida)
+# Todas as rotas exigem a pessoa logada (app/auth.py), menos a página, o /health e as rotas /auth: uma rota nova
+# nasce protegida, sem ninguém precisar lembrar. O cookie da sessão é assinado, HttpOnly e SameSite=Lax (https em prod).
+# /docs, /redoc e /openapi.json são rotas do FastAPI fora desta proteção: em produção ficam desligados.
+_EM_PROD = settings.app_env == "prod"
+app = FastAPI(
+    title="Cérebro Comercial CITi", lifespan=ciclo_de_vida, dependencies=[Depends(auth.exigir_login)],
+    docs_url=None if _EM_PROD else "/docs", redoc_url=None if _EM_PROD else "/redoc",
+    openapi_url=None if _EM_PROD else "/openapi.json",
+)
+app.add_middleware(
+    SessionMiddleware, secret_key=auth.segredo_da_sessao(), session_cookie=auth.COOKIE,
+    max_age=settings.sessao_dias * 86400, same_site="lax", https_only=_EM_PROD,
+)
+app.include_router(auth.router)
 
 # Interface: CSS, JS e o que mais a página precisar ficam em app/static (sem build, servidos como estão).
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
@@ -95,7 +112,7 @@ def home(request: Request):
 
 
 @app.post("/chat", response_model=ChatOut)
-def chat(dados: ChatIn, db: Db):
+def chat(dados: ChatIn, db: Db, _pessoa: Logada):
     """Consultor: recebe a pergunta + o histórico e responde com os itens aprovados do banco, citando [INS-n]."""
     # Dado pessoal é barrado ANTES do modelo (como no /registrar/propor): depois que o texto sai daqui, não volta.
     # Só o que o usuário escreveu é conferido; as falas do modelo nasceram de textos que já passaram por aqui.
@@ -125,8 +142,9 @@ def chat(dados: ChatIn, db: Db):
 # --- insights -------------------------------------------------------------------------------
 
 @app.post("/insights", response_model=InsightOut, status_code=201)
-def criar_insight(dados: InsightCreate, db: Db):
-    """Grava um item confirmado pela pessoa. Ele SEMPRE nasce `proposto` e só vale depois de aprovado na Fila."""
+def criar_insight(dados: InsightCreate, db: Db, pessoa: Logada):
+    """Grava um item confirmado pela pessoa. Ele SEMPRE nasce `proposto` e só vale depois de aprovado na Fila.
+    O autor é a pessoa logada (o `autor` do corpo, se vier, é ignorado)."""
     try:
         dominio.validar_insight(dados.tipo, dados.evidencia, dados.resultado)
     except dominio.RegraDeNegocio as e:
@@ -144,7 +162,7 @@ def criar_insight(dados: InsightCreate, db: Db):
                    "Troque por algo genérico (\"o cliente\", \"[e-mail]\") e envie de novo. Nada foi gravado.",
         ) from e
 
-    if _acabou_de_ser_criado(db, dados):
+    if _acabou_de_ser_criado(db, dados, pessoa.nome):
         raise HTTPException(
             status_code=409,
             detail="Este item acabou de ser registrado (mesmo autor, título e data). Confira a Fila antes de repetir.",
@@ -157,12 +175,12 @@ def criar_insight(dados: InsightCreate, db: Db):
         lista = ", ".join(f"INS-{i}" for i in faltando)
         raise HTTPException(status_code=422, detail=f"Relação com item que não existe: {lista}.")
 
-    item = Insight(**dados.model_dump(exclude={"relacoes"}), status="proposto")
+    item = Insight(**dados.model_dump(exclude={"relacoes", "autor"}), autor=pessoa.nome, status="proposto")
     db.add(item)
     db.flush()  # manda o INSERT agora para o banco gerar o item.id (ainda dá para desfazer tudo)
     relacoes = [Relacao(insight_id=item.id, relacionado_id=i, tipo=tipo) for i, tipo in pares]
     db.add_all(relacoes)
-    db.add(HistoricoStatus(insight_id=item.id, de=None, para="proposto", por_quem=dados.autor))
+    db.add(HistoricoStatus(insight_id=item.id, de=None, para="proposto", por_quem=pessoa.nome))
     db.commit()  # item + relações + histórico entram juntos (ou nada entra)
     return _para_saida(item, relacoes)
 
@@ -195,7 +213,7 @@ def listar_insights(filtro: Annotated[FiltroInsights, Query()], db: Db):
     )
 
 
-def _acabou_de_ser_criado(db: Session, dados: InsightCreate) -> bool:
+def _acabou_de_ser_criado(db: Session, dados: InsightCreate, autor: str) -> bool:
     """Duplo clique: o mesmo autor + título + data_evento gravado nos últimos 60 segundos.
 
     O banco grava criado_em em UTC (CURRENT_TIMESTAMP), então o limite também é calculado em UTC.
@@ -203,7 +221,7 @@ def _acabou_de_ser_criado(db: Session, dados: InsightCreate) -> bool:
     """
     limite = datetime.now(UTC).replace(tzinfo=None) - JANELA_DUPLO_CLIQUE
     consulta = select(Insight.id).where(
-        Insight.autor == dados.autor,
+        Insight.autor == autor,
         Insight.titulo == dados.titulo,
         Insight.data_evento == dados.data_evento,  # com None, o SQLAlchemy gera "IS NULL"
         Insight.criado_em >= limite,
@@ -221,13 +239,13 @@ def _para_saida(item: Insight, relacoes: list[Relacao], avisos: list[str] | None
 # --- curador --------------------------------------------------------------------------------
 
 @app.post("/registrar/propor", response_model=PropostaCuradoria)
-def registrar_propor(dados: RegistrarIn, db: Db):
+def registrar_propor(dados: RegistrarIn, db: Db, pessoa: Logada):
     """Curador: texto solto -> proposta estruturada para a pessoa revisar.
 
     NÃO grava nada. Quem grava é o POST /insights, depois que a pessoa confere e confirma.
     """
     try:
-        return curadoria.propor(dados.texto, dados.autor, dados.conversa, db)
+        return curadoria.propor(dados.texto, pessoa.nome, dados.conversa, db)
     except dominio.RegraDeNegocio as e:  # dado pessoal no relato: barrado antes de chamar o modelo
         raise HTTPException(status_code=422, detail=str(e)) from e
     except llm.ErroLLM as e:
@@ -236,15 +254,15 @@ def registrar_propor(dados: RegistrarIn, db: Db):
 # --- fila -----------------------------------------------------------------------------------
 
 @app.post("/insights/{insight_id}/aprovar", response_model=InsightOut)
-def aprovar_insight(insight_id: int, dados: AprovarIn, db: Db):
+def aprovar_insight(insight_id: int, db: Db, pessoa: Logada, _dados: AprovarIn | None = None):
     """Fila: proposto (ou historico_a_validar) -> validado. A partir daqui o item entra na base do consultor."""
-    return _mudar_status(db, insight_id, "validado", dados.por_quem)
+    return _mudar_status(db, insight_id, "validado", pessoa.nome)
 
 
 @app.post("/insights/{insight_id}/rejeitar", response_model=InsightOut)
-def rejeitar_insight(insight_id: int, dados: RejeitarIn, db: Db):
+def rejeitar_insight(insight_id: int, dados: RejeitarIn, db: Db, pessoa: Logada):
     """Fila: -> obsoleto, com motivo obrigatório. Nada é apagado: o item e o motivo ficam no histórico."""
-    return _mudar_status(db, insight_id, "obsoleto", dados.por_quem, dados.motivo)
+    return _mudar_status(db, insight_id, "obsoleto", pessoa.nome, dados.motivo)
 
 
 def _mudar_status(db: Session, insight_id: int, para: str, por_quem: str, motivo: str | None = None) -> InsightOut:
@@ -390,7 +408,7 @@ def sincronizar_fontes(dados: SincronizarIn, tarefas: BackgroundTasks, db: Db):
     na hora. Acompanhe pelo GET /fontes/execucoes/{id}. As mesmas regras dos scripts/importar_notion.py e
     scripts/sincronizar_drive.py: o dry-run não muda as fontes nem chama o modelo, e o curador para antes de passar do
     teto. 409 se já houver uma importação (não dry-run) rodando, de qualquer origem."""
-    # T5: exigir papel admin
+    # Decisão do Davi (T5): todo @citi.org.br logado pode sincronizar (não há papéis por enquanto).
     try:
         importacao.conferir_configuracao(dados.dry_run)
     except importacao.FaltaConfiguracao as e:
