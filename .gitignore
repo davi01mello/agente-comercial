@@ -22,6 +22,10 @@ htmlcov/
 
 # Respostas da última rodada do golden set (geradas por pytest -m live tests/golden)
 tests/golden/ultima_execucao.md
+# Base real do golden (itens aprovados de verdade, conteúdo do comercial): nunca no repositório
+tests/golden/base_real.json
+tests/golden/perguntas_real.json
+tests/golden/ultima_execucao_real.md
 
 # Credenciais do Google (conta de serviço): nunca no repositório
 *service-account*.json
