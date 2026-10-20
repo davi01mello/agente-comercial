@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from app import dominio
 from app.models import (
@@ -231,6 +231,87 @@ class RejeitarIn(AprovarIn):
     """
 
     motivo: str | None = Field(default=None, max_length=2000)
+
+
+# --- briefing -------------------------------------------------------------------------------
+
+TipoReuniao = Literal["diagnostico", "proposta", "negociacao"]
+
+
+class BriefingIn(BaseModel):
+    """Body de POST /briefing."""
+
+    segmento: Segmento = Field(min_length=1)
+    tipo_reuniao: TipoReuniao = "diagnostico"
+    contexto: str | None = Field(default=None, max_length=1500, description="o que a pessoa já sabe da reunião")
+
+    @field_validator("segmento")
+    @classmethod
+    def _segmento_nao_vazio(cls, valor: str) -> str:
+        if not valor:
+            raise ValueError("Diga o segmento da reunião.")
+        return valor
+
+
+class PontoLLM(BaseModel):
+    texto: str = Field(description="o ponto, curto (até ~220 caracteres)")
+    fontes: list[str] = Field(description='ids que sustentam o ponto, ex.: ["INS-12", "DOC-7"]')
+
+
+class BriefingLLM(BaseModel):
+    """O que o MODELO devolve para o briefing (ainda não conferido: o código descarta ponto sem fonte válida)."""
+
+    resumo: str
+    cases: list[PontoLLM]
+    perfil: list[PontoLLM]
+    roteiro: list[PontoLLM]
+    objecoes: list[PontoLLM]
+    proposta: list[PontoLLM]
+    lacunas: list[str]
+
+
+class FonteDoPonto(BaseModel):
+    codigo: str  # "INS-12" ou "DOC-7"
+    titulo: str
+    tipo: Literal["item", "documento"]
+    url: str | None = None  # do documento
+
+
+class PontoOut(BaseModel):
+    texto: str
+    fontes: list[FonteDoPonto]
+    evidencia_minima: int | None = None  # a MENOR evidência entre os itens citados (None: só documento)
+    nao_revisado: bool = False  # cita documento do Drive que o time ainda não revisou
+
+
+class SecaoOut(BaseModel):
+    chave: Literal["cases", "perfil", "roteiro", "objecoes", "proposta"]
+    titulo: str
+    pontos: list[PontoOut]
+
+
+class ItemDoBriefing(BaseModel):
+    """Um item aprovado que entrou na seleção (o modelo só pôde usar estes)."""
+
+    id: int
+    codigo: str
+    titulo: str
+    tipo: str
+    secao: str
+    evidencia: int
+    de_outro_segmento: bool = False
+
+
+class BriefingOut(BaseModel):
+    segmento: str
+    tipo_reuniao: TipoReuniao
+    resumo: str
+    secoes: list[SecaoOut]
+    lacunas: list[str]  # o que a base não cobre para esta reunião (as do código primeiro, depois as do modelo)
+    itens: list[ItemDoBriefing]
+    documentos: list[DocumentoCitavel] = []
+    avisos: list[str] = []
+    usou_modelo: bool = True
 
 
 # --- lacunas ---------------------------------------------------------------------------------

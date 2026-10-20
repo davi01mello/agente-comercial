@@ -19,7 +19,19 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import agendador, auth, busca, curadoria, dominio, importacao, importacao_drive, knowledge, lacunas, llm
+from app import (
+    agendador,
+    auth,
+    briefing,
+    busca,
+    curadoria,
+    dominio,
+    importacao,
+    importacao_drive,
+    knowledge,
+    lacunas,
+    llm,
+)
 from app.auth import Logada
 from app.config import settings
 from app.db import SessionLocal, get_db
@@ -28,6 +40,8 @@ from app.models import ORIGENS, ExecucaoImportacao, Fonte, HistoricoStatus, Insi
 from app.notion import ErroNotion, LeitorNotion
 from app.schemas import (
     AprovarIn,
+    BriefingIn,
+    BriefingOut,
     ChatIn,
     ChatOut,
     ChatRegistrarIn,
@@ -170,6 +184,22 @@ RELATO_ULTIMAS_FALAS = 3  # as últimas falas da pessoa que viram o relato quand
 def _relato_da_conversa(dados: ChatRegistrarIn) -> str:
     falas = [h.text.strip() for h in dados.historico if h.role == "user" and h.text.strip()]
     return "\n\n".join(falas[-RELATO_ULTIMAS_FALAS:])[:8000]
+
+
+# --- briefing -------------------------------------------------------------------------------
+
+@app.post("/briefing", response_model=BriefingOut)
+def montar_briefing(dados: BriefingIn, db: Db, _pessoa: Logada):
+    """Roteiro da reunião só com a base: cases, perfil do segmento, condução, objeções e estrutura da proposta, cada
+    ponto com as fontes que o sustentam e o que a base NÃO cobre. Não grava nada. O `contexto` passa pela barreira de
+    dado pessoal antes de ir ao modelo."""
+    try:
+        dominio.exigir_sem_dados_pessoais(contexto=dados.contexto)
+        return briefing.montar(db, dados)
+    except dominio.RegraDeNegocio as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except llm.ErroLLM as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 # --- lacunas --------------------------------------------------------------------------------
