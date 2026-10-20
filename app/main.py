@@ -11,8 +11,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, update
@@ -21,6 +21,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app import (
     agendador,
+    anexos,
     auth,
     briefing,
     busca,
@@ -39,6 +40,7 @@ from app.drive import ErroDrive, LeitorDrive
 from app.models import ORIGENS, ExecucaoImportacao, Fonte, HistoricoStatus, Insight, Lacuna, Relacao
 from app.notion import ErroNotion, LeitorNotion
 from app.schemas import (
+    AnexoOut,
     AprovarIn,
     BriefingIn,
     BriefingOut,
@@ -408,7 +410,12 @@ def listar_fontes(filtro: Annotated[FiltroFontes, Query()], db: Db):
     pagina = consulta.order_by(Fonte.editado_em.desc(), Fonte.id.desc()).limit(filtro.limit).offset(filtro.offset)
     fontes = list(db.scalars(pagina))
 
-    # Itens gerados por cada fonte da página, numa consulta só (o item guarda a url da fonte em fonte_ref)
+    return ListaFontes(itens=_fontes_com_itens(db, fontes), total=total, limit=filtro.limit, offset=filtro.offset)
+
+
+def _fontes_com_itens(db: Session, fontes: list[Fonte]) -> list[FonteOut]:
+    """As fontes como a tela mostra, com os itens que o curador tirou de cada uma (numa consulta só: o item guarda a
+    url da fonte em fonte_ref)."""
     itens_por_url: dict[str, dict[str, int]] = {}
     if fontes:
         linhas = db.execute(
@@ -424,7 +431,7 @@ def listar_fontes(filtro: Annotated[FiltroFontes, Query()], db: Db):
         item = FonteOut.model_validate(f)
         item.itens = itens_por_url.get(f.url, {})
         saida.append(item)
-    return ListaFontes(itens=saida, total=total, limit=filtro.limit, offset=filtro.offset)
+    return saida
 
 
 @app.get("/fontes/resumo", response_model=ResumoFontes)
@@ -484,6 +491,80 @@ def _criar_leitor(origem: str):
     app.dependency_overrides, que é como os testes põem o Notion e o Drive falsos."""
     fabrica = LEITORES[origem]
     return app.dependency_overrides.get(fabrica, fabrica)()
+
+
+# --- anexo no chat --------------------------------------------------------------------------
+
+AVISO_DO_ANEXO = {
+    "a_curar": "Anexo guardado. O consultor já acha o texto na busca e o curador está propondo itens para a Fila.",
+    "so_busca": "Anexo guardado só para a busca: o consultor acha o texto, mas ele não vai ao curador.",
+    "vazia": "Não achei texto no arquivo, então nada foi guardado.",
+    "pulada_dado_pessoal": "O arquivo tem possível dado pessoal. Nada foi guardado nem enviado ao modelo: troque "
+                           "por algo genérico e anexe de novo.",
+}
+
+
+@app.post("/fontes/anexo", response_model=AnexoOut, status_code=201)
+def anexar(tarefas: BackgroundTasks, db: Db, pessoa: Logada, arquivo: Annotated[UploadFile, File()]):
+    """Anexo do chat (docx, pdf, xlsx, csv, txt ou md, até 10 MB) vira fonte: o texto fica na busca do consultor (como
+    [DOC-n], "ainda não revisado") e o curador propõe itens para a Fila em segundo plano. O arquivo em si não é
+    guardado. Dado pessoal barra tudo (nada é guardado nem enviado ao modelo). O mesmo texto anexado de novo devolve a
+    fonte que já existe (`ja_existia`). Acompanhe o curador em GET /fontes/{id}."""
+    nome = arquivo.filename or "anexo"
+    conteudo = arquivo.file.read(anexos.MAX_BYTES + 1)
+    try:
+        recebido = anexos.receber(db, nome, conteudo, pessoa.nome)
+    except anexos.ErroDoAnexo as e:
+        raise HTTPException(status_code=e.status_http, detail=str(e)) from e
+
+    fonte = recebido.fonte
+    if recebido.curar:
+        tarefas.add_task(anexos.curar, fonte.id)
+    pesquisavel = fonte.status in ("a_curar", "so_busca", "importada", "falha")
+    return AnexoOut(
+        fonte=_fontes_com_itens(db, [fonte])[0],
+        ja_existia=recebido.ja_existia,
+        curando=recebido.curar,
+        documento=DocumentoCitavel(id=fonte.id, titulo=fonte.titulo, url=fonte.url, categoria=fonte.categoria)
+        if pesquisavel else None,
+        aviso="Esse anexo já tinha sido enviado antes." if recebido.ja_existia else AVISO_DO_ANEXO.get(fonte.status),
+    )
+
+
+def _anexo_ou_404(db: Session, fonte_id: int) -> Fonte:
+    fonte = db.get(Fonte, fonte_id)
+    if fonte is None or fonte.origem != anexos.UPLOAD.nome or fonte.status == "removida":
+        raise HTTPException(status_code=404, detail="Esse anexo não existe.")
+    return fonte
+
+
+@app.get("/fontes/{fonte_id}", response_model=FonteOut)
+def ver_fonte(fonte_id: int, db: Db):
+    """Uma fonte (para acompanhar o curador de um anexo: `status` vira `importada` ou `falha`, e `itens` mostra o que
+    entrou na Fila)."""
+    fonte = db.get(Fonte, fonte_id)
+    if fonte is None:
+        raise HTTPException(status_code=404, detail="Essa fonte não existe.")
+    return _fontes_com_itens(db, [fonte])[0]
+
+
+@app.get("/fontes/{fonte_id}/texto", response_class=PlainTextResponse)
+def texto_do_anexo(fonte_id: int, db: Db):
+    """O texto extraído de um anexo (é o link do [DOC-n] dele, já que o arquivo original não é guardado)."""
+    fonte = _anexo_ou_404(db, fonte_id)
+    if not fonte.markdown:
+        raise HTTPException(status_code=404, detail="Esse anexo não tem texto guardado.")
+    return PlainTextResponse(f"{fonte.titulo}\n\n{fonte.markdown}", headers={"X-Content-Type-Options": "nosniff"})
+
+
+@app.post("/fontes/{fonte_id}/curar", status_code=202)
+def curar_anexo(fonte_id: int, tarefas: BackgroundTasks, db: Db):
+    """Tenta o curador de novo num anexo que falhou (ou que ficou `a_curar` porque o servidor reiniciou)."""
+    fonte = _anexo_ou_404(db, fonte_id)
+    if fonte.status not in importacao.A_CURAR:
+        raise HTTPException(status_code=409, detail=f"Este anexo está '{fonte.status}': não há o que curar.")
+    tarefas.add_task(anexos.curar, fonte.id)
+    return {"fonte_id": fonte.id}
 
 
 @app.post("/fontes/sincronizar", response_model=SincronizarOut, status_code=202)

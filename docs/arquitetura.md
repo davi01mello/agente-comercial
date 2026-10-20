@@ -17,3 +17,5 @@ Chat "Perguntar" ──► consultor (Gemini) ──► playbook + fontes ──
   (T8) só se o acervo crescer muito.
 - Todo acesso ao modelo (Gemini) passa por `app/llm.py`. Prompts são arquivos em `app/prompts/`, versionados.
 - Nada vira regra sem aprovação humana.
+- Lacunas, briefing e anexo (T7, ADR-008): o código escolhe as fontes e confere o que o modelo devolve (ponto sem
+  fonte válida é descartado); anexo de chat entra no mesmo pipeline do Drive, mas barra dado pessoal.

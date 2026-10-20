@@ -372,6 +372,17 @@ class FonteOut(BaseModel):
     itens: dict[str, int] = {}  # itens que o curador propôs a partir dela: status do item -> quantos
 
 
+class AnexoOut(BaseModel):
+    """Resposta de POST /fontes/anexo. `fonte.status` diz o que aconteceu: `a_curar` (o curador roda em segundo plano:
+    consulte GET /fontes/{id}), `so_busca`, `vazia`, `pulada_dado_pessoal` (nada foi guardado nem enviado ao modelo)."""
+
+    fonte: FonteOut
+    ja_existia: bool  # o mesmo texto já tinha sido anexado antes
+    curando: bool  # o curador foi disparado agora
+    documento: DocumentoCitavel | None = None  # presente quando o consultor já acha o anexo na busca
+    aviso: str | None = None
+
+
 class ListaFontes(BaseModel):
     itens: list[FonteOut]
     total: int

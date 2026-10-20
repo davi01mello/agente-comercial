@@ -133,6 +133,20 @@ Drive o dado pessoal **não** é mascarado nem pulado (só avisado). Detalhes no
   vai **só para a busca** (`so_busca`), não para o curador.
 - Testes sem rede: `tests/drive_falso.py` serve arquivos SINTÉTICOS; nenhum documento real do CITi vai para o Git.
 
+### API para a interface (T7)
+
+Tudo exige login (T5). Detalhes e decisões no [ADR-008](docs/adr-008-backend-t7.md).
+
+| Rota | Para quê |
+|---|---|
+| `POST /chat` | Já devolvia `resposta` e `documentos`; agora também `lacuna_id` (quando o consultor disse que a base não cobre). |
+| `POST /chat/registrar` | "Registrar isso": vira **proposta** do curador a partir do `texto` ou das últimas falas da pessoa. Não grava; quem grava é `POST /insights` (aceita `lacuna_id`). |
+| `GET /lacunas` | O que o time perguntou e a base não soube responder, agrupado, as mais repetidas primeiro. |
+| `POST /lacunas/{id}/resolver` | Tira da lista (as parecidas junto). |
+| `POST /briefing` | Roteiro da reunião só com a base: cases, perfil, condução, objeções, proposta e lacunas, cada ponto com as fontes. |
+| `POST /fontes/anexo` | Anexo do chat (docx, pdf, xlsx, csv, txt, md; até 10 MB) vira fonte: busca + curador. |
+| `GET /fontes/{id}` · `GET /fontes/{id}/texto` · `POST /fontes/{id}/curar` | Acompanhar o curador do anexo, ler o texto extraído (link do `[DOC-n]`) e tentar de novo. |
+
 **Banco e migrações (Alembic):** as tabelas não são mais criadas pelo app. Mudou `app/models.py`? Gere a migração com `alembic revision --autogenerate -m "o que mudou"`, revise o arquivo gerado em `migrations/versions/` e rode `alembic upgrade head`. Nunca edite uma migração que já foi para a main. No SQLite o app liga as chaves estrangeiras (`PRAGMA foreign_keys=ON`, em `app/db.py`), como o Postgres faz: relação para insight inexistente dá erro também no dev. Se uma migração futura precisar recriar uma tabela (batch), teste `upgrade`, `downgrade` e `upgrade` de novo antes do PR.
 
 ## Estrutura
