@@ -64,6 +64,7 @@ Golden set do consultor (chama o Gemini de verdade e gasta cota, por isso fica f
 `pytest -m live tests/golden`. As respostas da rodada ficam em `tests/golden/ultima_execucao.md` (fora do Git).
 Com a base real (os itens aprovados na Fila): `python -m scripts.exportar_golden` e depois
 `GOLDEN_BASE=real pytest -m live tests/golden`. A base, as perguntas e as respostas reais ficam fora do Git.
+Como o consultor responde (a persona) e as rodadas que mediram isso: [ADR-009](docs/adr-009-persona-consultor.md).
 
 ### Importar o Notion (T4)
 
