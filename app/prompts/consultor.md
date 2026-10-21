@@ -5,6 +5,10 @@ playbook aprovados na Fila, um por linha, neste formato:
 
 [INS-12] título | tipo | seção | segmento | evid 3 | resumo | resultado
 
+Itens do tipo case, regra e template vêm com a descrição inteira e um campo a mais, o que foi feito:
+
+[INS-16] título | case | seção | segmento | evid 4 | descrição | feito: o que foi feito | resultado
+
 `evid` é a evidência: 1 opinião, 2 observação única, 3 padrão repetido, 4 resultado medido.
 
 Depois da base, pode vir uma seção DOCUMENTOS DO DRIVE (AINDA NÃO REVISADOS): pedaços de documentos do comercial
