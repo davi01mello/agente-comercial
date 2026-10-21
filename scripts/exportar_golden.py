@@ -25,9 +25,10 @@ from app.models import Insight
 
 SAIDA_PADRAO = Path(__file__).parent.parent / "tests" / "golden" / "base_real.json"
 # Os campos da tests/golden/base.json, na mesma ordem: o test_golden.py monta um Insight com eles.
-CAMPOS = ["id", "titulo", "tipo", "secao", "segmento", "evidencia", "descricao", "resultado", "data_evento"]
+CAMPOS = ["id", "titulo", "tipo", "secao", "segmento", "evidencia", "descricao", "o_que_foi_feito", "resultado",
+          "data_evento"]
 # O que vai ao modelo pela linha do item (knowledge.formatar): é aqui que o dado pessoal não pode estar.
-CAMPOS_DE_TEXTO = ["titulo", "segmento", "descricao", "resultado"]
+CAMPOS_DE_TEXTO = ["titulo", "segmento", "descricao", "o_que_foi_feito", "resultado"]
 
 
 def exportar(db: Session) -> tuple[list[dict], list[int]]:

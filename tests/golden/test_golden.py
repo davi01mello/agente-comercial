@@ -29,8 +29,9 @@ O que se confere (tests/golden/checks.py, com testes sem o Gemini em tests/test_
 - [regra] uma citação por colchete ([INS-2] [INS-7]), que é o que a tela transforma em link;
 - [regra] pergunta coberta: cita pelo menos um dos esperados; sem cobertura: diz "A base não cobre" (é a frase que
   o app/lacunas.py procura para guardar a lacuna);
-- [persona] sem emoji; no máximo 2 frases com "?"; até 160 palavras fora os ids (a meta é cerca de 120); e os
-  checks opcionais acima. As decisões da persona estão no ADR-009.
+- [persona] sem emoji; no máximo 2 frases com "?"; até 160 palavras fora os ids (a meta é cerca de 120), ou 260 se a
+  resposta citar case, regra ou template (que ela destrincha); e os checks opcionais acima. As decisões da persona
+  estão no ADR-009.
 Tom, crítica e formato dos avisos não dá para conferir por código: ficam na nota humana da rodada.
 Todas as falhas de um caso aparecem juntas (no relatório e na mensagem do assert), e não só a primeira.
 """
@@ -76,7 +77,7 @@ def carregar_itens() -> list[Insight]:
 
 
 ITENS = carregar_itens()
-IDS = {i.id for i in ITENS}
+TIPOS = {i.id: i.tipo for i in ITENS}
 BASE = knowledge.compor_base(ITENS)
 PERGUNTAS = json.loads(ARQ_PERGUNTAS.read_text(encoding="utf-8"))
 
@@ -111,7 +112,7 @@ def test_pergunta(caso, relatorio):
     time.sleep(PAUSA_S)
     historico = caso.get("historico", [])
     resposta = llm.consultar(caso["pergunta"], historico, BASE)
-    falhas = falhas_de(caso, resposta, IDS)
+    falhas = falhas_de(caso, resposta, TIPOS)
 
     conversa = "".join(f"> **{h['role']}:** {h['text']}\n>\n" for h in historico)
     relatorio["resumo"].append(

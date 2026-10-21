@@ -7,6 +7,8 @@ para conferir por código; tom, crítica e formato dos avisos ficam na nota huma
 import re
 import unicodedata
 
+from app.knowledge import TIPOS_COM_DETALHE
+
 LACUNA = "A base não cobre"  # a frase do app/prompts/consultor.md que o app/lacunas.py procura
 # Qualquer INS-n, dentro ou fora de colchete: um id inventado num grupo ("[INS-2, INS-99]") também é pego.
 CITACAO = re.compile(r"INS-(\d+)")
@@ -17,6 +19,8 @@ COLCHETE = re.compile(r"\[(?:INS|DOC)-\d+\]")  # sai da contagem de palavras
 EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿️]")
 MAX_PERGUNTAS = 2  # decisão da persona: no máximo 2 perguntas de volta
 TETO_PALAVRAS = 160  # a meta é cerca de 120; a folga evita reprovar por uma frase
+# Resposta que traz case, regra ou template destrincha o caso (contexto, o que foi feito, resultado): meta ~200.
+TETO_COM_DETALHE = 260
 
 
 def citados(resposta: str) -> set[int]:
@@ -37,8 +41,16 @@ def _sem_acento(texto: str) -> str:
     return unicodedata.normalize("NFKD", texto.lower()).encode("ascii", "ignore").decode()
 
 
-def falhas_de(caso: dict, resposta: str, ids: set[int]) -> list[str]:
-    """Tudo o que a resposta descumpre (lista vazia: passou). `ids` são os ids da base que o modelo recebeu."""
+def teto(resposta: str, tipos: dict[int, str]) -> int:
+    """O teto de palavras: maior se a resposta cita um item de TIPOS_COM_DETALHE (o que o knowledge manda inteiro)."""
+    detalhada = any(tipos.get(n) in TIPOS_COM_DETALHE for n in citados(resposta))
+    return TETO_COM_DETALHE if detalhada else TETO_PALAVRAS
+
+
+def falhas_de(caso: dict, resposta: str, tipos: dict[int, str]) -> list[str]:
+    """Tudo o que a resposta descumpre (lista vazia: passou). `tipos` é {id: tipo} dos itens da base que o modelo
+    recebeu."""
+    ids = set(tipos)
     cit = citados(resposta)
     falhas = []
 
@@ -56,8 +68,8 @@ def falhas_de(caso: dict, resposta: str, ids: set[int]) -> list[str]:
         falhas.append("[persona] tem emoji")
     if "perguntas" not in livre and perguntas(resposta) > MAX_PERGUNTAS:
         falhas.append(f"[persona] {perguntas(resposta)} perguntas (máximo {MAX_PERGUNTAS})")
-    if "teto" not in livre and palavras(resposta) > TETO_PALAVRAS:
-        falhas.append(f"[persona] {palavras(resposta)} palavras (teto {TETO_PALAVRAS})")
+    if "teto" not in livre and palavras(resposta) > teto(resposta, tipos):
+        falhas.append(f"[persona] {palavras(resposta)} palavras (teto {teto(resposta, tipos)})")
     if faltando := sorted(set(caso.get("deve_citar", [])) - cit):
         falhas.append(f"[persona] não citou {faltando}")
     if caso.get("pergunta_de_volta"):

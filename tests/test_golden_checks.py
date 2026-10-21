@@ -6,7 +6,7 @@ import pytest
 
 from tests.golden.checks import falhas_de, palavras, perguntas
 
-IDS = {2, 3, 7, 18}
+IDS = {2: "case", 3: "objecao", 7: "regra", 18: "aprendizado"}  # {id: tipo}, como a base do golden
 COBERTA = {"coberta": True, "esperados": [7]}
 SEM_COBERTURA = {"coberta": False, "esperados": []}
 BOA = "Proponha um piloto em uma unidade antes de expandir [INS-7]."
@@ -57,9 +57,22 @@ def test_mais_de_duas_perguntas_reprova_e_livre_libera():
 
 def test_teto_de_palavras_nao_conta_os_ids():
     assert palavras("Piloto antes [INS-7] [INS-18] [DOC-3].") == 2
-    longa = BOA + " palavra" * 160
-    assert etiquetas(falhas_de(COBERTA, longa, IDS)) == ["[persona]"]
-    assert falhas_de(COBERTA | {"livre": ["teto"]}, longa, IDS) == []
+
+
+def test_teto_sem_detalhe_e_160():
+    caso = {"coberta": True, "esperados": [3]}
+    curta, longa = "Volte ao custo do problema [INS-3]." + " palavra" * 150, "Volte [INS-3]." + " palavra" * 160
+    assert falhas_de(caso, curta, IDS) == []
+    assert palavras(longa) == 161
+    assert falhas_de(caso, longa, IDS) == ["[persona] 161 palavras (teto 160)"]
+    assert falhas_de(caso | {"livre": ["teto"]}, longa, IDS) == []
+
+
+def test_teto_sobe_para_260_quando_cita_case_regra_ou_template():
+    assert falhas_de(COBERTA, BOA + " palavra" * 200, IDS) == []  # cita o INS-7, uma regra
+    longa = BOA + " palavra" * 260
+    assert palavras(longa) == 269  # as 9 palavras da BOA + 260
+    assert falhas_de(COBERTA, longa, IDS) == ["[persona] 269 palavras (teto 260)"]
 
 
 def test_deve_citar_exige_todos():
