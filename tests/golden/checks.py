@@ -81,4 +81,7 @@ def falhas_de(caso: dict, resposta: str, tipos: dict[int, str]) -> list[str]:
         falhas.append("[persona] não sugeriu registrar o aprendizado")
     if caso.get("proximo_passo") and "proximo passo" not in _sem_acento(resposta):
         falhas.append("[persona] não fechou com 'Próximo passo'")
+    for termo in caso.get("evitar", []):
+        if _sem_acento(termo) in _sem_acento(resposta):
+            falhas.append(f"[persona] usou '{termo}', que o time não usa (a base diz outra coisa)")
     return falhas

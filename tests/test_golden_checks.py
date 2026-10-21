@@ -103,6 +103,14 @@ def test_proximo_passo_com_ou_sem_acento():
     assert falhas_de(caso, BOA, IDS) == ["[persona] não fechou com 'Próximo passo'"]
 
 
+def test_termo_que_o_time_nao_usa():
+    caso = COBERTA | {"evitar": ["piloto", "reunião curta"]}
+
+    assert falhas_de(caso, "Comece pelo Discovery [INS-7].", IDS) == []
+    assert falhas_de(caso, BOA, IDS) == ["[persona] usou 'piloto', que o time não usa (a base diz outra coisa)"]
+    assert len(falhas_de(caso, "Marque uma Reunião Curta e um piloto [INS-7].", IDS)) == 2
+
+
 def test_contagem_de_perguntas():
     assert perguntas("Qual? E o prazo?") == 2
 
@@ -115,7 +123,7 @@ def test_casos_do_golden_bem_formados():
     base = {i["id"] for i in json.loads((pasta / "base.json").read_text(encoding="utf-8"))}
     casos = json.loads((pasta / "perguntas.json").read_text(encoding="utf-8"))
     campos = {"n", "pergunta", "testa", "coberta", "esperados", "historico", "deve_citar", "pergunta_de_volta",
-              "registrar", "proximo_passo", "livre"}
+              "registrar", "proximo_passo", "livre", "evitar"}
 
     assert [c["n"] for c in casos] == list(range(1, len(casos) + 1))
     for c in casos:

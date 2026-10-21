@@ -53,6 +53,28 @@ def test_case_regra_e_template_sao_destrinchados():
     assert "não a preencha" in prompt
 
 
+def test_regras_da_v2_1_depois_das_notas_do_rafael():
+    prompt = _consultor()
+
+    for regra in ["Use o termo exato do item", "não \"piloto\"",  # Discovery é o serviço inicial do CITi
+                  "Cada tópico da resposta sai de um item citado",
+                  "UMA vez por item na resposta",
+                  "é um relato, não um pedido de roteiro",
+                  "Quando isso aparecer numa conta sua, registra o que aprendeu",
+                  "pergunte (até 2 perguntas) como está a conta"]:
+        assert regra in prompt, regra
+
+
+def test_caso_contado_registra_antes_do_proximo_passo():
+    prompt = _consultor()
+
+    assert prompt.index("Sugira registrar") < prompt.index('o "Próximo passo:" (depois do convite a registrar)')
+
+
+def test_a_pergunta_sobre_a_conta_na_lacuna_nao_repete_a_frase():
+    assert 'Não repita "A base não cobre" nessa pergunta' in _consultor()
+
+
 def test_o_prompt_nao_ensina_emoji():
     assert not re.search("[\U0001F300-\U0001FAFF☀-➿]", llm.carregar_prompt("consultor"))
 

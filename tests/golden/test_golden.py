@@ -21,6 +21,7 @@ Cada caso de perguntas*.json tem `n`, `pergunta`, `testa`, `coberta` e `esperado
 - `pergunta_de_volta`: a pergunta é vaga, então a resposta pergunta algo e NÃO diz "A base não cobre";
 - `registrar`: a resposta sugere registrar o aprendizado;
 - `proximo_passo`: a resposta fecha com "Próximo passo";
+- `evitar`: termos que a base não usa e a resposta não pode trazer ("piloto", quando o item diz Discovery);
 - `livre`: quais checks gerais da persona não valem no caso ("teto" e/ou "perguntas"), como na preparação de
   reunião, que é longa e traz perguntas para fazer ao cliente.
 

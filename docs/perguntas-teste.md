@@ -35,7 +35,7 @@ Testam o jeito de responder, não só o conteúdo. A 23 e a 26 têm duas falas a
 
 21. Me ajuda a vender mais? (vaga: responde uma parte e pergunta de volta)
 22. Tenho uma reunião semana que vem. Me ajuda? (vaga)
-23. São 5 hotéis. Ontem falei com o diretor de operações, propus começar com um piloto em um hotel só e ele topou na
+23. São 5 hotéis. Ontem falei com o diretor de operações, propus começar com o Discovery em um hotel só e ele topou na
     hora. (caso contado: liga à base e sugere registrar)
 24. Vou mandar a proposta por e-mail pro cliente de varejo, assim ele lê com calma. Faz sentido, né? (a base
     contradiz)
