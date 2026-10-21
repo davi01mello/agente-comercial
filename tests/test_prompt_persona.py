@@ -65,6 +65,21 @@ def test_regras_da_v2_1_depois_das_notas_do_rafael():
         assert regra in prompt, regra
 
 
+def test_regras_da_v2_2_contra_os_deslizes_de_o_que():
+    prompt = _consultor()
+
+    for regra in ["não faça conta com ele", "Não invente frequência", "não vira regra",
+                  "Traga só os itens que a pergunta toca", "o que ele tem em comum com o tema"]:
+        assert regra in prompt, regra
+
+
+def test_na_lacuna_a_pista_vem_antes_das_perguntas_sobre_a_conta():
+    prompt = _consultor()
+
+    assert prompt.index("o mais perto é de") < prompt.index("registra o que aprendeu") < prompt.index(
+        "como está a conta")
+
+
 def test_caso_contado_registra_antes_do_proximo_passo():
     prompt = _consultor()
 
