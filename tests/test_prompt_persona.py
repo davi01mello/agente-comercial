@@ -90,6 +90,15 @@ def test_regras_da_v2_2_contra_os_deslizes_de_o_que():
         assert regra in prompt, regra
 
 
+def test_frequencia_inventada_vale_para_o_segmento_e_para_varios_itens():
+    """No P26 o modelo escrevia "em saúde, costuma travar" a partir de dois casos só: a regra mostra esse jeito."""
+    prompt = _consultor()
+
+    for regra in ['"costuma", "muitas vezes", "geralmente", "em geral" e "sempre" só entram se o item disser',
+                  "Vale também ao falar do segmento e ao juntar vários itens", "não vira regra nem tendência"]:
+        assert regra in prompt, regra
+
+
 def test_na_lacuna_a_pista_vem_antes_das_perguntas_sobre_a_conta():
     prompt = _consultor()
 
