@@ -1,7 +1,7 @@
 /* Cérebro Comercial CITi: interface (sem framework e sem build).
 
-   Com o FastAPI no ar, fala com a API de verdade (modo "Ao vivo"). Sem servidor, por exemplo aberta como
-   arquivo ou numa prévia, entra sozinha no modo "Demonstração", com a base de exemplo fictícia.
+   Fala sempre com a API de verdade (FastAPI). Não há base de exemplo nem modo de demonstração: sem servidor, a tela
+   avisa e não mostra nada inventado.
    Regra de segurança: todo texto que vem do usuário ou do modelo entra na página como texto (textContent),
    nunca como HTML. O único innerHTML é o SVG do orbe, que é gerado aqui mesmo. */
 "use strict";
@@ -41,7 +41,6 @@
   const capital = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
   const hora = () => new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   const dataBr = (iso) => (iso ? iso.split("-").reverse().join("/") : "");
-  const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const guardar = {
     ler(chave) { try { return localStorage.getItem(chave); } catch { return null; } },
@@ -71,71 +70,10 @@
   const RELACOES = { reforca: "reforça", contradiz: "contradiz", duplica: "duplica", substitui: "substitui" };
   const SEGMENTOS = ["hotelaria", "varejo", "saúde", "educação", "indústria", "setor público", "startups", "terceiro setor", "outros"];
 
-  // Base de exemplo: os mesmos itens fictícios de knowledge/exemplos.md (EX-06 existe só na demonstração).
-  const EXEMPLOS = [
-    {
-      id: 1, codigo: "EX-01", tipo: "aprendizado", secao: "reuniao_diagnostico", segmento: "varejo",
-      titulo: "Abrir a reunião com diagnóstico antes de apresentar a solução",
-      descricao: "Começar a primeira reunião entendendo o problema do cliente, antes de mostrar qualquer solução, deixa o cliente menos travado e mais aberto a falar de orçamento e prazo.",
-      o_que_foi_feito: "Nos primeiros 20 minutos, só perguntas: processo atual, onde dói, quanto custa o problema hoje, quem decide. A solução só apareceu no fim, ligada às dores ditas pelo próprio cliente.",
-      resultado: "O cliente pediu proposta na mesma semana. Na reunião anterior, abrindo com a solução, a conversa travou em \"vamos pensar\".",
-      evidencia: 2, status: "validado", autor: "Membro do comercial A (fictício)", data_evento: "2026-03-12", fonte: "reuniao", relacoes: [],
-    },
-    {
-      id: 2, codigo: "EX-02", tipo: "case", secao: "proposta", segmento: "hotelaria",
-      titulo: "Case: check-in digital para a Rede Hotel Exemplo",
-      descricao: "Rede regional de 4 hotéis (fictícia) com filas no check-in na alta temporada e retrabalho da recepção com fichas em papel.",
-      o_que_foi_feito: "Diagnóstico com recepção e gerência de 2 unidades; proposta em duas fases (piloto em 1 hotel, depois expansão); check-in pré-preenchido pelo hóspede antes da chegada.",
-      resultado: "No piloto, o tempo médio de check-in caiu de 9 para 4 minutos (30 dias de medição). A rede aprovou a expansão para os outros 3 hotéis.",
-      resumo: "Rede Hotel Exemplo: piloto de check-in digital em 1 hotel, tempo médio caiu de 9 para 4 minutos e a rede expandiu para os outros 3",
-      evidencia: 4, status: "consolidado", autor: "Membro do comercial B (fictício)", data_evento: "2025-11-20", fonte: "drive", relacoes: [],
-    },
-    {
-      id: 3, codigo: "EX-03", tipo: "objecao", secao: "negociacao_fechamento", segmento: null,
-      titulo: "Objeção \"está caro\": reancorar no custo do problema e oferecer fase menor",
-      descricao: "Baixar o preço de cara desvaloriza a proposta. Funciona melhor voltar ao custo do problema levantado no diagnóstico e, se o orçamento ainda não fechar, reduzir escopo, não preço.",
-      o_que_foi_feito: "\"No diagnóstico vocês estimaram que esse problema custa X por mês. O investimento se paga em Y meses. Se o orçamento deste ano não comportar, dá pra começar por uma fase 1 menor.\"",
-      resultado: "Em 3 negociações com essa objeção, 2 fecharam com escopo reduzido e 1 fechou com o escopo original.",
-      evidencia: 3, status: "validado", autor: "Membro do comercial C (fictício)", data_evento: "2026-05-08", fonte: "chat",
-      relacoes: [{ relacionado_id: 1, tipo: "reforca" }],
-    },
-    {
-      id: 4, codigo: "EX-04", tipo: "hipotese", secao: "prospeccao", segmento: null,
-      titulo: "Hipótese: prospectar em eventos do setor converte mais que LinkedIn",
-      descricao: "Contato presencial em eventos do setor geraria conversas mais quentes do que mensagens frias no LinkedIn.",
-      o_que_foi_feito: "Nada ainda. Levantada como ideia em reunião do time.",
-      resultado: "Sem dado. Para validar, comparar a taxa de reunião marcada por contato nos dois canais no mesmo período.",
-      evidencia: 1, status: "proposto", autor: "Membro do comercial A (fictício)", data_evento: "2026-08-02", fonte: "chat", relacoes: [],
-    },
-    {
-      id: 5, codigo: "EX-05", tipo: "perfil_segmento", secao: "fundamentos", segmento: "hotelaria",
-      titulo: "Perfil do segmento: hotelaria",
-      descricao: "Dores típicas: filas e retrabalho na recepção, planilhas e papel, reservas desconectadas da operação. Em hotel independente decide o dono ou o gerente geral; em rede, a diretoria de operações, com o financeiro aprovando. Evite fechar e implantar na alta temporada.",
-      o_que_foi_feito: "Consolidado a partir de 3 conversas comerciais com hotéis.",
-      resultado: "Não se aplica (perfil).",
-      pontos: [
-        "Dores típicas: fila e retrabalho na recepção, planilha e papel, reservas desconectadas da operação",
-        "Em rede, decide a diretoria de operações, com o financeiro aprovando o orçamento",
-        "Evite fechar e implantar na alta temporada; a melhor janela de decisão é a baixa temporada",
-        "O que convence: piloto em uma unidade com métrica clara antes de expandir",
-      ],
-      evidencia: 3, status: "validado", autor: "Membro do comercial B (fictício)", data_evento: "2026-01-15", fonte: "notion",
-      relacoes: [{ relacionado_id: 2, tipo: "reforca" }],
-    },
-    {
-      id: 6, codigo: "EX-06", tipo: "hipotese", secao: "prospeccao", segmento: null,
-      titulo: "Ligar na segunda de manhã pode facilitar marcar reunião",
-      descricao: "Quem registrou acredita que ligações na segunda de manhã marcam mais reuniões do que em outros horários.",
-      o_que_foi_feito: null, resultado: null,
-      evidencia: 1, status: "proposto", autor: "Membro do comercial D (fictício)", data_evento: null, fonte: "chat", relacoes: [],
-      avisos: ["Sem dado que sustente: registrado como hipótese (evidência 1)."],
-    },
-  ];
-
   const estado = {
-    modo: "demo",
+    modo: "conectando",  // "vivo" (o servidor respondeu) | "fora" (não respondeu)
     tela: "conversar",
-    itens: EXEMPLOS.map((i) => ({ ...i })),
+    itens: [],
     conversa: [],
     ocupado: false,
     reg: { conversa: [], proposta: null, ocupado: false },
@@ -144,9 +82,8 @@
     filtroFontes: { status: null, busca: "", origem: null },
     sync: { id: null, dry: false, exec: null, acompanhando: false, teto: 1, origem: "notion" },
     fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [] },
-    proximoId: 100,
     focoAntes: null,
-    pessoa: null,  // quem entrou (GET /auth/eu): {email, nome, dev, dominio}; null na demonstração
+    pessoa: null,  // quem entrou (GET /auth/eu): {email, nome, dev, dominio}; null enquanto não entrou
   };
   const aoVivo = () => estado.modo === "vivo";
 
@@ -469,17 +406,16 @@
     location.reload();
   }
   async function detectarModo() {
-    if (/[?&]demo\b/.test(location.search)) return "demo";
     try {
       const ctrl = new AbortController();
       const limite = setTimeout(() => ctrl.abort(), 2500);
       const r = await fetch("/health", { signal: ctrl.signal });
       clearTimeout(limite);
-      if (!r.ok) return "demo";
+      if (!r.ok) return "fora";
       const d = await r.json();
-      return d && d.status === "ok" ? "vivo" : "demo";
+      return d && d.status === "ok" ? "vivo" : "fora";
     } catch {
-      return "demo";
+      return "fora";
     }
   }
   // A API entrega no máximo 100 itens por chamada: sem pedir as páginas seguintes, a Fila de uma importação grande
@@ -494,7 +430,6 @@
     return [...porId.values()];
   }
   async function carregarItens() {
-    if (!aoVivo()) return;
     try {
       const porStatus = await Promise.all(
         ["validado", "consolidado", "proposto", "historico_a_validar"].map(itensDoStatus),
@@ -514,16 +449,14 @@
     setTimeout(() => t.remove(), 5600);
   }
   // Quem escreve, registra e aprova é a pessoa que entrou com o Google (o servidor decide o autor pela sessão: o nome
-  // daqui é só para mostrar na tela). Na demonstração (sem servidor) não há login.
+  // daqui é só para mostrar na tela).
   function nomeDoUsuario() { return estado.pessoa ? estado.pessoa.nome : "Você"; }
   function exigirAutor() { return nomeDoUsuario(); }
   function acharItem(codigo) {
-    const todos = aoVivo() ? estado.itens : [...estado.itens, ...EXEMPLOS];  // ao vivo: só o que existe no banco
-    return todos.find((i) => i.codigo === codigo) || null;
+    return estado.itens.find((i) => i.codigo === codigo) || null;  // só o que existe no banco
   }
-  function itemPorId(id, origem) {
-    const pool = origem && origem.codigo && origem.codigo.startsWith("EX-") ? EXEMPLOS : estado.itens;
-    return pool.find((i) => i.id === id) || null;
+  function itemPorId(id) {
+    return estado.itens.find((i) => i.id === id) || null;
   }
   function sinal(n) {
     const s = el("span", { class: "sinal", role: "img", "aria-label": `Evidência ${n} de 4: ${EVIDENCIA[n]}` });
@@ -546,7 +479,6 @@
     else if (it.evidencia === 1) lista.push("Evidência 1: é uma opinião, sem caso que sustente.");
     else if (it.evidencia === 2) lista.push("Evidência 2: se apoia em um único caso.");
     if (it.status === "historico_a_validar") lista.push("Veio de uma fonte antiga e ainda não foi revisado.");
-    if (it.codigo && it.codigo.startsWith("EX-")) lista.push("Item fictício da base de exemplo.");
     return [...new Set(lista)];
   }
   function listaAvisos(lista) {
@@ -657,7 +589,7 @@
     fila: ["Fila de curadoria", "Itens propostos e itens vindos de fontes antigas esperando aprovação. Nada entra no playbook sem alguém aprovar."],
     fontes: ["Fontes", "O que o Cérebro leu do Notion e do Drive e o que virou item. Nada daqui entra no playbook sem passar pela Fila."],
     playbook: ["Playbook", "O que o time já validou, na ordem do funil."],
-    briefing: ["Briefing de reunião", "Prévia da T9: um roteiro montado só com o que está na base."],
+    briefing: ["Briefing de reunião", "Um roteiro montado só com o que está na base, cada ponto com a fonte."],
   };
   function pintarTopo(tela) {
     const box = $("#ident");
@@ -702,65 +634,20 @@
     $("#n-fontes").textContent = estado.fontes ? estado.fontes.total : 0;
     $("#rodape-base").textContent = aoVivo()
       ? "Ligado ao servidor. O consultor responde só com os itens aprovados no Playbook."
-      : "Base de exemplo com dados fictícios. Rode o app com o uvicorn para usar a API de verdade.";
+      : "Sem conexão com o servidor. Rode o app com o uvicorn.";
   }
   function pintarModo() {
     const m = $("#modo");
     m.dataset.modo = estado.modo;
-    m.textContent = aoVivo() ? "Ao vivo" : "Demonstração · dados fictícios";
+    m.textContent = aoVivo() ? "Ao vivo" : "Sem servidor";
   }
 
   // ---------------------------------------------------------------- conversar
   const ATALHOS_CHAT = [
-    ["Preparar proposta para rede de hotelaria", "Vou apresentar proposta para uma rede de hotelaria. Como conduzo e que cases temos?", "var(--ciano)"],
     ["Cliente disse que está caro", "O cliente disse que está caro. Como respondemos?", "var(--ambar)"],
     ["Testar hipótese: eventos ou LinkedIn", "Pensei em prospectar em eventos do setor em vez de LinkedIn. O que você acha?", "var(--lilas)"],
     ["O que a base não cobre?", "O que a base ainda não cobre?", "var(--risco)"],
   ];
-  const RESPOSTAS_DEMO = {
-    hotelaria: `Para uma rede de hotelaria, eu conduziria em três tempos.
-
-- Abra com diagnóstico, não com a solução: processo atual, onde dói, quanto custa o problema e quem decide [EX-01].
-- Em rede, quem decide costuma ser a diretoria de operações, com o financeiro aprovando o orçamento. Evite propor implantação na alta temporada [EX-05].
-- Proponha um piloto em uma unidade com métrica clara antes de expandir. No case da Rede Hotel Exemplo, o check-in caiu de 9 para 4 minutos no piloto e a rede aprovou a expansão [EX-02].
-
-Se o preço travar, volte ao custo do problema levantado no diagnóstico e ofereça uma fase menor em vez de desconto [EX-03].`,
-    caro: `A base tem um caminho para isso, com padrão repetido em 3 negociações [EX-03].
-
-- Não baixe o preço de cara. Volte ao custo do problema que o próprio cliente estimou no diagnóstico.
-- Mostre em quantos meses o investimento se paga.
-- Se o orçamento não fechar, reduza o escopo para uma fase 1, não o preço.
-
-Isso depende de um diagnóstico bem feito antes [EX-01].`,
-    eventos: `Fazendo o advogado do diabo: isso ainda é uma hipótese, sem nenhum dado [EX-04].
-
-- Risco: evento custa tempo e dinheiro, e uma conversa quente pode não virar reunião marcada.
-- O que a base mostra: ninguém testou os dois canais no mesmo período.
-- Como medir: durante um mês, conte contatos e reuniões marcadas por canal e compare a taxa.
-
-Se testar, registre o resultado para essa hipótese ganhar evidência.`,
-    lacunas: `Pelas perguntas de teste, a base ainda não cobre:
-
-- Preço praticado por tipo de serviço.
-- Motivos das propostas perdidas.
-- Prospecção com resultado medido (só existe uma hipótese [EX-04]).
-- Segmentos além de hotelaria e varejo.
-
-Esses são bons primeiros registros.`,
-  };
-  function respostaDemo(texto) {
-    const t = normalizar(texto);
-    if (/nao cobre|lacuna|falta na base|ainda nao/.test(t)) return RESPOSTAS_DEMO.lacunas;
-    if (/hotel|pousada|hotelaria/.test(t)) return RESPOSTAS_DEMO.hotelaria;
-    if (/caro|preco|desconto|orcamento/.test(t)) return RESPOSTAS_DEMO.caro;
-    if (/evento|linkedin|hipotese|prospec/.test(t)) return RESPOSTAS_DEMO.eventos;
-    const tema = texto.trim().replace(/\s+/g, " ").slice(0, 70);
-    return `A base não cobre isso ainda ("${tema}").
-
-Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de preço e uma hipótese de prospecção. Se você viveu algo sobre esse tema, registre em Registrar para eu poder usar nas próximas respostas.`;
-  }
-  const NOTA_DEMO = "Modo demonstração: resposta simulada com itens fictícios.";
-
   async function perguntar(texto) {
     texto = texto.trim();
     if (!texto || estado.ocupado) return;
@@ -771,18 +658,10 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     estado.ocupado = true; $("#enviar-chat").disabled = true; pensando(true);
     const indicador = digitando(caixa);
     try {
-      let resposta;
-      let docs = [];
-      if (aoVivo()) {
-        const r = await chamar("POST", "/chat", { mensagem: texto, historico: estado.conversa.slice(-30) });
-        resposta = r.resposta;
-        docs = r.documentos || [];
-      } else {
-        await esperar(900 + Math.random() * 700);
-        resposta = respostaDemo(texto);
-      }
+      const r = await chamar("POST", "/chat", { mensagem: texto, historico: estado.conversa.slice(-30) });
+      const resposta = r.resposta;
       indicador.remove();
-      adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", nota: aoVivo() ? null : NOTA_DEMO, docs });
+      adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", docs: r.documentos || [] });
       estado.conversa.push({ role: "user", text: texto }, { role: "model", text: resposta });
       cena.pulsar();
     } catch (e) {
@@ -797,89 +676,17 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     const caixa = $("#mensagens");
     caixa.replaceChildren();
     estado.conversa = [];
-    const exemplo = aoVivo() ? estado.itens.find((i) => i.status === "validado" || i.status === "consolidado") : null;
-    const toque = aoVivo()
-      ? (exemplo ? `Toque numa fonte, como [${exemplo.codigo}], para ver o item inteiro.` : "Quando houver itens aprovados, toque numa fonte para ver o item inteiro.")
-      : "Toque numa fonte, como [EX-02], para ver o item inteiro.";
+    const exemplo = estado.itens.find((i) => i.status === "validado" || i.status === "consolidado");
+    const toque = exemplo
+      ? `Toque numa fonte, como [${exemplo.codigo}], para ver o item inteiro.`
+      : "Quando houver itens aprovados, toque numa fonte para ver o item inteiro.";
     adicionarMsg(caixa, {
       papel: "cerebro", quem: "Cérebro",
       texto: `Oi! Eu respondo com base no que o time aprovou e mostro de onde tirei cada ponto. ${toque}`,
     });
-    if (!aoVivo()) {
-      const pergunta = ATALHOS_CHAT[0][1];
-      adicionarMsg(caixa, { papel: "eu", quem: nomeDoUsuario(), texto: pergunta });
-      adicionarMsg(caixa, { papel: "cerebro", quem: "Cérebro", texto: RESPOSTAS_DEMO.hotelaria, nota: NOTA_DEMO });
-      estado.conversa.push({ role: "user", text: pergunta }, { role: "model", text: RESPOSTAS_DEMO.hotelaria });
-    }
   }
 
   // ---------------------------------------------------------------- registrar (curador)
-  const EXEMPLOS_RELATO = [
-    "Hoje abri a reunião com o hotel do centro com diagnóstico em vez de apresentar o CITi, e o cara destravou. Acho que vale pra todos",
-    "Cliente de varejo disse que estava caro. Voltei ao custo do problema e fechamos a fase 1 em 2 semanas",
-    "Acho que ligar na segunda de manhã marca mais reunião",
-  ];
-  const RE_PESSOAL = [
-    ["e-mail", /[\w.+-]+@[\w-]+\.[\w.-]+/],
-    ["telefone", /\(?\b\d{2}\)?[\s.-]?9?\d{4}[\s.-]?\d{4}\b/],
-    ["CPF ou CNPJ", /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b|\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/],
-  ];
-
-  function curarDemo(texto, conversa, autor) {
-    const turno = 1 + conversa.filter((m) => m.role === "user").length;
-    const ultimo = turno >= 3;
-    const relatos = [...conversa.filter((m) => m.role === "user").map((m) => m.text), texto];
-    const tudo = relatos.join(" ");
-    const t = normalizar(tudo);
-    const medido = /de \d+ para \d+|\d+\s*(%|min|minutos|dias|semanas|reunioes|clientes|vezes)/.test(t);
-    let tipo = "aprendizado", evidencia = 2;
-    if (/\bacho\b|talvez|pensei|ideia/.test(t) && !medido && !/fechamos|fechou|pediu/.test(t)) { tipo = "hipotese"; evidencia = 1; }
-    if (/caro|preco|desconto/.test(t)) tipo = "objecao";
-    if (medido) { evidencia = 4; if (/piloto|projeto|implant/.test(t)) tipo = "case"; }
-    else if (/\b(3|tres|4|quatro|5|cinco)\s+(reunioes|vezes|clientes|negociacoes)/.test(t)) evidencia = 3;
-
-    let secao = "reuniao_diagnostico";
-    if (/ligar|ligacao|linkedin|prospec|evento|contato frio/.test(t)) secao = "prospeccao";
-    else if (/caro|preco|desconto|negoci|fechamos|fechou/.test(t)) secao = "negociacao_fechamento";
-    else if (/proposta|escopo|piloto/.test(t)) secao = "proposta";
-    else if (/qualific|lead/.test(t)) secao = "qualificacao";
-    else if (/pos-venda|suporte|renova/.test(t)) secao = "pos_venda";
-
-    const segmento = /hotel|pousada/.test(t) ? "hotelaria" : /loja|varejo|mercado/.test(t) ? "varejo"
-      : /clinica|hospital|saude/.test(t) ? "saúde" : /escola|faculdade|educa/.test(t) ? "educação" : null;
-
-    const avisos = [];
-    if (/vale pra todos|vale para todos|sempre funciona/.test(t) && evidencia < 3) avisos.push("\"Vale para todos\" se apoia em um caso só: ficou como observação única (evidência 2).");
-    if (/ignore|marque como|consolidado|evidencia 4/.test(t)) avisos.push("O texto pedia para mudar status ou evidência. A instrução foi ignorada.");
-    for (const [nome, re] of RE_PESSOAL) if (re.test(tudo)) avisos.push(`Possível ${nome} no relato: dado pessoal de cliente não deve entrar na base (LGPD).`);
-    if (tipo === "hipotese") avisos.push("Sem dado que sustente: registrado como hipótese (evidência 1).");
-
-    const frases = tudo.split(/(?<=[.!?])\s+|\n+/).map((f) => f.trim()).filter(Boolean);
-    const comResultado = frases.find((f) => /\d/.test(f) || /fech|pediu|virou|destrav|aprovou/.test(normalizar(f)));
-    const perguntas = [];
-    if (!ultimo && turno === 1) {
-      if (!medido && !/fech|pediu|virou|aprovou/.test(t)) perguntas.push("Qual foi o resultado? A conversa virou proposta ou próximo passo?");
-      if (!segmento) perguntas.push("Qual o segmento do cliente?");
-    }
-    if (ultimo && !segmento) avisos.push("Ficou sem resposta: qual o segmento do cliente?");
-
-    const primeira = relatos[0].split(/(?<=[.!?])\s+/)[0].replace(/\s+/g, " ").trim();
-    const titulo = capital(primeira.length > 110 ? `${primeira.slice(0, 107).trimEnd()}…` : primeira).replace(/[.!]$/, "");
-    const candidatos = estado.itens.filter((i) => ["validado", "consolidado"].includes(i.status) && i.secao === secao);
-    const relacoes = candidatos.slice(0, 2).map((c) => ({ relacionado_id: c.id, tipo: "reforca" }));
-
-    return {
-      insight: {
-        titulo, tipo, secao, segmento, evidencia, autor,
-        descricao: relatos.join(" ").replace(/\s+/g, " ").slice(0, 600),
-        o_que_foi_feito: null,
-        resultado: comResultado && (medido || /fech|pediu|virou|destrav|aprovou/.test(normalizar(comResultado))) ? comResultado : null,
-        contexto_cliente: null, data_evento: null, servico: null,
-      },
-      relacoes, perguntas: perguntas.slice(0, 2), avisos,
-    };
-  }
-
   function boasVindasRegistro() {
     const caixa = $("#mensagens-reg");
     caixa.replaceChildren();
@@ -900,20 +707,14 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     estado.reg.ocupado = true; $("#enviar-reg").disabled = true; pensando(true);
     const indicador = digitando(caixa);
     try {
-      let proposta;
-      if (aoVivo()) {
-        proposta = await chamar("POST", "/registrar/propor", { texto, conversa: estado.reg.conversa.slice(-10) });
-      } else {
-        await esperar(1000 + Math.random() * 600);
-        proposta = curarDemo(texto, estado.reg.conversa, autor);
-      }
+      const proposta = await chamar("POST", "/registrar/propor", { texto, conversa: estado.reg.conversa.slice(-10) });
       indicador.remove();
       const perguntas = proposta.perguntas || [];
       const resumo = perguntas.length
         ? `Já montei um rascunho ao lado. Antes de fechar, ${perguntas.length === 1 ? "uma pergunta" : "duas perguntas"}:`
         : "Pronto. O rascunho está ao lado: revise, ajuste o que quiser e envie para a Fila.";
       const extra = perguntas.length ? el("ol", { class: "lista-perguntas" }, perguntas.map((p) => el("li", { text: p }))) : null;
-      adicionarMsg(caixa, { papel: "cerebro", quem: "Curador", texto: resumo, extra, nota: aoVivo() ? null : "Modo demonstração: curadoria simulada." });
+      adicionarMsg(caixa, { papel: "cerebro", quem: "Curador", texto: resumo, extra });
       estado.reg.conversa.push({ role: "user", text: texto }, { role: "model", text: perguntas.length ? perguntas.join("\n") : resumo });
       estado.reg.proposta = proposta;
       pintarRascunho();
@@ -942,10 +743,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     const p = estado.reg.proposta;
     if (!p) {
       f.append(vazio("O rascunho aparece aqui",
-        "Conte o que aconteceu no campo ao lado. O curador preenche tipo, seção, segmento e evidência, e você ajusta antes de enviar para a Fila.",
-        aoVivo() ? null : el("div", { class: "exemplos" },
-          el("span", { class: "rotulo", text: "Experimente um destes relatos" }),
-          EXEMPLOS_RELATO.map((txt) => el("button", { type: "button", class: "exemplo", text: txt, onclick: () => relatar(txt) })))));
+        "Conte o que aconteceu no campo ao lado. O curador preenche tipo, seção, segmento e evidência, e você ajusta antes de enviar para a Fila."));
       return;
     }
     const it = p.insight;
@@ -1022,14 +820,8 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     const botao = $("#enviar-fila");
     botao.disabled = true;
     try {
-      let criado;
-      if (aoVivo()) {
-        criado = await chamar("POST", "/insights", { ...dados, fonte: "chat" });
-        await carregarItens();
-      } else {
-        criado = { ...dados, autor, fonte: "chat", id: estado.proximoId++, status: "proposto", avisos: estado.reg.proposta.avisos || [] };
-        estado.itens.push({ ...criado, codigo: `INS-${criado.id}` });
-      }
+      const criado = await chamar("POST", "/insights", { ...dados, fonte: "chat" });
+      await carregarItens();
       aviso(`Enviado para a Fila como proposto (INS-${criado.id}).`, "ok");
       cena.pulsar();
       descartarRascunho();
@@ -1127,8 +919,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     let semServidor = false;
     for (const id of ids) {
       try {
-        if (aoVivo()) await chamar("POST", `/insights/${id}/aprovar`);
-        else { const it = itemPorId(id); if (it) it.status = "validado"; }
+        await chamar("POST", `/insights/${id}/aprovar`);
         aprovados += 1;
         f.selecionados.delete(id);
       } catch (e) {
@@ -1139,7 +930,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
       atualizarBarraLote();
     }
     f.aprovando = null;
-    if (aoVivo()) await carregarItens();
+    await carregarItens();
     if (aprovados) { cena.pulsar(); }
     const restantes = semServidor ? ids.length - aprovados : falhas.length;
     aviso(restantes
@@ -1191,13 +982,8 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     if (!autor) return;
     if (acao === "rejeitar" && !(motivo && motivo.trim())) { aviso("Para rejeitar, escreva o motivo.", "erro"); return; }
     try {
-      if (aoVivo()) {
-        await chamar("POST", `/insights/${it.id}/${acao}`, acao === "aprovar" ? undefined : { motivo: motivo.trim() });
-        await carregarItens();
-      } else {
-        it.status = acao === "aprovar" ? "validado" : "obsoleto";
-        if (acao === "rejeitar") it.motivo_obsolescencia = motivo.trim();
-      }
+      await chamar("POST", `/insights/${it.id}/${acao}`, acao === "aprovar" ? undefined : { motivo: motivo.trim() });
+      await carregarItens();
       aviso(acao === "aprovar" ? `${it.codigo} aprovado. Já aparece no Playbook.` : `${it.codigo} rejeitado e marcado como obsoleto.`, "ok");
       cena.pulsar();
       atualizarNumeros();
@@ -1396,11 +1182,6 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
 
   async function pintarFontes() {
     const box = $("#fontes-conteudo");
-    if (!aoVivo()) {
-      box.replaceChildren(el("div", { class: "painel vidro" }, vazio("As fontes só aparecem com o servidor ligado",
-        "No modo demonstração não há páginas importadas. Rode o app com o uvicorn e importe o Notion.")));
-      return;
-    }
     let resumo;
     try {
       resumo = await chamar("GET", "/fontes/resumo");
@@ -1623,92 +1404,71 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     if (estado.focoAntes && document.contains(estado.focoAntes)) estado.focoAntes.focus();
   }
 
-  // ---------------------------------------------------------------- briefing (prévia da T9)
+  // ---------------------------------------------------------------- briefing (POST /briefing)
+  // O servidor escolhe os itens aprovados e confere as fontes de cada ponto; aqui só se mostra o que ele devolveu.
+  const SECOES_BRIEFING = {
+    cases: ["var(--ambar)", "A base não tem case para esta reunião."],
+    perfil: ["#93a6ff", "A base não tem o perfil deste segmento."],
+    roteiro: ["var(--ciano)", "A base não tem material para conduzir esta reunião."],
+    objecoes: ["var(--risco)", "A base não tem objeções registradas para este segmento."],
+    proposta: ["var(--ok)", "A base não tem estrutura de proposta testada para este segmento."],
+  };
   function pintarSegmentosBriefing() {
     const s = $("#b-segmento");
     if (s.options.length) return;
     for (const seg of SEGMENTOS) s.append(el("option", { value: seg, text: capital(seg) }));
-    s.value = "hotelaria";
   }
-  function baseUtil() {
-    const vistos = new Set();
-    return (aoVivo() ? estado.itens : [...estado.itens, ...EXEMPLOS]).filter((i) => {
-      if (vistos.has(i.codigo) || !["validado", "consolidado"].includes(i.status)) return false;
-      vistos.add(i.codigo);
-      return true;
-    });
-  }
-  function marcaEvid(it) {
-    if (it.evidencia <= 2) return el("span", { class: "marca-evid", text: it.evidencia === 1 ? "opinião" : "caso único" });
-    return null;
-  }
-  function itemLista(texto, it) {
-    return el("li", {}, inline(texto), it ? marcaEvid(it) : null);
+  function itemLista(ponto, docs) {
+    const fontes = ponto.fontes.map((f) => `[${f.codigo}]`).join(" ");
+    const li = el("li", {}, inline(`${ponto.texto} ${fontes}`, docs));
+    if (ponto.evidencia_minima != null && ponto.evidencia_minima <= 2) {
+      li.append(el("span", { class: "marca-evid", text: ponto.evidencia_minima === 1 ? "opinião" : "caso único" }));
+    }
+    if (ponto.nao_revisado) li.append(el("span", { class: "marca-evid", text: "documento não revisado" }));
+    return li;
   }
   function bloco(titulo, cor, conteudo, classes = "") {
     return el("article", { class: `bloco vidro ${classes}`, style: `--c:${cor}` }, el("h3", { text: titulo }), conteudo);
   }
   const semBase = (t) => el("p", { class: "sem-base", text: t });
 
-  function montarBriefing(ev) {
+  async function montarBriefing(ev) {
     if (ev) ev.preventDefault();
     pintarSegmentosBriefing();
     const seg = $("#b-segmento").value;
     const tipo = $("#b-tipo").value;
     const contexto = $("#b-contexto").value.trim();
-    const base = baseUtil();
-    const cases = base.filter((i) => i.tipo === "case" && i.segmento === seg);
-    const perfil = base.find((i) => i.tipo === "perfil_segmento" && i.segmento === seg);
-    const conducao = base.filter((i) => i.secao === "reuniao_diagnostico");
-    const objecoes = base.filter((i) => i.tipo === "objecao" && (!i.segmento || i.segmento === seg));
-    const nomeSeg = capital(seg);
-
+    const botao = $("#form-briefing button[type=submit]");
     const saida = $("#briefing-saida");
+    if (botao.disabled) return;
+    botao.disabled = true;
+    saida.replaceChildren(el("p", { class: "contexto-briefing", role: "status", text: "Montando o briefing com o que a base tem…" }));
+    let b;
+    try {
+      b = await chamar("POST", "/briefing", { segmento: seg, tipo_reuniao: tipo, contexto: contexto || null });
+    } catch (e) {
+      saida.replaceChildren(el("p", { class: "contexto-briefing", role: "alert", text: e.message }));
+      return;
+    } finally {
+      botao.disabled = false;
+    }
+
     saida.replaceChildren();
-    const nomeTipo = { diagnostico: "diagnóstico", proposta: "proposta", negociacao: "negociação" }[tipo];
-    saida.append(el("div", { class: "cab-briefing" },
-      el("h2", { text: `Reunião de ${nomeTipo} · ${nomeSeg}` }),
-      el("span", { class: "previa", text: "Prévia da T9 · cada ponto com a fonte" })));
-    if (contexto) saida.append(el("p", { class: "contexto-briefing", text: `Contexto: ${contexto}` }));
+    const nomeTipo = { diagnostico: "diagnóstico", proposta: "proposta", negociacao: "negociação" }[b.tipo_reuniao];
+    saida.append(el("div", { class: "cab-briefing" }, el("h2", { text: `Reunião de ${nomeTipo} · ${capital(b.segmento)}` })));
+    if (b.resumo) saida.append(el("p", { class: "contexto-briefing", text: b.resumo }));
+    if (b.avisos.length) saida.append(listaAvisos(b.avisos));
 
     const grade = el("div", { class: "briefing-saida" });
-    grade.append(bloco("Cases parecidos", "var(--ambar)", cases.length
-      ? el("ul", {}, cases.map((c) => itemLista(`${c.resumo || c.titulo} [${c.codigo}]`, c)))
-      : semBase(`A base não tem case de ${seg}.`)));
-    grade.append(bloco(`O que sabemos de ${seg}`, "#93a6ff", perfil
-      ? el("ul", {}, (perfil.pontos || [perfil.descricao]).map((p) => itemLista(`${p} [${perfil.codigo}]`, perfil)))
-      : semBase(`A base não tem perfil do segmento ${seg}.`)));
-
-    const passos = [];
-    const diag = conducao[0];
-    if (diag) {
-      const deOutro = diag.segmento && diag.segmento !== seg ? ` (aprendizado de ${diag.segmento})` : "";
-      passos.push([`Abra com diagnóstico, não com a solução: processo atual, onde dói, quanto custa o problema e quem decide${deOutro} [${diag.codigo}]`, diag]);
+    for (const secao of b.secoes) {
+      const [cor, vazioTxt] = SECOES_BRIEFING[secao.chave];
+      grade.append(bloco(secao.titulo, cor, secao.pontos.length
+        ? el(secao.chave === "roteiro" ? "ol" : "ul", {}, secao.pontos.map((p) => itemLista(p, b.documentos)))
+        : semBase(vazioTxt), secao.chave === "roteiro" ? "largo" : ""));
     }
-    if (perfil) passos.push([`Confirme quem decide e quando: em rede, operações decide e o financeiro aprova; fuja da alta temporada [${perfil.codigo}]`, perfil]);
-    if (cases[0] && tipo !== "diagnostico") passos.push([`Apresente o piloto em uma unidade, com a métrica do case como referência [${cases[0].codigo}]`, cases[0]]);
-    if (diag) passos.push([`Ligue cada parte da solução a uma dor que o próprio cliente disse [${diag.codigo}]`, diag]);
-    grade.append(bloco("Roteiro de condução", "var(--ciano)", passos.length
-      ? el("ol", {}, passos.map(([t, it]) => itemLista(t, it)))
-      : semBase("A base não tem material de condução de reunião."), "largo"));
-
-    grade.append(bloco("Objeções prováveis", "var(--risco)", objecoes.length
-      ? el("ul", {}, objecoes.map((o) => itemLista(`"Está caro": volte ao custo do problema e ofereça uma fase menor, não desconto [${o.codigo}]`, o)))
-      : semBase("A base não tem objeções registradas para esse segmento.")));
-    grade.append(bloco("Estrutura da proposta", "var(--ok)", cases.length
-      ? el("ol", {},
-        itemLista("Contexto e dores levantadas no diagnóstico"),
-        itemLista(`Piloto em uma unidade com métrica clara [${cases[0].codigo}]`, cases[0]),
-        itemLista(`Expansão condicionada ao resultado do piloto [${cases[0].codigo}]`, cases[0]),
-        objecoes[0] ? itemLista(`Investimento e retorno, ancorados no custo do problema [${objecoes[0].codigo}]`, objecoes[0]) : null)
-      : semBase(`A base não tem estrutura de proposta testada em ${seg}.`)));
-
-    const lacunas = [`Nenhum item sobre preço praticado em ${seg}.`];
-    if (!cases.length) lacunas.push(`Nenhum case de ${seg}.`);
-    if (!perfil) lacunas.push(`Nenhum perfil do segmento ${seg}.`);
-    if (!base.some((i) => i.secao === "pos_venda" && (!i.segmento || i.segmento === seg))) lacunas.push(`Nada sobre pós-venda em ${seg}.`);
-    if (cases.length) lacunas.push("Nenhum case de rede com mais de 4 unidades.");
-    grade.append(bloco("O que a base não cobre", "var(--ambar)", el("ul", {}, lacunas.map((l) => el("li", { text: l }))), "lacuna largo"));
+    if (b.lacunas.length) {
+      grade.append(bloco("O que a base não cobre", "var(--ambar)", el("ul", {}, b.lacunas.map((l) => el("li", { text: l }))), "lacuna largo"));
+    }
     saida.append(grade);
   }
 
@@ -1739,9 +1499,7 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
   }
 
   function pintarAtalhosChat() {
-    // O 1º atalho é sobre o caso fictício de hotelaria: só existe na demonstração.
-    const atalhos = ATALHOS_CHAT.filter((_, i) => !aoVivo() || i > 0);
-    $("#atalhos-chat").replaceChildren(...atalhos.map(([rotulo, texto, cor]) =>
+    $("#atalhos-chat").replaceChildren(...ATALHOS_CHAT.map(([rotulo, texto, cor]) =>
       el("button", { type: "button", class: "atalho", style: `--c:${cor}`, onclick: () => perguntar(texto) }, el("span", { class: "ponto" }), rotulo)));
   }
 
@@ -1752,9 +1510,13 @@ Hoje ela tem material sobre hotelaria, reunião de diagnóstico, a objeção de 
     pintarTopo("conversar");
     estado.modo = await detectarModo();
     pintarModo();
-    if (aoVivo() && !(await verificarLogin())) return;  // sem sessão: a tela de entrada fica; o Google devolve para cá
+    if (!aoVivo()) {  // nada de dado inventado: sem servidor a tela só avisa
+      atualizarNumeros();
+      aviso("Não consegui falar com o servidor. Confira se o uvicorn está rodando e recarregue a página.", "erro");
+      return;
+    }
+    if (!(await verificarLogin())) return;  // sem sessão: a tela de entrada fica; o Google devolve para cá
     pintarAtalhosChat();
-    if (aoVivo()) estado.itens = [];
     await carregarItens();
     atualizarNumeros();
     iniciarConversa();

@@ -83,8 +83,8 @@ def usar(monkeypatch, cliente):
 # --- caminho feliz e histórico -------------------------------------------------------------
 
 def test_resposta_ok(monkeypatch, esperas):
-    usar(monkeypatch, ClienteFalso("Proponha um piloto [EX-02]."))
-    assert llm.consultar("oi", [], BASE) == "Proponha um piloto [EX-02]."
+    usar(monkeypatch, ClienteFalso("Proponha um piloto [INS-2]."))
+    assert llm.consultar("oi", [], BASE) == "Proponha um piloto [INS-2]."
     assert esperas == []
 
 

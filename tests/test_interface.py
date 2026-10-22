@@ -72,13 +72,33 @@ def test_tela_de_fontes_mostra_o_motivo():
     assert "motivo-fonte" in js
 
 
-def test_modo_ao_vivo_nao_mistura_itens_de_exemplo():
-    """Ao vivo só existe o que está no banco: nada de EX-0n na busca, no briefing, na saudação ou nos atalhos."""
+def test_interface_nao_tem_dado_fictício_nem_modo_demonstracao():
+    """Só existe o que está no banco: sem base de exemplo, sem respostas simuladas e sem ?demo."""
     with TestClient(app) as client:
         js = client.get("/static/cerebro.js").text
-    assert js.count("aoVivo() ? estado.itens : [...estado.itens, ...EXEMPLOS]") == 2  # acharItem e baseUtil
-    assert "ATALHOS_CHAT.filter((_, i) => !aoVivo() || i > 0)" in js  # o atalho do caso fictício de hotelaria
-    assert "aoVivo() ? null : el(\"div\", { class: \"exemplos\" }" in js  # relatos de exemplo só na demonstração
+        html = client.get("/").text
+    restos = ("EXEMPLOS", "RESPOSTAS_DEMO", "respostaDemo", "curarDemo", "NOTA_DEMO", "EX-0", "fictício",
+              "Demonstração", "?demo", "Hotel Exemplo")
+    for resto in restos:
+        assert resto not in js, resto
+    assert "Rede com 6 hotéis" not in html and 'data-modo="demo"' not in html
+
+
+def test_briefing_usa_a_api_e_nao_monta_texto_no_navegador():
+    """O briefing vem do POST /briefing (fontes conferidas pelo servidor); a tela não inventa passos nem lacunas."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert 'chamar("POST", "/briefing"' in js
+    inventados = ("Abra com diagnóstico, não com a solução", "Piloto em uma unidade",
+                  "Nenhum case de rede com mais de 4")
+    for inventado in inventados:
+        assert inventado not in js
+
+
+def test_sem_servidor_a_tela_avisa_e_nao_mostra_nada():
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert '"fora"' in js and "Não consegui falar com o servidor" in js
 
 
 def test_playbook_pagina_e_filtra_por_origem():
