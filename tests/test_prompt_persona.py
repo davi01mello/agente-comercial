@@ -45,6 +45,23 @@ def test_regras_de_formato_da_persona():
         assert regra in prompt, regra
 
 
+def test_item_unico_nao_apaga_o_aviso_de_hipotese():
+    """O "(só um item da base)" substitui o "(um caso só)", nunca o "(ainda não validado)": a pessoa precisa saber
+    que a hipótese não foi testada."""
+    prompt = _consultor()
+
+    assert 'diga "(só um item da base)" no lugar de "(um caso só)"' in prompt
+    assert 'mantenha "(ainda não validado)" junto' in prompt
+    assert "sem repetir o aviso do item" not in prompt  # a versão que apagava o aviso da hipótese
+
+
+def test_proximo_passo_vem_antes_das_perguntas_de_volta():
+    """Sem a ordem, "termine com Próximo passo" e "pergunte qual é o caminho" disputam o fim da resposta (P26)."""
+    prompt = _consultor()
+
+    assert 'o "Próximo passo" vem antes das perguntas e serve para qualquer dos caminhos' in prompt
+
+
 def test_case_regra_e_template_sao_destrinchados():
     prompt = _consultor()
 
