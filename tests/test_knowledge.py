@@ -52,14 +52,54 @@ def test_base_vazia_avisa_o_modelo():
 
 def test_formato_enxuto_de_uma_linha():
     linha = knowledge.formatar(item(
+        12, titulo="Abrir com diagnóstico", tipo="aprendizado", secao="reuniao_diagnostico", segmento="hotelaria",
+        evidencia=2, descricao="Perguntas antes da solução.", resultado="Pediu proposta.",
+        o_que_foi_feito="20 minutos só de perguntas.",  # aprendizado não leva o "feito"
+    ))
+
+    assert linha == (
+        "[INS-12] Abrir com diagnóstico | aprendizado | reuniao_diagnostico | hotelaria | evid 2 | "
+        "Perguntas antes da solução. | Pediu proposta."
+    )
+
+
+def test_case_leva_o_que_foi_feito_antes_do_resultado():
+    linha = knowledge.formatar(item(
         12, titulo="Piloto antes de expandir", tipo="case", secao="proposta", segmento="hotelaria", evidencia=4,
-        descricao="Piloto em uma unidade.", resultado="Check-in de 9 para 4 minutos.",
+        descricao="Piloto em uma unidade.", o_que_foi_feito="Check-in digital em 1 hotel por 30 dias.",
+        resultado="Check-in de 9 para 4 minutos.",
     ))
 
     assert linha == (
         "[INS-12] Piloto antes de expandir | case | proposta | hotelaria | evid 4 | Piloto em uma unidade. | "
-        "Check-in de 9 para 4 minutos."
+        "feito: Check-in digital em 1 hotel por 30 dias. | Check-in de 9 para 4 minutos."
     )
+
+
+@pytest.mark.parametrize("tipo", sorted(knowledge.TIPOS_COM_DETALHE))
+def test_tipos_com_detalhe_levam_a_descricao_inteira(tipo):
+    descricao = "palavra " * 40  # 320 caracteres: o resumo cortaria
+
+    linha = knowledge.formatar(item(9, tipo=tipo, descricao=descricao))
+
+    assert linha.split(" | ")[5] == descricao.strip()
+    assert "| feito: não registrado |" in linha  # sem o campo, fica explícito, como o segmento
+
+
+@pytest.mark.parametrize("tipo", ["aprendizado", "hipotese", "objecao", "perfil_segmento"])
+def test_outros_tipos_continuam_com_resumo_e_sem_feito(tipo):
+    linha = knowledge.formatar(item(9, tipo=tipo, descricao="palavra " * 40, o_que_foi_feito="algo"))
+
+    assert len(linha.split(" | ")[5]) <= knowledge.TAMANHO_DO_RESUMO + 1
+    assert "feito:" not in linha
+
+
+def test_detalhe_tem_teto_para_texto_colado_enorme():
+    linha = knowledge.formatar(item(9, tipo="case", descricao="palavra " * 500, o_que_foi_feito="passo " * 500))
+
+    descricao, feito = linha.split(" | ")[5:7]
+    assert len(descricao) <= knowledge.TAMANHO_DO_DETALHE + 1 and descricao.endswith("palavra…")
+    assert len(feito) <= len("feito: ") + knowledge.TAMANHO_DO_DETALHE + 1
 
 
 def test_sem_segmento_e_sem_resultado_ficam_explicitos():
@@ -95,6 +135,14 @@ def test_quebra_de_linha_e_barra_vertical_nao_desmontam_o_formato():
     assert "\n" not in linha
     assert linha.count(" | ") == 6  # 7 campos
     assert linha.startswith("[INS-7] A / B |")
+
+
+def test_quebra_de_linha_no_que_foi_feito_nao_desmonta_o_formato():
+    linha = knowledge.formatar(item(8, tipo="regra", evidencia=3, o_que_foi_feito="passo 1 | passo 2\npasso 3"))
+
+    assert "\n" not in linha
+    assert linha.count(" | ") == 7  # 8 campos: o "feito" a mais
+    assert "| feito: passo 1 / passo 2 passo 3 |" in linha
 
 
 # --- ordem e tamanho ----------------------------------------------------------------------------

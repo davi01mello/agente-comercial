@@ -29,3 +29,19 @@ diagnóstico, segmentos, pós-venda, negociação, evidência e lacunas (11, 12,
 
 Uso no golden set (`tests/golden/`): `perguntas.json` guarda, para cada pergunta, se a base fictícia a cobre e quais
 itens se esperam na resposta.
+
+## Persona do consultor (21 a 26, ADR-009)
+Testam o jeito de responder, não só o conteúdo. A 23 e a 26 têm duas falas antes (o `historico` no `perguntas.json`).
+
+21. Me ajuda a vender mais? (vaga: responde uma parte e pergunta de volta)
+22. Tenho uma reunião semana que vem. Me ajuda? (vaga)
+23. São 5 hotéis. Ontem falei com o diretor de operações, propus começar com o Discovery em um hotel só e ele topou na
+    hora. (caso contado: liga à base e sugere registrar)
+24. Vou mandar a proposta por e-mail pro cliente de varejo, assim ele lê com calma. Faz sentido, né? (a base
+    contradiz)
+25. O cliente de varejo pediu a proposta até sexta. Qual é o meu próximo passo?
+26. Saúde. Tô negociando com uma clínica e eles travaram. (resposta à pergunta de volta da 21)
+
+Base real: `GOLDEN_BASE=real` troca a base e as perguntas pelas de `base_real.json` (os itens aprovados, exportados
+por `python -m scripts.exportar_golden`) e `perguntas_real.json`. Os dois ficam fora do Git, porque têm conteúdo real
+do comercial.

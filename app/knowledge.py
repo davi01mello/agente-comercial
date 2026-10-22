@@ -22,6 +22,13 @@ ITENS_ANTES_DO_RAG = 300
 
 TAMANHO_DO_RESUMO = 160  # caracteres da descrição que entram na linha do item
 
+# Case, regra e template são o "como fazer": vão com a descrição inteira e o "o que foi feito", para o consultor
+# destrinchar o caso em vez de completar com o que não está escrito (ADR-009; o gatilho que o ADR-004 §1 previa).
+# Os outros tipos continuam com o resumo. O teto só protege o orçamento de um texto colado enorme: os itens reais
+# têm até cerca de 520 caracteres.
+TIPOS_COM_DETALHE = {"case", "regra", "template"}
+TAMANHO_DO_DETALHE = 800
+
 BASE_VAZIA = "(A base ainda não tem nenhum item aprovado. Para qualquer pergunta, diga que a base não cobre o tema.)"
 
 
@@ -46,17 +53,23 @@ def compor_base(itens: list[Insight]) -> str:
 def formatar(item: Insight) -> str:
     """Um item em uma linha: [INS-12] título | tipo | seção | segmento | evid 3 | resumo curto | resultado.
 
+    Case, regra e template (TIPOS_COM_DETALHE) vão com a descrição inteira e um campo a mais antes do resultado:
+    [INS-12] título | case | seção | segmento | evid 4 | descrição | feito: o que foi feito | resultado.
     Ficam de fora o `autor` e o `contexto_cliente` (este pode ter dado pessoal): o consultor não precisa deles.
     """
+    detalhe = item.tipo in TIPOS_COM_DETALHE
     campos = [
         f"[INS-{item.id}] {item.titulo}",
         item.tipo,
         item.secao,
         item.segmento or "sem segmento",
         f"evid {item.evidencia}",
-        _resumir(item.descricao),
-        item.resultado or "sem resultado registrado",
+        _resumir(item.descricao, TAMANHO_DO_DETALHE if detalhe else TAMANHO_DO_RESUMO),
     ]
+    if detalhe:
+        feito = _resumir(item.o_que_foi_feito, TAMANHO_DO_DETALHE) if item.o_que_foi_feito else "não registrado"
+        campos.append(f"feito: {feito}")
+    campos.append(item.resultado or "sem resultado registrado")
     return " | ".join(_numa_linha(c) for c in campos)
 
 
@@ -73,11 +86,11 @@ def montar_documentos(achados: list[Achado]) -> str:
     return "\n\n".join(blocos)
 
 
-def _resumir(texto: str) -> str:
-    """Os primeiros TAMANHO_DO_RESUMO caracteres, sem cortar palavra no meio."""
-    if len(texto) <= TAMANHO_DO_RESUMO:
+def _resumir(texto: str, limite: int = TAMANHO_DO_RESUMO) -> str:
+    """Os primeiros `limite` caracteres, sem cortar palavra no meio."""
+    if len(texto) <= limite:
         return texto
-    corte = texto[:TAMANHO_DO_RESUMO].rsplit(" ", 1)[0]
+    corte = texto[:limite].rsplit(" ", 1)[0]
     return corte.rstrip(" ,.;:") + "…"
 
 

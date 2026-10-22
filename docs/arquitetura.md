@@ -19,3 +19,5 @@ Chat "Perguntar" ──► consultor (Gemini) ──► playbook + fontes ──
 - Nada vira regra sem aprovação humana.
 - Lacunas, briefing e anexo (T7, ADR-008): o código escolhe as fontes e confere o que o modelo devolve (ponto sem
   fonte válida é descartado); anexo de chat entra no mesmo pipeline do Drive, mas barra dado pessoal.
+- Persona do consultor (ADR-009): um colega sênior do comercial; muda o jeito de responder, nunca o conteúdo, que
+  continua vindo só da base. Medida pelo golden set e pela nota humana do comercial.
