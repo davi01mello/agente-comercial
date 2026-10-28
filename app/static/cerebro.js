@@ -2725,21 +2725,25 @@
     const daEtapa = etapa ? aprovados.filter((i) => i.secao === etapa) : [];
     if (!SECOES.some(([c]) => c === M.sel)) M.sel = (SECOES.find(([c]) => aprovados.some((i) => i.secao === c)) || SECOES[0])[0];
     const itensTxt = (n) => `${n} ${n === 1 ? "item" : "itens"}`;
+    const naEtapa = etapa ? itensDaEtapa(etapa) : [];
+    const naFilaDaEtapa = naEtapa.filter(estaNaFila).length;
     const cab = el("header", { class: "cab-tela" },
-      el("p", { class: "t-rotulo", text: etapa ? `Mapa · etapa ${numeroDaEtapa(etapa)} de 07 · ${itensTxt(daEtapa.length)}` : `Mapa · a base em 7 etapas · ${itensTxt(aprovados.length)}` }),
+      el("p", { class: "t-rotulo", text: etapa
+        ? `Mapa · etapa ${numeroDaEtapa(etapa)} de 07 · ${itensTxt(naEtapa.length)}${naFilaDaEtapa ? `, ${naFilaDaEtapa} na Fila` : ""}`
+        : `Mapa · a base em 7 etapas · ${itensTxt(aprovados.length)}` }),
       el("h1", { class: "t-titulo", text: etapa ? NOME_SECAO[etapa] : "A base em 7 etapas" }),
       el("div", { class: "mapa-controles" }, passosDoMapa(etapa), seletorDeSegmento()),
       trilhaDoMapa(etapa));
     if (etapa) {
       const temNotas = notasDaResposta().length > 0;
-      const vista = M.vista || (temNotas ? "foco" : "lista");  // sem resposta aberta, o mapa abre na lista da etapa
+      const vista = M.vista || (temNotas ? "foco" : "inteira");  // sem resposta aberta, o mapa abre na etapa inteira
       estado.mapaVista = vista;
       const corpo = vista === "foco"
         ? (temNotas ? canvasDaResposta(etapa, aprovados)
           : vazio("Nenhuma resposta aberta", "Pergunte ao Cérebro e toque em “Ver no mapa” na resposta: as notas dela aparecem aqui, ligadas entre si.",
-            el("button", { type: "button", class: "btn", onclick: () => { M.vista = "lista"; pintarMapa(etapa); } }, "Ver a lista da etapa")))
-        : listaDaEtapa(etapa, aprovados);
-      caixa.replaceChildren(cab, barraDasVistas(etapa, vista, temNotas), corpo);
+            el("button", { type: "button", class: "btn", onclick: () => { M.vista = "inteira"; pintarMapa(etapa); } }, "Ver a etapa inteira")))
+        : vista === "inteira" ? (naEtapa.length ? canvasDaEtapa(etapa) : listaDaEtapa(etapa, aprovados)) : listaDaEtapa(etapa, aprovados);
+      caixa.replaceChildren(cab, barraDasVistas(etapa, vista, temNotas, naEtapa.length), corpo);
       if (corpo.querySelector && corpo.querySelector(".cv-janela") && estado.mapaAjustar) estado.mapaAjustar();
       return;
     }
@@ -2776,9 +2780,13 @@
     } else if (e.key === "Enter" && !etapa && alvo === document.body) {
       e.preventDefault();
       location.hash = `#mapa/${M.sel}`;
-    } else if (e.key === "Escape" && etapa) {
+    } else if (e.key === "Escape" && etapa) {  // sobe um nível: do foco para a etapa inteira, e dela para as 7 etapas
       e.preventDefault();
-      location.hash = "#mapa";
+      if (estado.mapaVista === "foco") { M.vista = "inteira"; pintarMapa(etapa); } else location.hash = "#mapa";
+    } else if (e.key.toLowerCase() === "f" && etapa && estado.mapaVista === "inteira" && notasDaResposta().length) {  // volta ao foco
+      e.preventDefault();
+      M.vista = "foco";
+      pintarMapa(etapa);
     }
   }
 
@@ -3008,14 +3016,146 @@
           : el("div", { class: "linha-lista" }, nota(c.n, true), el("span", { class: "t-dado suave", text: c.codigo }), el("span", { class: "txt", text: c.doc.titulo })))) : null);
   }
   // O que a barra de vistas oferece: o foco na resposta (se há notas) e a lista da etapa, mais o zoom.
-  function barraDasVistas(etapa, vista, temNotas) {
+  function barraDasVistas(etapa, vista, temNotas, total) {
     const M = estado.mapa;
     const escolher = (v) => () => { M.vista = v; pintarMapa(etapa); };
     return el("div", { class: "cv-barra" },
       el("div", { class: "pilulas-abas", role: "group", "aria-label": "Vista" },
         chip("Foco na resposta", vista === "foco", escolher("foco")),
-        chip("Lista da etapa", vista === "lista", escolher("lista"))),
-      vista === "foco" && temNotas ? controlesDeZoom() : null);
+        chip(`Etapa inteira ${total}`, vista === "inteira", escolher("inteira"))),
+      (vista === "foco" && temNotas) || (vista === "inteira" && total) ? controlesDeZoom() : null);
+  }
+
+  // ---------------------------------------------------------------- o mapa: a etapa inteira (prancha 7a)
+  // Os itens da etapa (os 25 mais fortes, contando os da Fila) agrupados por tipo e ligados pelo campo `relacoes`. O que está na
+  // Fila fica tracejado em âmbar; o item de outra etapa ligado a um daqui aparece como um toco tracejado em cinza.
+  const MAX_NOS_ETAPA = 25;
+  const MINI_L = 146, MINI_A = 80, COLUNA_L = 300, ZONA_T = 26, MINI_FOLGA = 10;
+  const ROTULO_PASSIVO = { reforca: "reforçado por", contradiz: "contradito por", substitui: "substituído por", duplica: "duplicado por" };
+
+  function itensDaEtapa(etapa) {
+    return estado.itens.filter((i) => i.secao === etapa && i.status !== "obsoleto" && noSegmento(i));
+  }
+  function relacoesDoItem(it) {  // as que saem e as que chegam, com o item do outro lado
+    const saem = (it.relacoes || []).map((r) => ({ tipo: r.tipo, outro: estado.itens.find((o) => o.id === r.relacionado_id), id: r.relacionado_id, chega: false }));
+    const chegam = estado.itens.filter((o) => o.id !== it.id)
+      .flatMap((o) => (o.relacoes || []).filter((r) => r.relacionado_id === it.id).map((r) => ({ tipo: r.tipo, outro: o, id: o.id, chega: true })));
+    return [...saem, ...chegam];
+  }
+  function painelDoItemNoMapa(it, numeroNota) {
+    const rels = relacoesDoItem(it).sort((a, b) => ORDEM_LIGACAO.indexOf(a.tipo) - ORDEM_LIGACAO.indexOf(b.tipo));
+    return el("aside", { class: "cv-detalhe painel", "aria-live": "polite", "aria-label": "Item selecionado" },
+      el("div", { class: "cv-topo" }, numeroNota ? nota(numeroNota) : null,
+        el("span", { class: "t-rotulo marca", text: `${it.codigo} · ${TIPOS[it.tipo] || it.tipo} · ${(STATUS[it.status] || it.status).toLowerCase()}` }),
+        estaNaFila(it) ? el("span", { class: "selo alerta", text: "na Fila" }) : null),
+      el("h2", { class: "t-secao", text: it.titulo }),
+      el("span", { class: "evid" }, trilha(it.evidencia), EVIDENCIA[it.evidencia]),
+      rels.length ? el("ul", { class: "cv-detalhe-lista" }, rels.map((r) => el("li", {},
+        el("span", { class: "t-legenda", text: r.chega ? ROTULO_PASSIVO[r.tipo] : RELACOES[r.tipo] }), " ",
+        r.outro ? el("a", { href: `#item/${r.outro.codigo}`, text: r.outro.codigo, title: r.outro.titulo }) : el("span", { class: "t-dado", text: `INS-${r.id}` }),
+        r.outro && estaNaFila(r.outro) ? el("span", { class: "selo alerta", text: "na Fila" }) : null,
+        !r.outro ? el("span", { class: "t-legenda", text: " fora da base atual" }) : null)))
+        : el("p", { class: "t-p suave", text: "Sem ligações com outros itens." }),
+      el("a", { class: "btn", href: `#item/${it.codigo}` }, "Abrir o item", tecla("↵")));
+  }
+  function legendaDoMapa() {
+    const amostra = (cls) => svgEl("svg", { class: "amostra", width: 28, height: 8, viewBox: "0 0 28 8", "aria-hidden": "true" },
+      svgEl("g", { class: `liga ${cls}` }, svgEl("path", { d: "M0 4H28" })));
+    return el("div", { class: "cv-legenda t-legenda" },
+      el("span", {}, amostra("reforca"), "reforça"), el("span", {}, amostra("contradiz"), "contradiz"),
+      el("span", {}, amostra("duplica"), "duplica"), el("span", {}, amostra("substitui"), "substitui"),
+      el("span", {}, el("i", { class: "amostra-fila" }), "na Fila, ainda não revisado"),
+      el("span", {}, el("i", { class: "amostra-fora" }), "de outra etapa"),
+      el("span", { class: "atalhos-mapa" }, tecla("Tab"), "próximo item", tecla("↵"), "abrir", tecla("F"), "voltar ao foco", tecla("←"), tecla("→"), "trocar de etapa"));
+  }
+
+  function canvasDaEtapa(etapa) {
+    const M = estado.mapa;
+    const todos = itensDaEtapa(etapa);
+    const mostrados = maisFortes(todos).slice(0, MAX_NOS_ETAPA);
+    const ids = new Set(mostrados.map((i) => i.id));
+    const numerosDasNotas = new Map(notasDaResposta().filter((c) => c.item).map((c) => [c.item.id, c.n]));
+    // os tocos: itens de outras etapas ligados a algum item daqui (no máximo 6)
+    const outros = new Map();
+    for (const i of mostrados) {
+      for (const r of relacoesDoItem(i)) if (r.outro && r.outro.secao !== etapa && !ids.has(r.outro.id)) outros.set(r.outro.id, r.outro);
+    }
+    const tocos = [...outros.values()].slice(0, 6);
+    // as zonas por tipo, empacotadas em duas colunas pela mais baixa
+    const zonas = ORDEM_TIPOS_MAPA.map((t) => ({ rotulo: `${ROTULO_ZONA[t]} · ${mostrados.filter((i) => i.tipo === t).length}`, itens: mostrados.filter((i) => i.tipo === t), fora: false }))
+      .filter((z) => z.itens.length);
+    if (tocos.length) zonas.push({ rotulo: `De outras etapas · ${tocos.length}`, itens: tocos, fora: true });
+    const colunasX = [12, 12 + COLUNA_L + 16];
+    const alturas = [12, 12];
+    const posicoes = new Map();
+    const rotulosDeZona = [];
+    for (const z of zonas) {
+      const c = alturas[0] <= alturas[1] ? 0 : 1;
+      rotulosDeZona.push({ texto: z.rotulo, x: colunasX[c], y: alturas[c] });
+      z.itens.forEach((it, k) => {
+        posicoes.set(it.id, { x: colunasX[c] + (k % 2) * (MINI_L + MINI_FOLGA), y: alturas[c] + ZONA_T + Math.floor(k / 2) * (MINI_A + MINI_FOLGA), l: MINI_L, a: MINI_A, fora: z.fora, it });
+      });
+      alturas[c] += ZONA_T + Math.ceil(z.itens.length / 2) * (MINI_A + MINI_FOLGA) + 10;
+    }
+    const altura = Math.max(220, Math.max(...alturas) + 12);
+    const { janela, quadro } = janelaDoCanvas(CANVAS_L, altura);
+    const retas = [...posicoes.values()];
+    // as ligações entre o que está desenhado (sem repetir a mesma, vista dos dois lados)
+    const vistas = new Set();
+    const leituras = [];  // a mesma lista, em palavras, para o leitor de tela ("INS-12 reforça INS-7")
+    const svg = svgEl("svg", { class: "cv-ligacoes", width: CANVAS_L, height: altura, viewBox: `0 0 ${CANVAS_L} ${altura}`, "aria-hidden": "true", focusable: "false" });
+    let k = 0;
+    for (const a of retas) {
+      for (const r of a.it.relacoes || []) {
+        const b = posicoes.get(r.relacionado_id);
+        const chave = `${a.it.id}>${r.relacionado_id}:${r.tipo}`;
+        if (!b || vistas.has(chave)) continue;
+        vistas.add(chave);
+        leituras.push(`${a.it.codigo} ${RELACOES[r.tipo] || r.tipo} ${b.it.codigo}`);
+        svg.append(ligacaoSvg(a, b, r.tipo, retas, (0.2 + k++ * 0.05).toFixed(2), a.it.id, b.it.id, r.tipo === "contradiz" && (estaNaFila(a.it) || estaNaFila(b.it))));
+      }
+      for (const o of tocos) {  // um toco que aponta para o item daqui
+        if (o.id === a.it.id) continue;
+        const r = (o.relacoes || []).find((x) => x.relacionado_id === a.it.id);
+        const b = posicoes.get(o.id);
+        const chave = `${o.id}>${a.it.id}:${r && r.tipo}`;
+        if (r && b && !vistas.has(chave)) {
+          vistas.add(chave);
+          leituras.push(`${b.it.codigo} ${RELACOES[r.tipo] || r.tipo} ${a.it.codigo}`);
+          svg.append(ligacaoSvg(b, a, r.tipo, retas, (0.2 + k++ * 0.05).toFixed(2), o.id, a.it.id));
+        }
+      }
+    }
+    const painel = el("div", { class: "cv-painel-item" });
+    const selecionar = (id, { foco = false, acender = true } = {}) => {
+      const p = posicoes.get(id);
+      if (!p) return;
+      M.selItem = id;
+      for (const m of $$(".cv-mini", quadro)) m.classList.toggle("sim", Number(m.dataset.id) === id);
+      if (acender) acenderLigacoes(quadro, id);  // "reforça" e "duplica" só acendem quando a pessoa chega ao item
+      painel.replaceChildren(painelDoItemNoMapa(p.it, numerosDasNotas.get(id)));
+      if (foco) { const m = $(`.cv-mini[data-id="${id}"]`, quadro); if (m) m.focus(); }
+    };
+    const minis = retas.map((p) => {
+      const it = p.it;
+      const n = numerosDasNotas.get(it.id);
+      return el("button", { type: "button", style: `left:${p.x}px;top:${p.y}px`, "data-id": String(it.id), "aria-label": `${it.codigo}: ${it.titulo}${estaNaFila(it) ? ", na Fila" : ""}`,
+        class: `cv-mini${p.fora ? " fora" : ""}${estaNaFila(it) ? " fila" : ""}`, title: `${it.codigo} · ${EVIDENCIA[it.evidencia]}`,
+        onclick: () => selecionar(it.id), onfocus: () => selecionar(it.id), ondblclick: () => abrirItem(it.codigo),
+        onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); abrirItem(it.codigo); } } },
+      el("span", { class: "cv-topo" }, n ? nota(n) : null, el("span", { class: "cod", text: it.codigo }),
+        p.fora ? el("span", { class: "selo", title: `Etapa ${numeroDaEtapa(it.secao)}`, text: numeroDaEtapa(it.secao) }) : trilha(it.evidencia)),
+      el("b", { text: it.titulo }));
+    });
+    quadro.append(svg, ...rotulosDeZona.map((z) => el("p", { class: "cv-zona t-rotulo", style: `left:${z.x}px;top:${z.y}px`, text: z.texto })), ...minis);
+    const inicial = [...numerosDasNotas.keys()].find((id) => posicoes.has(id)) || (mostrados[0] && mostrados[0].id);
+    if (M.selItem == null || !posicoes.has(M.selItem)) M.selItem = inicial;
+    selecionar(M.selItem, { acender: false });
+    const falta = todos.length - mostrados.length;
+    return el("div", { class: "cv-bloco" }, janela,
+      falta > 0 ? el("a", { class: "btn fantasma", href: `#base/${etapa}`, text: `+${falta} ${falta === 1 ? "item" : "itens"} nesta etapa · ver lista` }) : null,
+      el("ul", { class: "sr", "aria-label": "Ligações entre os itens" }, leituras.map((t) => el("li", { text: t }))),
+      painel, legendaDoMapa());
   }
 
   // ---------------------------------------------------------------- paleta Cmd+K: buscar ou agir

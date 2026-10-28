@@ -1176,6 +1176,33 @@ body.sem-login .app { visibility: hidden; }
 @keyframes cv-surge { from { opacity: 0; } to { opacity: 1; } }
 .atalhos-mapa { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 
+/* ---------- Mapa: a etapa inteira (prancha 7a) ---------- */
+.cv-zona { position: absolute; margin: 0; }
+.cv-mini {
+  position: absolute; z-index: 1; width: 146px; height: 80px; padding: 8px 10px; overflow: hidden; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; gap: 4px; border-radius: var(--raio-m); border: 1px solid var(--linha-forte);
+  background: var(--superficie-2); color: var(--texto-forte); font: inherit;
+}
+.cv-mini:hover { border-color: var(--marca-linha); }
+.cv-mini.sim { border-color: var(--marca); box-shadow: 0 0 0 3px var(--marca-tinta); }
+.cv-mini.fila { border-style: dashed; border-color: var(--alerta); }
+.cv-mini.fora { border-style: dashed; border-color: var(--linha-campo); background: var(--fundo); opacity: 0.85; }
+.cv-mini .cv-topo { flex-wrap: nowrap; gap: 6px; }
+.cv-mini .selo { margin-left: auto; padding: 0 6px; }
+.cv-mini .cod { white-space: nowrap; }
+.cv-mini b { font-size: 12px; line-height: 16px; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.cv-painel-item { min-width: 0; }
+.cv-detalhe { display: grid; gap: 10px; padding: 18px 20px; }
+.cv-detalhe .t-secao { font-size: 16px; line-height: 24px; }
+.cv-detalhe-lista { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; }
+.cv-detalhe-lista li { display: inline-flex; align-items: center; gap: 6px; }
+.cv-legenda { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.cv-legenda > span { display: inline-flex; align-items: center; gap: 6px; }
+.cv-legenda .amostra { display: block; }
+.cv-legenda .liga path { stroke-width: 1.6; }
+.amostra-fila, .amostra-fora { width: 16px; height: 12px; border-radius: 3px; border: 1px dashed var(--alerta); }
+.amostra-fora { border-color: var(--linha-campo); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

@@ -465,3 +465,19 @@ def test_mapa_da_resposta_usa_so_as_notas_e_as_relacoes():
     assert "PASSOS_ZOOM = [1, 1.2, 1.4]" in js and "Math.min(1, larg / L)" not in js
     assert "Ver no mapa" in js and "function caminhoEntre(" in js
     assert "Nenhuma resposta aberta" in js  # sem resposta, o canvas não inventa notas
+
+
+def test_etapa_inteira_limita_os_nos():
+    """A etapa inteira mostra no máximo 25 itens (os mais fortes, contando os da Fila), agrupados por tipo; o que passa
+    disso vira "+N itens nesta etapa · ver lista". O que está na Fila fica tracejado; o de outra etapa vira um toco."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        css = client.get("/static/cerebro.css").text
+    assert "const MAX_NOS_ETAPA = 25;" in js and "maisFortes(todos).slice(0, MAX_NOS_ETAPA)" in js
+    assert "itens nesta etapa · ver lista" in js and "`#base/${etapa}`" in js
+    assert ".cv-mini.fila { border-style: dashed; border-color: var(--alerta); }" in css
+    assert ".cv-mini.fora { border-style: dashed;" in css
+    assert "outros.set(r.outro.id, r.outro)" in js and ".slice(0, 6)" in js  # no máximo 6 tocos
+    assert 'e.key.toLowerCase() === "f"' in js  # F volta ao foco
+    # o leitor de tela ouve "INS-12 reforça INS-7", e não a chave interna da ligação
+    assert "leituras.push(" in js and "leituras.map((t)" in js and "[...vistas].map" not in js
