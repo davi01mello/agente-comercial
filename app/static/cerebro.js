@@ -29,7 +29,6 @@
 
   const normalizar = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const capital = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
-  const hora = () => new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   const dataBr = (iso) => (iso ? iso.split("-").reverse().join("/") : "");
 
   const guardar = {
@@ -74,6 +73,7 @@
     fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [] },
     focoAntes: null,
     pessoa: null,  // quem entrou (GET /auth/eu): {email, nome, dev, dominio}; null enquanto não entrou
+    erroCarga: null,  // a mensagem, quando a base não carregou
     telaHash: null,  // o endereço da tela aberta no centro ("#fila", "#item/INS-12")
     abas: [],  // as abas abertas além do Hoje (os endereços), lembradas no localStorage
     pastas: new Set(),  // as pastas da árvore que a pessoa abriu
@@ -153,10 +153,12 @@
   }
   function mensagemErro(status, dados) {
     const det = dados && dados.detail;
+    if (status === 502) return "O modelo não respondeu. Tente de novo em instantes.";
+    if (status === 503) return "O serviço não está configurado. Avise quem cuida do servidor.";
     if (typeof det === "string") return det;
     if (Array.isArray(det)) return det.map((e) => `${(e.loc || []).slice(1).join(".") || "campo"}: ${e.msg}`).join(" · ");
-    if (status === 404 || status === 405) return "Esta ação ainda não existe no servidor.";
-    return `O servidor respondeu com erro ${status}.`;
+    if (status === 404) return "Não achei isso no servidor. Recarregue a página.";
+    return "Algo deu errado do lado do servidor. Tente de novo em instantes.";
   }
   async function chamar(metodo, url, corpo) {
     let r;
@@ -167,7 +169,7 @@
         body: corpo ? JSON.stringify(corpo) : undefined,
       });
     } catch {
-      throw new ErroApi("Não consegui falar com o servidor. Confira se o uvicorn está rodando.", 0);
+      throw new ErroApi("Sem conexão com o servidor. Confira a internet e tente de novo.", 0);
     }
     let dados = null;
     try { dados = await r.json(); } catch { /* resposta sem JSON */ }
@@ -262,8 +264,10 @@
         ["validado", "consolidado", "proposto", "historico_a_validar"].map(itensDoStatus),
       );
       estado.itens = porStatus.flat().map((i) => ({ ...i, codigo: `INS-${i.id}` }));
+      estado.erroCarga = null;
     } catch (e) {
-      aviso(`Não consegui carregar os itens: ${e.message}`, "erro");
+      estado.erroCarga = e.message;
+      aviso(`Não consegui carregar a base: ${e.message}`, "erro");
     }
     try { estado.fontes = await chamar("GET", "/fontes/resumo"); } catch { /* sem o resumo, o contador fica em 0 */ }
     atualizarNumeros();
@@ -459,7 +463,6 @@
     caixa.scrollTop = caixa.scrollHeight;
     return linha;
   }
-  function pensando(sim) { document.body.classList.toggle("pensando", sim); }
 
   // ---------------------------------------------------------------- a casca: rotas, abas e a barra lateral
   // A navegação é por hash, para o link funcionar ("#item/INS-12", "#base/proposta"). Os endereços antigos
@@ -634,6 +637,11 @@
         aoVivo() ? (dev ? "Dev local" : "Ao vivo") : "Sem servidor");
     }
     document.body.classList.toggle("sem-servidor", !aoVivo());
+    const faixa = $("#faixa-servidor");
+    faixa.hidden = aoVivo();
+    faixa.replaceChildren(...(aoVivo() ? [] : [
+      el("span", { text: "Sem conexão com o servidor. Nada aparece nem vai para a base até ele responder." }),
+      el("button", { type: "button", class: "btn", onclick: () => location.reload() }, "Tentar conectar")]));
   }
 
   // A árvore da base: as 7 etapas como pastas, com os 20 itens mais fortes dentro e o "ver todos" que abre a etapa.
@@ -652,7 +660,9 @@
       pasta.addEventListener("toggle", () => { if (pasta.open) estado.pastas.add(chave); else estado.pastas.delete(chave); });
       return pasta;
     });
-    if (!base.length) pastas.push(el("p", { class: "t-legenda arvore-vazia", text: "A base ainda não tem itens aprovados." }));
+    if (!base.length) {
+      pastas.push(el("p", { class: "t-legenda arvore-vazia", text: aoVivo() ? "A base ainda não tem itens aprovados." : "Sem conexão com o servidor." }));
+    }
     $("#arvore").replaceChildren(...pastas);
     marcarAtivos();
   }
@@ -722,6 +732,18 @@
       el("a", { class: "btn fantasma", href: "#fontes" }, "Fontes", icone("seta", "ic p")));
   }
   function pintarHoje() {
+    if (!aoVivo()) {  // sem servidor não há base nem Fila para contar, e "base vazia" seria mentira
+      const caixa = vazio("Sem conexão com o servidor", "Sem ele eu não tenho a base e não invento nada. Confira a internet e tente de novo.",
+        el("button", { type: "button", class: "btn primario", onclick: () => location.reload() }, "Tentar conectar"));
+      caixa.querySelector(".mascote").replaceWith(mascoteEm("m mascote-vazio", { humor: "sem-resposta" }));
+      $("#hoje").replaceChildren(caixa);
+      return;
+    }
+    if (estado.erroCarga) {
+      $("#hoje").replaceChildren(vazio("Não consegui carregar a base", estado.erroCarga,
+        el("button", { type: "button", class: "btn primario", onclick: async () => { await carregarItens(); pintarHoje(); } }, "Tentar de novo")));
+      return;
+    }
     const base = itensDaBase();
     const fila = estado.itens.filter(estaNaFila).sort((a, b) => b.id - a.id);
     const nome = estado.pessoa ? estado.pessoa.nome.split(/\s+/)[0] : "";
@@ -743,12 +765,7 @@
           atalhoGrande("#preparar", "preparar", "Preparar reunião", "Um briefing com a prova de cada ponto"),
           atalhoGrande("#registrar", "registrar", "Registrar um relato", "O curador transforma em item", "sereno"))),
     ];
-    if (!aoVivo()) {  // sem servidor não há base para mostrar, e dizer "base vazia" seria mentira
-      filhos.push(vazio("Sem conexão com o servidor",
-        "Sem ele eu não tenho a base e não invento nada. Confira a internet e tente de novo.",
-        el("div", { class: "botoes" }, el("button", { type: "button", class: "btn primario", onclick: () => location.reload(), text: "Tentar de novo" }))));
-      filhos[filhos.length - 1].querySelector(".mascote").replaceWith(mascoteEm("m mascote-vazio", { humor: "sem-resposta" }));
-    } else if (base.length) {
+    if (base.length) {
       filhos.push(el("section", { class: "painel" },
         el("div", { class: "cab-tela" }, el("h2", { class: "t-titulo", text: "A base por etapa" }),
           el("p", { class: "t-p suave", text: "A cor da borda é a evidência média. Tracejado: pouca base, nenhum item com evidência 3 ou mais." })),
@@ -780,7 +797,7 @@
     const campo = $("#campo-chat");
     adicionarMsg(caixa, { papel: "eu", texto, quem: nomeDoUsuario() });
     campo.value = ""; autoAltura(campo);
-    estado.ocupado = true; $("#enviar-chat").disabled = true; pensando(true);
+    estado.ocupado = true; $("#enviar-chat").disabled = true;
     const indicador = digitando(caixa);
     try {
       const r = await chamar("POST", "/chat", { mensagem: texto, historico: estado.conversa.slice(-30) });
@@ -792,8 +809,9 @@
     } catch (e) {
       indicador.remove();
       adicionarMsg(caixa, { papel: "erro", texto: e.message, quem: "Não deu certo" });
+      if (!campo.value.trim()) { campo.value = texto; autoAltura(campo); }  // a pergunta volta ao campo, para tentar de novo
     } finally {
-      estado.ocupado = false; $("#enviar-chat").disabled = false; pensando(false);
+      estado.ocupado = false; $("#enviar-chat").disabled = false;
       campo.focus();
     }
   }
@@ -831,7 +849,7 @@
     const campo = $("#campo-reg");
     adicionarMsg(caixa, { papel: "eu", texto, quem: autor });
     campo.value = ""; autoAltura(campo);
-    estado.reg.ocupado = true; $("#enviar-reg").disabled = true; pensando(true);
+    estado.reg.ocupado = true; $("#enviar-reg").disabled = true;
     const indicador = digitando(caixa);
     try {
       const proposta = await chamar("POST", "/registrar/propor", { texto, conversa: estado.reg.conversa.slice(-10) });
@@ -850,7 +868,7 @@
       indicador.remove();
       adicionarMsg(caixa, { papel: "erro", texto: e.message, quem: "Não deu certo" });
     } finally {
-      estado.reg.ocupado = false; $("#enviar-reg").disabled = false; pensando(false);
+      estado.reg.ocupado = false; $("#enviar-reg").disabled = false;
     }
   }
 
@@ -972,7 +990,7 @@
     for (const id of [...f.selecionados]) if (!itens.some((i) => i.id === id)) f.selecionados.delete(id);  // já decididos
     if (!itens.length) {
       box.append(el("div", { class: "embrulho" }, vazio("A Fila está vazia",
-        "Quando alguém registrar um insight, ele aparece aqui para ser aprovado ou rejeitado.",
+        "Quando alguém registrar um relato, ele aparece aqui para ser aprovado ou rejeitado.",
         el("a", { class: "btn primario", href: "#registrar", text: "Registrar um relato" }))));
       return;
     }
@@ -1116,8 +1134,7 @@
       atualizarNumeros();
       pintarFila();
     } catch (e) {
-      if (e.status === 404 || e.status === 405) aviso("Aprovar e rejeitar chegam na PR 3 do Rafael. Por enquanto o item continua na Fila.", "erro");
-      else aviso(e.message, "erro");
+      aviso(e.message, "erro");
     }
   }
 
@@ -1194,8 +1211,7 @@
     return el("div", { class: "painel passo-a-passo" },
       vazio("Nada lido ainda", "Quando o Cérebro ler o Notion ou o Drive, cada página ou documento aparece aqui, com o que aconteceu com ele."),
       el("ol", {},
-        el("li", {}, "No .env do servidor, preencha ", el("code", { text: "NOTION_TOKEN" }), " (Notion: a integração só enxerga as páginas compartilhadas com ela) ou ",
-          el("code", { text: "DRIVE_PASTA_ID" }), " e a credencial do Google (Drive: a pasta precisa estar compartilhada com a conta de serviço)."),
+        el("li", {}, "Peça a quem cuida do servidor para ligar o Notion ou o Drive (no Notion, a integração só enxerga as páginas compartilhadas com ela; no Drive, a pasta precisa estar compartilhada com a conta do Cérebro)."),
         el("li", {}, "Escolha a origem (Notion ou Drive) no painel acima."),
         el("li", {}, "Clique em ", el("b", { text: "Só simular" }), " acima: lê o Notion e estima o custo, sem gravar nada."),
         el("li", {}, "Clique em ", el("b", { text: "Sincronizar agora" }), ". Os itens propostos aparecem na Fila."),
@@ -1828,7 +1844,11 @@
   }
   function ligarEventos() {
     window.addEventListener("hashchange", rotear);
-    $("#entrada-botao").addEventListener("click", () => { $("#entrada-botao").setAttribute("aria-busy", "true"); });
+    $("#entrada-botao").addEventListener("click", () => {
+      $("#entrada-botao").setAttribute("aria-busy", "true");
+      const rascunho = $("#campo-chat").value.trim();  // a ida ao Google recarrega a página: o texto espera na volta
+      if (rascunho) guardar.escrever("cerebro.rascunho-chat", rascunho);
+    });
 
     const formChat = $("#form-chat");
     ligarCampo($("#campo-chat"), formChat);
@@ -1897,11 +1917,13 @@
     pintarModo();
     if (!aoVivo()) {  // nada de dado inventado: sem servidor a tela só avisa
       atualizarNumeros();
-      aviso("Não consegui falar com o servidor. Confira se o uvicorn está rodando e recarregue a página.", "erro");
+      aviso("Não consegui falar com o servidor. Confira a internet e tente de novo.", "erro");
       rotear();
       return;
     }
     if (!(await verificarLogin())) return;  // sem sessão: a tela de entrada fica; o Google devolve para cá
+    const rascunho = guardar.ler("cerebro.rascunho-chat");
+    if (rascunho) { $("#campo-chat").value = rascunho; guardar.escrever("cerebro.rascunho-chat", ""); }
     await carregarItens();
     atualizarNumeros();
     iniciarConversa();

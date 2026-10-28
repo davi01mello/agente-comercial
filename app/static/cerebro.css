@@ -193,7 +193,10 @@ body.sem-servidor .so-ao-vivo { display: none !important; }
 .app.barra-recolhida .rodape { padding: 12px 0 2px; }
 
 /* ---------- o centro: abas leves e uma tela por vez ---------- */
-.centro { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.centro { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
+.centro > .faixa-servidor { grid-row: 1; }
+.centro > .topo-centro { grid-row: 2; }
+.centro > .telas { grid-row: 3; }
 .abas {
   display: flex; gap: 2px; align-items: flex-end;
   padding: 12px 24px 0;
@@ -459,6 +462,20 @@ select option { background: var(--superficie-2); color: var(--texto-forte); }
 .torrada.erro { border-color: var(--risco); }
 @keyframes surgir { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
+/* ---------- estados: demonstração, carregando e erro (prancha 7d) ---------- */
+.faixa-servidor {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  padding: 10px 24px; border-bottom: 1px solid var(--alerta);
+  background: var(--alerta-tinta); color: var(--texto-forte); font-size: 13px; line-height: 20px;
+}
+.faixa-servidor .btn { margin-left: auto; min-height: 30px; padding: 4px 12px; }
+.carregando { display: grid; justify-items: start; gap: 12px; }
+.carregando .mascote { width: 64px; height: 64px; }
+.esqueleto { display: block; width: 100%; max-width: 520px; height: 12px; border-radius: 6px; background: var(--superficie-3); animation: esqueleto 1.4s ease-in-out infinite; }
+.esqueleto.curto { max-width: 280px; }
+.arvore .esqueleto { width: calc(100% - 20px); height: 10px; margin: 10px; }
+@keyframes esqueleto { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+
 /* ---------- Hoje ---------- */
 .hoje-cab { display: flex; flex-direction: column; gap: 12px; }
 .hoje-cab .t-display { font-size: 46px; line-height: 52px; }
@@ -522,7 +539,6 @@ select option { background: var(--superficie-2); color: var(--texto-forte); }
 }
 .etapa-filtro .num-etapa { min-width: 22px; height: 22px; padding: 0 5px; border-radius: 7px; display: grid; place-items: center; background: var(--superficie-2); font: 500 12px/1 var(--f-mono); color: var(--texto-forte); }
 .etapa-filtro[aria-pressed="true"] { color: var(--marca-forte); border-color: var(--marca-linha); background: var(--marca-tinta); }
-.fio { display: none; }
 .grupo h2 { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 12px; font: 400 18px/26px var(--f-titulo); color: var(--texto-forte); }
 .grupo h2 .num { font: 500 12px/1 var(--f-mono); color: var(--marca); }
 .grupo h2 .qtd { font: 400 12px/1 var(--f-mono); color: var(--texto-suave); }
@@ -576,7 +592,6 @@ button.item:hover { border-color: var(--marca-linha); background: var(--superfic
 .briefing-form .campo textarea { min-height: 66px; }
 .cab-briefing { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; }
 .cab-briefing h2 { margin: 0; font: 300 italic 24px/30px var(--f-titulo); letter-spacing: var(--espaco-titulo); color: var(--texto-forte); }
-.cab-briefing .previa { font: 500 11px/16px var(--f-mono); letter-spacing: var(--espaco-rotulo); text-transform: uppercase; color: var(--alerta); border: 1px solid var(--alerta); padding: 3px 8px; border-radius: var(--raio-p); }
 #briefing-saida { display: grid; gap: 14px; }
 .briefing-saida { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
 .contexto-briefing { margin: 0; color: var(--texto-suave); font-size: 14px; max-width: 80ch; }

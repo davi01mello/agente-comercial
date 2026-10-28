@@ -265,3 +265,18 @@ def test_entrada_mostra_a_promessa_e_o_dominio():
     assert "com a prova de onde veio." in entrada
     assert 'id="entrada-dominio"' in entrada and 'id="entrada-aviso"' in entrada
     assert entrada.index('id="entrada-aviso"') < entrada.index('href="/auth/login"')  # o motivo aparece acima do botão
+
+
+def test_tela_sem_texto_de_desenvolvedor():
+    """A tela fala com o comercial: nada de "ainda não existe", uvicorn, número de PR ou de task, nome de variável
+    do servidor. Sem servidor, a faixa diz o que houve e não mostra nada inventado (prancha 7d)."""
+    with TestClient(app) as client:
+        html = client.get("/").text
+        js = client.get("/static/cerebro.js").text
+    sem_comentarios = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
+    linhas = [linha.split(" // ")[0] for linha in sem_comentarios.splitlines() if not linha.strip().startswith("//")]
+    sem_comentarios = "\n".join(linhas)
+    for termo in ("ainda não existe", "uvicorn", "PR 3", "T9", "GOOGLE_CLIENT_ID", "NOTION_TOKEN", "endpoint", ".env"):
+        assert termo not in sem_comentarios and termo not in html, termo
+    assert "Sem conexão com o servidor. Nada aparece nem vai para a base até ele responder." in js
+    assert 'id="faixa-servidor"' in html and "Tentar conectar" in js
