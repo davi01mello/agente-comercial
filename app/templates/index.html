@@ -154,6 +154,8 @@
       <textarea class="campo-msg" id="campo-chat" rows="2" maxlength="4000" placeholder="Pergunte ou conte o que aconteceu"></textarea>
       <p class="aviso-compor t-p" id="aviso-chat" role="alert" hidden></p>
       <div class="compor-base">
+        <button class="btn fantasma" id="anexar" type="button" aria-label="Anexar um arquivo"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="m20 11.5-8.2 8.2a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></svg><span class="txt">Anexar</span></button>
+        <input type="file" id="arquivo-anexo" accept=".docx,.pdf,.xlsx,.csv,.txt,.md" hidden>
         <span class="contador-msg t-dado" id="contador-msg" aria-live="polite" hidden></span>
         <button class="btn primario enviar" id="enviar-chat" type="submit" aria-label="Perguntar"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
       </div>

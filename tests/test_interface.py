@@ -354,3 +354,21 @@ def test_historico_do_chat_fica_so_no_navegador():
     assert "Nova conversa" in html
     assert "`Sobre o item ${codigo}" in js and "slice(0, 4000)" in js
     assert 'id="sobre-chip"' in html and "Tirar o item da pergunta" in js
+
+
+def test_anexo_vai_por_multipart_e_acompanha_o_curador():
+    """O clipe manda o arquivo (FormData, sem o Content-Type do JSON) para POST /fontes/anexo e acompanha o curador por
+    GET /fontes/{id}; o anexo com dado pessoal é barrado sem repetir o dado."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert 'chamar("POST", "/fontes/anexo", corpo)' in js and "new FormData()" in js
+    assert "corpo instanceof FormData" in js  # o navegador põe o Content-Type do multipart
+    assert "`/fontes/${id}`" in js and "`/fontes/${id}/curar`" in js
+    for status in ("pulada_dado_pessoal", "so_busca", "vazia", "importada"):
+        assert status in js, status
+    assert "Tem dado pessoal: não entra." in js
+    # o nome com dado pessoal não é repetido: depois da resposta vale o título que o servidor guardou
+    assert "nomeDoAnexo(arquivo.name)" in js and "painel.nomear(f.titulo)" in js
+    assert "const RE_PESSOAL = [" in js  # o padrão que o nomeDoAnexo usa (saiu com a demonstração no #19)
+    assert 'id="arquivo-anexo"' in html and ".docx,.pdf,.xlsx,.csv,.txt,.md" in html

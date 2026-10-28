@@ -960,6 +960,19 @@ body.sem-login .app { visibility: hidden; }
   .sobre { flex-basis: auto; margin-left: -8px; }
 }
 
+/* ---------- o anexo no chat ---------- */
+.fala-ele.anexo { padding: 12px 14px; border-radius: var(--raio-g); border: 1px dashed var(--linha-campo); }
+.anexo-nome b { font-weight: 500; color: var(--texto-forte); overflow-wrap: anywhere; }
+.anexo-estado { margin: 0; color: var(--texto); }
+.anexo-estado.ok { color: var(--ok); }
+.anexo-estado.alerta { color: var(--alerta); }
+.anexo-estado.risco { color: var(--risco); }
+#anexar[disabled] { cursor: not-allowed; }
+@media (max-width: 860px) {
+  #anexar { width: var(--alvo-toque); padding: 0; }
+  #anexar .txt { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

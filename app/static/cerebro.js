@@ -30,6 +30,7 @@
   const normalizar = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const capital = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
   const dataBr = (iso) => (iso ? iso.split("-").reverse().join("/") : "");
+  const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const guardar = {
     ler(chave) { try { return localStorage.getItem(chave); } catch { return null; } },
@@ -168,8 +169,8 @@
     try {
       r = await fetch(url, {
         method: metodo,
-        headers: corpo ? { "Content-Type": "application/json" } : {},
-        body: corpo ? JSON.stringify(corpo) : undefined,
+        headers: corpo && !(corpo instanceof FormData) ? { "Content-Type": "application/json" } : {},  // o FormData põe o dele
+        body: corpo instanceof FormData ? corpo : (corpo ? JSON.stringify(corpo) : undefined),
         signal: sinal,
       });
     } catch (e) {
@@ -739,6 +740,9 @@
         aoVivo() ? (dev ? "Dev local" : "Ao vivo") : "Sem servidor");
     }
     document.body.classList.toggle("sem-servidor", !aoVivo());
+    const anexar = $("#anexar");
+    anexar.disabled = !aoVivo();
+    anexar.title = aoVivo() ? "Anexar um arquivo (docx, pdf, xlsx, csv, txt ou md, até 10 MB)" : "Só com o servidor ligado";
     const faixa = $("#faixa-servidor");
     faixa.hidden = aoVivo();
     faixa.replaceChildren(...(aoVivo() ? [] : [
@@ -1024,6 +1028,113 @@
             lacunaId: m.lacunaId || null, lacunaPergunta: antes ? (antes.mostrar || antes.text) : null });
         }
       });
+    }
+  }
+
+  // ---------------------------------------------------------------- anexar arquivo no chat
+  // O clipe manda o arquivo (docx, pdf, xlsx, csv, txt ou md, até 10 MB) para POST /fontes/anexo. O texto fica na busca do
+  // consultor (como [DOC-n], "ainda não revisado") e o curador propõe itens para a Fila em segundo plano: a tela
+  // acompanha por GET /fontes/{id}. Dado pessoal barra tudo, e a tela nunca o repete.
+  const EXTENSOES_ANEXO = [".docx", ".pdf", ".xlsx", ".csv", ".txt", ".md"];
+  const MAX_ANEXO = 10 * 1024 * 1024;
+  const quantosItens = (fonte) => Object.values(fonte.itens || {}).reduce((t, n) => t + n, 0);
+
+  // O nome do arquivo pode ter dado pessoal (o servidor já omite esse título): a tela não o repete.
+  const RE_PESSOAL = [
+    ["e-mail", /[\w.+-]+@[\w-]+\.[\w.-]+/],
+    ["telefone", /\(?\b\d{2}\)?[\s.-]?9?\d{4}[\s.-]?\d{4}\b/],
+    ["CPF ou CNPJ", /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b|\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/],
+  ];
+  function nomeDoAnexo(nome) {
+    return RE_PESSOAL.some(([, re]) => re.test(nome)) ? "arquivo com dado pessoal no nome" : nome;
+  }
+
+  // A linha do anexo no chat: o nome, o que está acontecendo e, se couber, uma ação.
+  function linhaDoAnexo(nome) {
+    const estadoTxt = el("p", { class: "anexo-estado t-p", role: "status", text: "Enviando…" });
+    const acoes = el("div", { class: "botoes" });
+    const nomeTxt = el("b", { text: nome });
+    const linha = el("div", { class: "fala-ele anexo" },
+      el("div", { class: "quem" }, icone("doc", "ic p"), el("span", { class: "t-rotulo", text: "Anexo" })),
+      el("p", { class: "anexo-nome t-p" }, nomeTxt), estadoTxt, acoes);
+    $("#mensagens").append(linha);
+    $("#mensagens").scrollTop = $("#mensagens").scrollHeight;
+    return {
+      linha,
+      nomear(titulo) { nomeTxt.textContent = titulo; },  // depois da resposta, vale o título que o servidor guardou
+      dizer(texto, { tom = "", nota = null, botoes = [] } = {}) {
+        estadoTxt.textContent = texto;
+        estadoTxt.className = `anexo-estado t-p${tom ? ` ${tom}` : ""}`;
+        acoes.replaceChildren(...botoes);
+        const velha = $(".nota-msg", linha);
+        if (velha) velha.remove();
+        if (nota) linha.append(el("p", { class: "nota-msg", text: nota }));
+        $("#mensagens").scrollTop = $("#mensagens").scrollHeight;
+      },
+    };
+  }
+  async function acompanharAnexo(id, painel) {
+    for (let tentativa = 0; tentativa < 90; tentativa++) {  // até uns 3 minutos
+      let fonte;
+      try { fonte = await chamar("GET", `/fontes/${id}`); } catch { fonte = null; }
+      if (fonte && fonte.status === "importada") {
+        await carregarItens();
+        const n = quantosItens(fonte);
+        painel.dizer(n ? `Virou ${n} ${n === 1 ? "item" : "itens"} na Fila.` : "O curador leu o arquivo e não propôs itens.", {
+          tom: "ok", botoes: n ? [el("a", { class: "btn", href: "#fila" }, "Ver na Fila")] : [] });
+        return;
+      }
+      if (fonte && fonte.status === "falha") {
+        painel.dizer("O curador falhou neste arquivo.", { tom: "risco", botoes: [
+          el("button", { type: "button", class: "btn", onclick: () => tentarAnexoDeNovo(id, painel) }, "Tentar de novo")] });
+        return;
+      }
+      await esperar(2000);
+    }
+    painel.dizer("O curador está demorando. O arquivo já está na busca; confira a Fila daqui a pouco.", { tom: "alerta" });
+  }
+  async function tentarAnexoDeNovo(id, painel) {
+    painel.dizer("Lendo e propondo itens…");
+    try {
+      await chamar("POST", `/fontes/${id}/curar`);
+      acompanharAnexo(id, painel);
+    } catch (e) {
+      painel.dizer(e.message, { tom: "risco" });
+    }
+  }
+  async function enviarArquivo(arquivo) {
+    if (!aoVivo() || !arquivo) return;
+    const painel = linhaDoAnexo(nomeDoAnexo(arquivo.name));
+    const ext = `.${arquivo.name.split(".").pop().toLowerCase()}`;
+    if (!EXTENSOES_ANEXO.includes(ext)) { painel.dizer(`Formato não suportado. Anexe ${EXTENSOES_ANEXO.join(", ")}.`, { tom: "risco" }); return; }
+    if (arquivo.size > MAX_ANEXO) { painel.dizer("O arquivo passa de 10 MB.", { tom: "risco" }); return; }
+    const corpo = new FormData();
+    corpo.append("arquivo", arquivo);
+    try {
+      const r = await chamar("POST", "/fontes/anexo", corpo);
+      const f = r.fonte;
+      if (f.titulo) painel.nomear(f.titulo);
+      const nota = r.ja_existia ? "Este arquivo já tinha sido anexado." : (r.aviso || null);
+      if (f.status === "pulada_dado_pessoal") {  // o tipo, nunca o dado
+        painel.dizer("Tem dado pessoal: não entra. Nada dele foi lido pelo modelo.", { tom: "risco", nota: "Troque o dado por algo genérico no arquivo e anexe de novo." });
+      } else if (f.status === "vazia") {
+        painel.dizer("Não achei texto para ler. Nada foi guardado.", { tom: "alerta" });
+      } else if (f.status === "so_busca") {
+        painel.dizer("O chat já acha trechos dele, mas ele não vira item.", { tom: "alerta", nota });
+      } else if (f.status === "importada") {
+        const n = quantosItens(f);
+        painel.dizer(n ? `Virou ${n} ${n === 1 ? "item" : "itens"} na Fila.` : "Já foi lido antes, sem itens novos.", {
+          tom: "ok", nota, botoes: n ? [el("a", { class: "btn", href: "#fila" }, "Ver na Fila")] : [] });
+      } else if (r.curando) {
+        painel.dizer("Lendo e propondo itens…", { nota });
+        acompanharAnexo(f.id, painel);
+      } else {  // a_curar sem curador rodando (o servidor reiniciou, por exemplo) ou falha: dá para pedir de novo
+        painel.dizer("Guardado, esperando o curador.", { tom: "alerta", nota, botoes: [
+          el("button", { type: "button", class: "btn", onclick: () => tentarAnexoDeNovo(f.id, painel) }, "Pedir ao curador")] });
+      }
+      await carregarItens();
+    } catch (e) {
+      painel.dizer(e.status === 413 ? "O arquivo passa de 10 MB." : e.message, { tom: "risco" });
     }
   }
 
@@ -2256,6 +2367,14 @@
       $("#campo-chat").focus();
     });
     $("#campo-chat").addEventListener("input", atualizarContadorMsg);
+    const anexar = $("#anexar");
+    const arquivo = $("#arquivo-anexo");
+    anexar.addEventListener("click", () => arquivo.click());
+    arquivo.addEventListener("change", () => {
+      const escolhido = arquivo.files && arquivo.files[0];
+      arquivo.value = "";
+      if (escolhido) enviarArquivo(escolhido);
+    });
 
     // A barra lateral recolhe num trilho só de ícones; o navegador lembra a escolha (se o localStorage deixar).
     const app = $("#app");
