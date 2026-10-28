@@ -74,6 +74,9 @@
     fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [] },
     focoAntes: null,
     pessoa: null,  // quem entrou (GET /auth/eu): {email, nome, dev, dominio}; null enquanto não entrou
+    telaHash: null,  // o endereço da tela aberta no centro ("#fila", "#item/INS-12")
+    abas: [],  // as abas abertas além do Hoje (os endereços), lembradas no localStorage
+    pastas: new Set(),  // as pastas da árvore que a pessoa abriu
   };
   const aoVivo = () => estado.modo === "vivo";
 
@@ -216,11 +219,14 @@
     const p = estado.pessoa;
     caixa.hidden = !p;
     if (!p) { caixa.replaceChildren(); return; }
-    caixa.replaceChildren(
-      el("span", { class: "voce-nome", title: p.email, text: p.nome }),
-      p.dev
-        ? el("span", { class: "voce-dev", title: "O login do Google está desligado neste computador (sem GOOGLE_CLIENT_ID no .env)." }, "sem login")
-        : el("button", { type: "button", class: "btn fantasma voce-sair", onclick: sairDoApp }, "Sair"));
+    const iniciais = p.nome.split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0]).join("").toUpperCase();
+    caixa.replaceChildren(...[  // replaceChildren(null) escreveria o texto "null": só entra o que existe
+      el("span", { class: "avatar", "aria-hidden": "true", text: iniciais || "?" }),
+      el("span", { class: "quem-entrou" },
+        el("span", { class: "nome", title: p.email, text: p.nome }),
+        el("span", { class: "t-legenda", text: p.dev ? "Sem login neste computador" : `@${p.dominio}` })),
+      p.dev ? null : el("button", { type: "button", class: "btn fantasma", onclick: sairDoApp }, "Sair")].filter(Boolean));
+    pintarModo();
   }
   async function sairDoApp() {
     try { await fetch("/auth/logout", { method: "POST" }); } catch { /* sai do mesmo jeito */ }
@@ -279,11 +285,57 @@
   function itemPorId(id) {
     return estado.itens.find((i) => i.id === id) || null;
   }
-  function sinal(n) {
-    const s = el("span", { class: "sinal", role: "img", "aria-label": `Evidência ${n} de 4: ${EVIDENCIA[n]}` });
-    for (let i = 1; i <= 4; i++) s.append(el("i", { class: i <= n ? "on" : "" }));
+  const ICONES = {
+    busca: [["circle", {"cx":  "11", "cy":  "11", "r":  "7"}], ["path", {"d":  "m20 20-3.5-3.5"}]],
+    hoje: [["path", {"d":  "M3 10.5 12 3l9 7.5"}], ["path", {"d":  "M5 9.5V21h14V9.5"}]],
+    camadas: [["path", {"d":  "m12 3 9 5-9 5-9-5z"}], ["path", {"d":  "m3 13 9 5 9-5"}]],
+    mapa: [["circle", {"cx":  "6", "cy":  "6", "r":  "2.5"}], ["circle", {"cx":  "18", "cy":  "8", "r":  "2.5"}], ["circle", {"cx":  "10", "cy":  "18", "r":  "2.5"}], ["path", {"d":  "M8.4 6.4 15.6 7.6M6.8 8.4l2.4 7.2M16.6 10.1l-5 6"}]],
+    fila: [["path", {"d":  "M3 13h5l1.5 3h5L16 13h5"}], ["path", {"d":  "M5.5 5h13L21 13v6H3v-6z"}]],
+    lacuna: [["circle", {"cx":  "12", "cy":  "12", "r":  "9"}], ["path", {"d":  "M9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.3-2.5 4"}], ["path", {"d":  "M12 17.5h.01"}]],
+    preparar: [["rect", {"x":  "3.5", "y":  "5", "width":  "17", "height":  "15.5", "rx":  "2"}], ["path", {"d":  "M8 3v4M16 3v4M3.5 10h17"}], ["path", {"d":  "m9 15 2 2 4-4"}]],
+    fontes: [["ellipse", {"cx":  "12", "cy":  "5.5", "rx":  "7.5", "ry":  "2.5"}], ["path", {"d":  "M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13"}], ["path", {"d":  "M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5"}]],
+    clipe: [["path", {"d":  "m20 11.5-8.2 8.2a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"}]],
+    enviar: [["path", {"d":  "M12 19V5M6 11l6-6 6 6"}]],
+    seta: [["path", {"d":  "M5 12h14M13 6l6 6-6 6"}]],
+    registrar: [["path", {"d":  "M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"}], ["path", {"d":  "m13.5 6.5 4 4"}]],
+    refazer: [["path", {"d":  "M20 12a8 8 0 1 1-2.3-5.7"}], ["path", {"d":  "M20 4v5h-5"}]],
+    copiar: [["rect", {"x":  "8.5", "y":  "8.5", "width":  "12", "height":  "12", "rx":  "2"}], ["path", {"d":  "M15.5 8.5V5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 5v9A1.5 1.5 0 0 0 5 15.5h3.5"}]],
+    "seta-dir": [["path", {"d":  "m9 6 6 6-6 6"}]],
+    x: [["path", {"d":  "M6 6l12 12M18 6 6 18"}]],
+    mais: [["path", {"d":  "M12 5v14M5 12h14"}]],
+    usuarios: [["circle", {"cx":  "9", "cy":  "8", "r":  "3.5"}], ["path", {"d":  "M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"}], ["path", {"d":  "M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.6 3 5.2"}]],
+    alerta: [["path", {"d":  "M12 3.5 2.5 20h19z"}], ["path", {"d":  "M12 10v4.5M12 17.5h.01"}]],
+    brilho: [["path", {"d":  "M12 3.5 13.8 9l5.7 1.8-5.7 1.8L12 18.2l-1.8-5.6-5.7-1.8L10.2 9z"}], ["path", {"d":  "M19 3v3M17.5 4.5h3"}]],
+    voltar: [["path", {"d":  "m15 6-6 6 6 6"}]],
+    ligacao: [["path", {"d":  "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"}], ["path", {"d":  "M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"}]],
+    escudo: [["path", {"d":  "M12 3 4.5 6v5.5c0 4.5 3.2 8 7.5 9.5 4.3-1.5 7.5-5 7.5-9.5V6z"}], ["path", {"d":  "M12 8.5v4M12 15.5h.01"}]],
+    check: [["path", {"d":  "m5 12.5 4.5 4.5L19 7.5"}]],
+    relogio: [["circle", {"cx":  "12", "cy":  "12", "r":  "9"}], ["path", {"d":  "M12 7v5l3 2"}]],
+    doc: [["path", {"d":  "M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"}], ["path", {"d":  "M14 3v5h5M8.5 13h7M8.5 16.5h5"}]],
+    sinc: [["path", {"d":  "M20 12a8 8 0 0 1-14 5.3M4 12a8 8 0 0 1 14-5.3"}], ["path", {"d":  "M18 3v4h-4M6 21v-4h4"}]],
+    recolher: [["rect", {"x":  "3.5", "y":  "4.5", "width":  "17", "height":  "15", "rx":  "2"}], ["path", {"d":  "M9.5 4.5v15"}]],
+    chat: [["path", {"d":  "M20.5 12a8 8 0 0 1-11.8 7L3.5 20.5 5 15.6A8 8 0 1 1 20.5 12z"}]],
+  };
+  const NS_SVG = "http://www.w3.org/2000/svg";
+  function icone(nome, classe = "ic") {
+    const s = document.createElementNS(NS_SVG, "svg");
+    s.setAttribute("class", classe);
+    s.setAttribute("viewBox", "0 0 24 24");
+    s.setAttribute("aria-hidden", "true");
+    for (const [tag, attrs] of ICONES[nome] || []) {
+      const n = document.createElementNS(NS_SVG, tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+      s.append(n);
+    }
     return s;
   }
+  // A evidência: 1 a 4 segmentos acesos (a cor nunca vai sozinha; o leitor de tela ouve o nome).
+  function trilha(n, grande = false) {
+    const s = el("span", { class: `trilha n${n}${grande ? " g" : ""}`, role: "img", "aria-label": `Evidência ${n} de 4: ${EVIDENCIA[n]}` });
+    for (let i = 1; i <= 4; i++) s.append(el("i"));
+    return s;
+  }
+  function pontoEv(n) { return el("span", { class: `ponto-ev e${n}`, "aria-hidden": "true" }); }
   function metaItem(it, { secao = true } = {}) {
     const m = el("div", { class: "meta" });
     m.append(el("span", { class: "etiqueta tipo", "data-tipo": it.tipo, text: TIPOS[it.tipo] || it.tipo }));
@@ -315,7 +367,7 @@
     return chip;
   }
   function vazio(titulo, texto, ...extra) {
-    return el("div", { class: "vazio" }, mascoteEm("m mascote-vazio"), el("h3", { text: titulo }), el("p", { text: texto }), ...extra);
+    return el("div", { class: "vazio" }, mascoteEm("m mascote-vazio", { humor: "padrao" }), el("h3", { text: titulo }), el("p", { text: texto }), ...extra);
   }
   function autoAltura(t) {
     t.style.height = "auto";
@@ -375,99 +427,303 @@
     const citados = (docs || []).filter((d) => texto.includes(`[DOC-${d.id}]`) && linkSeguro(d.url));
     if (!citados.length) return null;
     return el("div", { class: "docs-citados" },
-      el("p", { class: "nota", text: "Documentos do Drive, ainda não revisados pelo time:" }),
+      el("p", { class: "nota-msg", text: "Documentos do Drive, ainda não revisados pelo time:" }),
       el("ul", {}, citados.map((d) => el("li", {},
         el("a", { href: d.url, target: "_blank", rel: "noopener noreferrer", text: d.titulo }),
         d.categoria ? el("span", { class: "pasta-doc", text: ` · ${d.categoria}` }) : null))));
   }
 
   function adicionarMsg(caixa, { papel, texto, quem, nota, extra, docs }) {
-    const linha = el("div", { class: `linha${papel === "eu" ? " eu" : ""}` });
-    if (papel !== "eu") linha.append(mascoteEm("p av", { forma: "simbolo" }));
-    const bolha = el("div", { class: `msg ${papel}` }, el("span", { class: "quem", text: quem }), formatar(texto, docs));
-    if (extra) bolha.append(extra);
-    const citados = rodapeDocumentos(texto, docs);
-    if (citados) bolha.append(citados);
-    if (nota) bolha.append(el("p", { class: "nota", text: nota }));
-    bolha.append(el("span", { class: "hora", text: hora() }));
-    linha.append(bolha);
+    const vazia = caixa.querySelector(".conversa-vazia");
+    if (vazia) vazia.remove();
+    let linha;
+    if (papel === "eu") {
+      linha = el("div", { class: "fala-eu" }, formatar(texto, docs));
+    } else {
+      linha = el("div", { class: `fala-ele${papel === "erro" ? " erro" : ""}` },
+        el("div", { class: "quem" }, mascoteEm("p", { forma: "simbolo" }), el("span", { class: "t-rotulo", text: quem })),
+        el("div", { class: "resposta" }, formatar(texto, docs)));
+      if (extra) linha.append(extra);
+      const citados = rodapeDocumentos(texto, docs);
+      if (citados) linha.append(citados);
+      if (nota) linha.append(el("p", { class: "nota-msg", text: nota }));
+    }
     caixa.append(linha);
     caixa.scrollTop = caixa.scrollHeight;
     return linha;
   }
   function digitando(caixa) {
-    const linha = el("div", { class: "linha" }, mascoteEm("p av", { forma: "simbolo" }),
-      el("div", { class: "msg cerebro digitando", role: "status", "aria-label": "Pensando" }, el("i"), el("i"), el("i")));
+    const linha = el("div", { class: "fala-ele pensando-linha", role: "status" },
+      mascoteEm("m", { humor: "pensando" }), el("span", { class: "t-rotulo", text: "Lendo a base" }));
     caixa.append(linha);
     caixa.scrollTop = caixa.scrollHeight;
     return linha;
   }
   function pensando(sim) { document.body.classList.toggle("pensando", sim); }
 
-  // ---------------------------------------------------------------- topo e navegação
-  const TOPO = {
-    registrar: ["Registrar", "Conte o que aconteceu. O curador organiza, e você revisa antes de mandar para a Fila."],
-    fila: ["Fila de curadoria", "Itens propostos e itens vindos de fontes antigas esperando aprovação. Nada entra no playbook sem alguém aprovar."],
-    fontes: ["Fontes", "O que o Cérebro leu do Notion e do Drive e o que virou item. Nada daqui entra no playbook sem passar pela Fila."],
-    playbook: ["Playbook", "O que o time já validou, na ordem do funil."],
-    briefing: ["Briefing de reunião", "Um roteiro montado só com o que está na base, cada ponto com a fonte."],
-  };
-  function pintarTopo(tela) {
-    const box = $("#ident");
-    box.replaceChildren();
-    if (tela === "conversar") {
-      box.append(mascoteEm("m av-topo", { forma: "simbolo" }), el("div", {},
-        el("h1", { text: "Cérebro" }),
-        el("p", {}, el("span", { class: "online", text: "Online" }), " · consultor comercial do CITi")));
-    } else {
-      const [t, s] = TOPO[tela];
-      box.append(el("div", {}, el("h1", { text: t }), el("p", { text: s })));
+  // ---------------------------------------------------------------- a casca: rotas, abas e a barra lateral
+  // A navegação é por hash, para o link funcionar ("#item/INS-12", "#base/proposta"). Os endereços antigos
+  // (#conversar, #playbook, #briefing) continuam abrindo a tela certa. As abas abertas ficam no localStorage, que pode
+  // falhar: sem ele, a tela abre só com o Hoje.
+  const TELAS = ["hoje", "cerebro", "item", "base", "fila", "registrar", "preparar", "fontes"];
+  const APELIDOS = { conversar: "cerebro", playbook: "base", briefing: "preparar" };
+  const NOME_TELA = { fila: "Fila", registrar: "Rascunho", preparar: "Preparar reunião", fontes: "Fontes" };
+  const MAX_ABAS = 8;
+
+  function lerRota() {
+    let decodificado;
+    try {
+      decodificado = decodeURIComponent((location.hash || "").slice(1));
+    } catch {
+      return { tela: "hoje", arg: null, hash: "#hoje" };  // um link com "%" quebrado não derruba a navegação
+    }
+    const [bruta, ...resto] = decodificado.split("/");
+    const tela = APELIDOS[bruta] || bruta;
+    if (!TELAS.includes(tela)) return { tela: "hoje", arg: null, hash: "#hoje" };
+    const arg = resto.join("/") || null;
+    return { tela, arg, hash: `#${tela}${arg ? `/${arg}` : ""}` };
+  }
+  function rotear() {
+    const rota = lerRota();
+    if (rota.tela === "cerebro") {  // o Cérebro é o painel da direita: a tela do centro continua a que estava
+      if (!estado.telaHash) mostrarTela(lerRotaPadrao());
+      mostrarCerebro();
+      return;
+    }
+    mostrarTela(rota);
+  }
+  function lerRotaPadrao() { return { tela: "hoje", arg: null, hash: "#hoje" }; }
+  function mostrarTela(rota) {
+    estado.tela = rota.tela;
+    estado.telaHash = rota.hash;
+    abrirAba(rota.hash);
+    for (const s of $$(".tela")) s.hidden = s.dataset.tela !== rota.tela;
+    pintarAbas();
+    marcarAtivos();
+    if (rota.tela === "hoje") seguro(pintarHoje, "hoje");
+    if (rota.tela === "item") pintarItem(rota.arg);
+    if (rota.tela === "base") abrirBase(rota.arg);
+    if (rota.tela === "fila") pintarFila();
+    if (rota.tela === "fontes") pintarFontes();
+    if (rota.tela === "preparar") montarBriefing();
+    const tela = $(`.tela[data-tela="${rota.tela}"]`);
+    if (tela) tela.scrollTop = 0;
+  }
+  function mostrarCerebro() { $("#campo-chat").focus(); }
+
+  function rotuloDaAba(hash) {
+    const [tela, arg] = hash.slice(1).split("/");
+    if (tela === "item") {
+      const it = acharItem(arg);
+      return { codigo: arg, texto: it ? it.titulo : "fora da base" };
+    }
+    if (tela === "base") return { texto: arg ? `Base · ${NOME_SECAO[arg] || arg}` : "Base" };
+    return { texto: NOME_TELA[tela] || tela };
+  }
+  function lerAbas() {
+    try {
+      const lidas = JSON.parse(guardar.ler("cerebro.abas") || "[]");
+      estado.abas = Array.isArray(lidas) ? lidas.filter((h) => typeof h === "string" && h.startsWith("#")).slice(-MAX_ABAS) : [];
+    } catch {
+      estado.abas = [];  // o que estava guardado não é JSON: começa do zero
     }
   }
-  const TELAS = ["conversar", "registrar", "fila", "fontes", "playbook", "briefing"];
-  function rotear() {
-    const alvo = (location.hash || "#conversar").slice(1);
-    const tela = TELAS.includes(alvo) ? alvo : "conversar";
-    for (const s of $$(".tela")) s.hidden = s.dataset.tela !== tela;
-    for (const a of $$(".nav a")) {
-      if (a.dataset.tela === tela) a.setAttribute("aria-current", "page");
+  function guardarAbas() { guardar.escrever("cerebro.abas", JSON.stringify(estado.abas)); }
+  function abrirAba(hash) {
+    if (hash === "#hoje" || estado.abas.includes(hash)) return;
+    estado.abas.push(hash);
+    if (estado.abas.length > MAX_ABAS) estado.abas.shift();  // a mais antiga sai
+    guardarAbas();
+  }
+  function fecharAba(hash) {
+    const i = estado.abas.indexOf(hash);
+    if (i < 0) return;
+    estado.abas.splice(i, 1);
+    guardarAbas();
+    if (estado.telaHash === hash) location.hash = estado.abas[Math.min(i, estado.abas.length - 1)] || "#hoje";
+    else pintarAbas();
+  }
+  function pintarAbas() {
+    const aba = (hash, fixa) => {
+      const r = fixa ? { texto: "Hoje" } : rotuloDaAba(hash);
+      const ativa = hash === estado.telaHash;
+      return el("div", { class: `aba${fixa ? " fixa" : ""}${ativa ? " ativa" : ""}` },
+        el("a", { href: hash, "aria-current": ativa ? "page" : null, title: r.codigo ? `${r.codigo} · ${r.texto}` : r.texto },
+          r.codigo ? el("span", { class: "t-dado", text: r.codigo }) : null, el("span", { class: "txt", text: r.texto })),
+        fixa ? null : el("button", { type: "button", class: "x", "aria-label": `Fechar a aba ${r.codigo || r.texto}`,
+          onclick: () => fecharAba(hash) }, icone("x", "ic p")));
+    };
+    $("#abas").replaceChildren(aba("#hoje", true), ...estado.abas.map((h) => aba(h, false)));
+  }
+  function marcarAtivos() {
+    for (const a of $$("#barra a.no")) {
+      if (a.getAttribute("href") === estado.telaHash) a.setAttribute("aria-current", "page");
       else a.removeAttribute("aria-current");
     }
-    estado.tela = tela;
-    pintarTopo(tela);
-    if (tela === "fila") pintarFila();
-    if (tela === "fontes") pintarFontes();
-    if (tela === "playbook") pintarPlaybook();
-    if (tela === "briefing") montarBriefing();
   }
+
   // Na Fila: o que as pessoas registraram (proposto) e o que veio de fontes antigas, ainda sem revisão (histórico a validar)
   function estaNaFila(i) { return i.status === "proposto" || i.status === "historico_a_validar"; }
+  function itensDaBase() { return estado.itens.filter((i) => i.status === "validado" || i.status === "consolidado"); }
+  // Os mais fortes primeiro: evidência, depois consolidado, depois o mais novo.
+  function maisFortes(itens) {
+    return [...itens].sort((a, b) => (b.evidencia - a.evidencia)
+      || (Number(b.status === "consolidado") - Number(a.status === "consolidado")) || (b.id - a.id));
+  }
   function atualizarNumeros() {
-    const noPlaybook = estado.itens.filter((i) => i.status === "validado" || i.status === "consolidado").length;
     const naFila = estado.itens.filter(estaNaFila).length;
-    const hipoteses = estado.itens.filter((i) => i.tipo === "hipotese" && i.status !== "obsoleto").length;
-    $("#n-playbook").textContent = noPlaybook;
-    $("#n-fila").textContent = naFila;
-    $("#n-hipoteses").textContent = hipoteses;
     const contador = $("#contador-fila");
     contador.textContent = naFila;
     contador.hidden = naFila === 0;
-    $("#n-fontes").textContent = estado.fontes ? estado.fontes.total : 0;
-    $("#rodape-base").textContent = aoVivo()
-      ? "Ligado ao servidor. O consultor responde só com os itens aprovados no Playbook."
-      : "Sem conexão com o servidor. Rode o app com o uvicorn.";
+    seguro(pintarBarra, "árvore");
+    if (estado.tela === "hoje") seguro(pintarHoje, "hoje");
   }
   function pintarModo() {
     const m = $("#modo");
+    const dev = Boolean(estado.pessoa && estado.pessoa.dev);
     m.dataset.modo = estado.modo;
-    m.textContent = aoVivo() ? "Ao vivo" : "Sem servidor";
+    m.className = `selo ${aoVivo() ? (dev ? "" : "vivo") : "alerta"}`;
+    m.replaceChildren(...(aoVivo() && !dev ? [el("span", { class: "ponto-vivo", "aria-hidden": "true" })] : []),
+      aoVivo() ? (dev ? "Dev local" : "Ao vivo") : "Sem servidor");
+    document.body.classList.toggle("sem-servidor", !aoVivo());
+  }
+
+  // A árvore da base: as 7 etapas como pastas, com os 20 itens mais fortes dentro e o "ver todos" que abre a etapa.
+  const POR_PASTA = 20;
+  function pintarBarra() {
+    const base = itensDaBase();
+    const pastas = SECOES.map(([chave, nome]) => {
+      const da = maisFortes(base.filter((i) => i.secao === chave));
+      const pasta = el("details", { class: "pasta", open: estado.pastas.has(chave) || null },
+        el("summary", { class: "no" }, el("span", { class: "dobra", "aria-hidden": "true" }),
+          el("span", { class: "txt", text: nome }), el("span", { class: "cont", text: String(da.length) })),
+        ...da.slice(0, POR_PASTA).map((it) => el("a", { class: "no filho", href: `#item/${it.codigo}`, title: it.titulo },
+          pontoEv(it.evidencia), el("span", { class: "txt", text: it.titulo }))),
+        el("a", { class: "no filho ver-todos", href: `#base/${chave}` },
+          el("span", { class: "txt", text: da.length > POR_PASTA ? `Ver todos (${da.length})` : "Ver a etapa" })));
+      pasta.addEventListener("toggle", () => { if (pasta.open) estado.pastas.add(chave); else estado.pastas.delete(chave); });
+      return pasta;
+    });
+    if (!base.length) pastas.push(el("p", { class: "t-legenda arvore-vazia", text: "A base ainda não tem itens aprovados." }));
+    $("#arvore").replaceChildren(...pastas);
+    marcarAtivos();
+  }
+
+  // Os 7 nós da base por etapa (Hoje e, no PR 3, o mapa): a cor da borda é a evidência média, e o tracejado marca a
+  // "pouca base" (nenhum item com evidência 3 ou mais). A cor nunca vai sozinha: o número e o "evid." vão junto.
+  function nosEtapas(itens, { href } = {}) {
+    return el("div", { class: "nos-etapas" }, SECOES.map(([chave, nome]) => {
+      const da = itens.filter((i) => i.secao === chave);
+      const media = da.length ? da.reduce((t, i) => t + i.evidencia, 0) / da.length : 0;
+      const pouca = !da.some((i) => i.evidencia >= 3);
+      const tom = Math.min(4, Math.max(1, Math.round(media)));
+      const rotulo = da.length ? `evid. ${media.toFixed(1).replace(".", ",")}` : "sem itens";
+      return el(href ? "a" : "div", {
+        class: `no-etapa c${tom}`, href: href ? href(chave) : null, role: href ? null : "img",
+        "aria-label": `${nome}: ${da.length} ${da.length === 1 ? "item" : "itens"}, ${rotulo}${pouca ? ", pouca base" : ""}`,
+      },
+      el("div", { class: `cx${pouca ? " pouca" : ""}`, "aria-hidden": "true" }, el("span", { class: "numero", text: String(da.length) })),
+      el("b", { text: nome, "aria-hidden": "true" }),
+      el("span", { class: "t-dado", text: rotulo, "aria-hidden": "true" }));
+    }));
+  }
+
+  // ---------------------------------------------------------------- Hoje (a tela inicial no desktop)
+  function metrica(icon, rotulo, n, legenda, tom, href) {
+    return el("a", { class: "metrica", href },
+      icone(icon, "ic g"),
+      el("span", {}, el("span", { class: "t-rotulo", text: rotulo }),
+        el("span", { class: `numero${tom ? ` ${tom}` : ""}`, text: String(n).padStart(2, "0") }),
+        el("span", { class: "t-legenda", text: legenda })));
+  }
+  function atalhoGrande(href, icon, titulo, texto, extra = "") {
+    return el("a", { class: `atalho-grande${extra ? ` ${extra}` : ""}`, href },
+      el("span", { class: "bola" }, icone(icon)),
+      el("span", { class: "txt" }, el("b", { text: titulo }), el("span", { text: texto })),
+      icone("seta", "ic seta"));
+  }
+  function seloDaFila(it) {
+    if ((it.relacoes || []).some((r) => r.tipo === "contradiz")) return el("span", { class: "selo risco", text: "Contradiz" });
+    const origem = ORIGEM_ITEM[it.fonte] || it.fonte;
+    return el("span", { class: it.status === "historico_a_validar" ? "selo alerta" : "selo", text: origem });
+  }
+  function painelFila(fila) {
+    const sec = el("section", { class: "painel raso" }, el("div", { class: "cab-painel" },
+      el("h2", { class: "t-secao", text: "Esperando você na Fila" }),
+      fila.length ? el("a", { class: "btn primario", href: "#fila", text: "Triar agora" }) : null));
+    if (!fila.length) {
+      sec.append(el("p", { class: "t-p suave", text: "Fila em dia: nada esperando revisão." }));
+      return sec;
+    }
+    for (const it of fila.slice(0, 3)) {
+      sec.append(el("a", { class: "linha-lista", href: `#item/${it.codigo}` },
+        pontoEv(it.evidencia), el("span", { class: "txt", text: it.titulo }), seloDaFila(it)));
+    }
+    const resto = fila.length - 3;
+    if (resto > 0) sec.append(el("p", { class: "t-legenda", text: `e mais ${resto} ${resto === 1 ? "item" : "itens"}` }));
+    return sec;
+  }
+  function cartaoSync(u) {
+    const partes = [
+      `${FONTE_DA_SYNC[u.origem] || u.origem}, ${dataHora(u.fim || u.inicio)}${u.fim ? "" : " (não terminou)"}`,
+      `${u.paginas_novas} ${u.paginas_novas === 1 ? "página nova" : "páginas novas"}`,
+      `${u.paginas_alteradas} ${u.paginas_alteradas === 1 ? "alterada" : "alteradas"}`,
+    ];
+    return el("div", { class: "cartao ultima-sync" }, el("span", { class: "ponto-vivo", "aria-hidden": "true" }),
+      el("span", { class: "t-p" }, el("b", { class: "forte", text: "Última sincronização: " }), partes.join(" · ")),
+      el("a", { class: "btn fantasma", href: "#fontes" }, "Fontes", icone("seta", "ic p")));
+  }
+  function pintarHoje() {
+    const base = itensDaBase();
+    const fila = estado.itens.filter(estaNaFila).sort((a, b) => b.id - a.id);
+    const nome = estado.pessoa ? estado.pessoa.nome.split(/\s+/)[0] : "";
+    const dia = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" }).replace("-feira", "");
+    const resumo = fila.length
+      ? ` ${fila.length} ${fila.length === 1 ? "espera" : "esperam"} a leitura do time na Fila.`
+      : " A Fila está em dia.";
+    const filhos = [
+      el("header", { class: "hoje-cab" },
+        el("p", { class: "t-rotulo", text: `Cérebro Comercial · ${dia}` }),
+        el("h1", { class: "t-display", text: nome ? `Olá, ${nome}` : "Olá" }),
+        el("p", { class: "t-corpo" },
+          el("b", { class: "forte", text: `${base.length} ${base.length === 1 ? "item aprovado" : "itens aprovados"} na base.` }), resumo)),
+      el("div", { class: "metricas" },
+        metrica("camadas", "Base", base.length, base.length === 1 ? "item aprovado" : "itens aprovados", "", "#base"),
+        metrica("fila", "Fila", fila.length, "esperando aprovação", "marca", "#fila")),
+      el("div", { class: "cab-tela" }, el("p", { class: "t-rotulo", text: "Começar por" }),
+        el("div", { class: "comecar" },
+          atalhoGrande("#preparar", "preparar", "Preparar reunião", "Um briefing com a prova de cada ponto"),
+          atalhoGrande("#registrar", "registrar", "Registrar um relato", "O curador transforma em item", "sereno"))),
+    ];
+    if (!aoVivo()) {  // sem servidor não há base para mostrar, e dizer "base vazia" seria mentira
+      filhos.push(vazio("Sem conexão com o servidor",
+        "Sem ele eu não tenho a base e não invento nada. Confira a internet e tente de novo.",
+        el("div", { class: "botoes" }, el("button", { type: "button", class: "btn primario", onclick: () => location.reload(), text: "Tentar de novo" }))));
+      filhos[filhos.length - 1].querySelector(".mascote").replaceWith(mascoteEm("m mascote-vazio", { humor: "sem-resposta" }));
+    } else if (base.length) {
+      filhos.push(el("section", { class: "painel" },
+        el("div", { class: "cab-tela" }, el("h2", { class: "t-titulo", text: "A base por etapa" }),
+          el("p", { class: "t-p suave", text: "A cor da borda é a evidência média. Tracejado: pouca base, nenhum item com evidência 3 ou mais." })),
+        nosEtapas(base, { href: (chave) => `#base/${chave}` })));
+    } else {
+      filhos.push(vazio("A base ainda está vazia",
+        "Sem itens aprovados eu não monto roteiro: prefiro não inventar. Registre o primeiro relato ou aprove o que está na Fila.",
+        el("div", { class: "botoes" },
+          el("a", { class: "btn primario", href: "#registrar", text: "Registrar o primeiro" }),
+          fila.length ? el("a", { class: "btn", href: "#fila", text: "Abrir a Fila" }) : null)));
+      filhos[filhos.length - 1].querySelector(".mascote").replaceWith(mascoteEm("m mascote-vazio", { humor: "nota-em-branco" }));
+    }
+    filhos.push(el("div", { class: "duas-colunas" }, painelFila(fila)));
+    const ultima = aoVivo() && estado.fontes && estado.fontes.ultima_execucao;
+    if (ultima) filhos.push(cartaoSync(ultima));
+    $("#hoje").replaceChildren(...filhos);
   }
 
   // ---------------------------------------------------------------- conversar
   const ATALHOS_CHAT = [
-    ["Cliente disse que está caro", "O cliente disse que está caro. Como respondemos?", "var(--ambar)"],
-    ["Testar hipótese: eventos ou LinkedIn", "Pensei em prospectar em eventos do setor em vez de LinkedIn. O que você acha?", "var(--lilas)"],
-    ["O que a base não cobre?", "O que a base ainda não cobre?", "var(--risco)"],
+    "O que funciona numa reunião de diagnóstico?",
+    "O cliente disse que está caro. Como respondemos?",
+    "Como apresentar o Discovery?",
   ];
   async function perguntar(texto) {
     texto = texto.trim();
@@ -493,18 +749,20 @@
       campo.focus();
     }
   }
+  function pintarAtalhosChat() {
+    return el("div", { class: "atalhos" }, ATALHOS_CHAT.map((texto) =>
+      el("button", { type: "button", class: "atalho", onclick: () => perguntar(texto) }, icone("brilho", "ic p"), el("span", { text: texto }))));
+  }
+  function conversaVazia() {
+    return el("div", { class: "conversa-vazia" }, mascoteEm(""),
+      el("div", {}, el("h3", { class: "t-titulo", text: "Pergunte ao Cérebro" }),
+        el("p", { class: "t-p", text: "Ele responde com o que o time já aprovou e mostra de onde veio cada parte." })),
+      pintarAtalhosChat());
+  }
   function iniciarConversa() {
     const caixa = $("#mensagens");
-    caixa.replaceChildren();
+    caixa.replaceChildren(conversaVazia());
     estado.conversa = [];
-    const exemplo = estado.itens.find((i) => i.status === "validado" || i.status === "consolidado");
-    const toque = exemplo
-      ? `Toque numa fonte, como [${exemplo.codigo}], para ver o item inteiro.`
-      : "Quando houver itens aprovados, toque numa fonte para ver o item inteiro.";
-    adicionarMsg(caixa, {
-      papel: "cerebro", quem: "Cérebro",
-      texto: `Oi! Eu respondo com base no que o time aprovou e mostro de onde tirei cada ponto. ${toque}`,
-    });
   }
 
   // ---------------------------------------------------------------- registrar (curador)
@@ -654,7 +912,7 @@
   }
 
   // ---------------------------------------------------------------- fila
-  const ORIGEM_ITEM = { chat: "Chat", notion: "Notion", drive: "Drive", canva: "Canva", reuniao: "Reunião" };
+  const ORIGEM_ITEM = { chat: "Chat", notion: "Notion", drive: "Drive", canva: "Canva", reuniao: "Reunião", upload: "Arquivo" };
   const POR_PAGINA_FILA = 30;
   let barraLote = null;
 
@@ -665,9 +923,9 @@
     const itens = estado.itens.filter(estaNaFila);
     for (const id of [...f.selecionados]) if (!itens.some((i) => i.id === id)) f.selecionados.delete(id);  // já decididos
     if (!itens.length) {
-      box.append(el("div", { class: "painel vidro" }, vazio("A Fila está vazia",
+      box.append(el("div", { class: "embrulho" }, vazio("A Fila está vazia",
         "Quando alguém registrar um insight, ele aparece aqui para ser aprovado ou rejeitado.",
-        el("a", { class: "btn primario", href: "#registrar", text: "Registrar um insight" }))));
+        el("a", { class: "btn primario", href: "#registrar", text: "Registrar um relato" }))));
       return;
     }
     const origens = [...new Set(itens.map((i) => i.fonte))];
@@ -682,7 +940,7 @@
         ...origens.map((o) => chip(`${ORIGEM_ITEM[o] || o} (${itens.filter((i) => i.fonte === o).length})`, f.origem === o,
           () => { f.origem = f.origem === o ? null : o; f.mostrar = POR_PAGINA_FILA; pintarFila(); }))));
     }
-    barraLote = el("div", { class: "barra-lote vidro", role: "region", "aria-label": "Aprovar vários de uma vez" });
+    barraLote = el("div", { class: "barra-lote", role: "region", "aria-label": "Aprovar vários de uma vez" });
     box.append(barraLote);
     atualizarBarraLote();
 
@@ -756,7 +1014,7 @@
     const restantes = semServidor ? ids.length - aprovados : falhas.length;
     aviso(restantes
       ? `${aprovados} aprovados. ${restantes} não foram aprovados${semServidor ? " (o servidor parou de responder)" : `: ${falhas.slice(0, 5).join(", ")}${falhas.length > 5 ? "…" : ""}`}. Continuam marcados.`
-      : `${aprovados} ${aprovados === 1 ? "item aprovado" : "itens aprovados"}. Já aparecem no Playbook.`, restantes ? "erro" : "ok");
+      : `${aprovados} ${aprovados === 1 ? "item aprovado" : "itens aprovados"}. Já estão na base.`, restantes ? "erro" : "ok");
     atualizarNumeros();
     pintarFila();
   }
@@ -778,13 +1036,13 @@
       card.classList.toggle("selecionado", caixa.checked);
       atualizarBarraLote();
     });
-    const card = el("article", { class: marcado ? "item vidro selecionado" : "item vidro", "data-id": String(it.id) },
+    const card = el("article", { class: marcado ? "item selecionado" : "item", "data-id": String(it.id) },
       el("label", { class: "sel" }, caixa, el("span", { text: "Selecionar" })),
       metaItem(it),
       el("h3", { text: it.titulo }),
       el("p", { class: "desc", text: it.descricao }),
       el("div", { class: "linha-evid" },
-        el("span", { class: "evid" }, sinal(it.evidencia), `Evidência ${it.evidencia} · ${EVIDENCIA[it.evidencia]}`),
+        el("span", { class: "evid" }, trilha(it.evidencia), `Evidência ${it.evidencia} · ${EVIDENCIA[it.evidencia]}`),
         el("span", { text: [it.autor, dataBr(it.data_evento), it.codigo].filter(Boolean).join(" · ") }),
         linkOrigem(it)));
     if (it.relacoes && it.relacoes.length) card.append(el("div", { class: "relacoes" }, it.relacoes.map((r) => relacaoChip(r, it))));
@@ -805,7 +1063,7 @@
     try {
       await chamar("POST", `/insights/${it.id}/${acao}`, acao === "aprovar" ? undefined : { motivo: motivo.trim() });
       await carregarItens();
-      aviso(acao === "aprovar" ? `${it.codigo} aprovado. Já aparece no Playbook.` : `${it.codigo} rejeitado e marcado como obsoleto.`, "ok");
+      aviso(acao === "aprovar" ? `${it.codigo} aprovado. Já está na base.` : `${it.codigo} rejeitado e marcado como obsoleto.`, "ok");
       pulsarMascote();
       atualizarNumeros();
       pintarFila();
@@ -857,7 +1115,7 @@
       `${ORIGEM[it.fonte] || it.fonte} ↗`);
   }
   function numeroCartao(n, rotulo, cor) {
-    return el("div", { class: "cartao-numero vidro", style: cor ? `--c:${cor}` : null },
+    return el("div", { class: "cartao-numero", style: cor ? `--c:${cor}` : null },
       el("b", { text: String(n) }), el("span", { text: rotulo }));
   }
   function resumoDeItens(itens) {
@@ -872,7 +1130,7 @@
       ? el("a", { href: url, target: "_blank", rel: "noopener noreferrer", text: f.titulo })
       : document.createTextNode(f.titulo);
     const gerou = resumoDeItens(f.itens);
-    return el("article", { class: "item fonte vidro" },
+    return el("article", { class: "item fonte" },
       el("div", { class: "meta" },
         el("span", { class: "etiqueta", text: ORIGEM[f.origem] || f.origem }),
         f.categoria ? el("span", { class: "etiqueta pasta", text: f.categoria }) : null,
@@ -885,7 +1143,7 @@
         el("span", { text: `Editada em ${dataHora(f.editado_em)} · lida em ${dataHora(f.importado_em)}` })));
   }
   function orientacaoFontes() {
-    return el("div", { class: "painel vidro passo-a-passo" },
+    return el("div", { class: "painel passo-a-passo" },
       vazio("Nada lido ainda", "Quando o Cérebro ler o Notion ou o Drive, cada página ou documento aparece aqui, com o que aconteceu com ele."),
       el("ol", {},
         el("li", {}, "No .env do servidor, preencha ", el("code", { text: "NOTION_TOKEN" }), " (Notion: a integração só enxerga as páginas compartilhadas com ela) ou ",
@@ -1016,7 +1274,7 @@
     const ultima = resumo.ultima_execucao;
     const sy = estado.sync;
     if (ultima && !ultima.fim && !sy.id) acompanharExecucao(ultima.id, false);  // reabriu a tela com uma rodando
-    painelSync = el("div", { class: "painel vidro sync", "aria-label": "Sincronizar o Notion ou o Drive" });
+    painelSync = el("div", { class: "painel sync", "aria-label": "Sincronizar o Notion ou o Drive" });
     if (!resumo.total) { box.replaceChildren(painelSync, orientacaoFontes()); pintarPainelSync(); return; }
 
     const por = resumo.por_status;
@@ -1046,7 +1304,7 @@
       total = lista.total;
       for (const f of lista.itens) linhas.append(cartaoFonte(f));
       carregadas += lista.itens.length;
-      if (!total) linhas.replaceChildren(el("div", { class: "painel vidro" }, vazio("Nada com esse filtro", "Tire o filtro ou mude a busca.")));
+      if (!total) linhas.replaceChildren(el("div", { class: "embrulho" }, vazio("Nada com esse filtro", "Tire o filtro ou mude a busca.")));
       rodape.replaceChildren(...(total > carregadas
         ? [el("p", { class: "resumo-lista", text: `Mostrando ${carregadas} de ${total}` }),
            el("button", { type: "button", class: "btn fantasma", onclick: () => carregarLista(false) },
@@ -1099,26 +1357,31 @@
     return el("button", { type: "button", class: "chip", "aria-pressed": String(Boolean(ativo)), onclick: aoClicar }, rotulo);
   }
   const POR_PAGINA_PLAYBOOK = 12;  // por etapa do funil: centenas de cartões de uma vez ficam lentos e cansam
-  function pintarPlaybook() {
+  function abrirBase(secao) {
+    estado.filtro.secao = NOME_SECAO[secao] ? secao : null;
+    estado.filtro.mostrar = {};
+    pintarBase();
+  }
+  function pintarBase() {
     const todos = itensDoPlaybook();
     const funil = $("#funil");
     funil.replaceChildren();
-    SECOES.forEach(([chave, nome], i) => {
-      if (i) funil.append(el("span", { class: "fio", "aria-hidden": "true" }));
+    $("#titulo-base").textContent = estado.filtro.secao ? NOME_SECAO[estado.filtro.secao] : "A base inteira";
+    SECOES.forEach(([chave, nome]) => {
       const n = todos.filter((x) => x.secao === chave).length;
       funil.append(el("button", {
-        type: "button", class: `etapa${n ? " cheia" : ""}`, "aria-pressed": String(estado.filtro.secao === chave),
+        type: "button", class: "etapa-filtro", "aria-pressed": String(estado.filtro.secao === chave),
         "aria-label": `${nome}: ${n} ${n === 1 ? "item" : "itens"}`,
-        onclick: () => { estado.filtro.secao = estado.filtro.secao === chave ? null : chave; estado.filtro.mostrar = {}; pintarPlaybook(); },
-      }, el("span", { class: "no", text: String(n) }), el("span", { text: nome })));
+        onclick: () => { estado.filtro.secao = estado.filtro.secao === chave ? null : chave; estado.filtro.mostrar = {}; pintarBase(); },
+      }, el("span", { class: "num-etapa", text: String(n) }), el("span", { text: nome })));
     });
 
     const filtros = $("#filtros");
     filtros.replaceChildren();
-    const busca = el("input", { type: "search", id: "busca-playbook", class: "busca", placeholder: "Buscar no playbook", "aria-label": "Buscar no playbook" });
+    const busca = el("input", { type: "search", id: "busca-base", class: "busca", placeholder: "Buscar na base", "aria-label": "Buscar na base" });
     busca.value = estado.filtro.busca;
-    busca.addEventListener("input", () => { estado.filtro.busca = busca.value; estado.filtro.mostrar = {}; pintarGrupos(); });
-    const refiltrar = (mudar) => () => { mudar(); estado.filtro.mostrar = {}; pintarPlaybook(); };
+    busca.addEventListener("input", () => { estado.filtro.busca = busca.value; estado.filtro.mostrar = {}; pintarGruposBase(); });
+    const refiltrar = (mudar) => () => { mudar(); estado.filtro.mostrar = {}; pintarBase(); };
     filtros.append(busca, chip("Todos os segmentos", !estado.filtro.segmento, refiltrar(() => { estado.filtro.segmento = null; })));
     for (const s of [...new Set(estado.itens.map((i) => i.segmento).filter(Boolean))].sort()) {
       filtros.append(chip(capital(s), estado.filtro.segmento === s, refiltrar(() => { estado.filtro.segmento = s; })));
@@ -1133,9 +1396,9 @@
           refiltrar(() => { estado.filtro.origem = estado.filtro.origem === o ? null : o; }))));
     }
     filtros.append(chip("Incluir histórico a validar", estado.filtro.historico, refiltrar(() => { estado.filtro.historico = !estado.filtro.historico; })));
-    pintarGrupos();
+    pintarGruposBase();
   }
-  function pintarGrupos() {
+  function pintarGruposBase() {
     const box = $("#grupos");
     box.replaceChildren();
     const f = estado.filtro;
@@ -1147,11 +1410,11 @@
       (!termo || normalizar(`${i.titulo} ${i.descricao}`).includes(termo)));
     if (!itens.length) {
       const nadaAinda = itensDoPlaybook().length === 0;
-      box.append(el("div", { class: "painel vidro" }, vazio(
+      box.append(el("div", { class: "embrulho" }, vazio(
         nadaAinda ? "Nenhum item validado ainda" : "Nada com esses filtros",
-        nadaAinda ? "Registre um insight e aprove na Fila. Ele aparece aqui, na etapa do funil a que pertence."
+        nadaAinda ? "Registre um relato e aprove na Fila. Ele aparece aqui, na etapa do funil a que pertence."
           : "Tire um filtro ou busque outra palavra.",
-        nadaAinda ? el("a", { class: "btn primario", href: "#registrar", text: "Registrar um insight" }) : null)));
+        nadaAinda ? el("a", { class: "btn primario", href: "#registrar", text: "Registrar um relato" }) : null)));
       return;
     }
     SECOES.forEach(([chave, nome], i) => {
@@ -1164,65 +1427,59 @@
         el("div", { class: "grade" }, doGrupo.slice(0, quantos).map(cartaoPlaybook)),
         doGrupo.length > quantos
           ? el("button", { type: "button", class: "btn fantasma mais",
-              onclick: () => { f.mostrar[chave] = quantos + POR_PAGINA_PLAYBOOK; pintarGrupos(); } },
+              onclick: () => { f.mostrar[chave] = quantos + POR_PAGINA_PLAYBOOK; pintarGruposBase(); } },
             `Mostrar mais ${Math.min(POR_PAGINA_PLAYBOOK, doGrupo.length - quantos)} (restam ${doGrupo.length - quantos})`)
           : null));
     });
   }
   function cartaoPlaybook(it) {
-    return el("button", { type: "button", class: "item vidro cartao", onclick: () => abrirItem(it.codigo) },
+    return el("button", { type: "button", class: "item cartao", onclick: () => abrirItem(it.codigo) },
       metaItem(it, { secao: false }),
       el("span", { class: "titulo-cartao", text: it.titulo }),
       el("span", { class: "desc", text: it.descricao }),
-      el("span", { class: "pe" }, el("span", { class: "evid" }, sinal(it.evidencia), EVIDENCIA[it.evidencia]), el("span", { text: it.codigo })));
+      el("span", { class: "pe" }, el("span", { class: "evid" }, trilha(it.evidencia), EVIDENCIA[it.evidencia]), el("span", { text: it.codigo })));
   }
 
-  // ---------------------------------------------------------------- gaveta de detalhe
+  // ---------------------------------------------------------------- página do item
+  // O item abre numa aba do centro (no lugar da gaveta). O PR 2 completa a página com as ligações.
   function abrirItem(codigo) {
-    const it = acharItem(codigo);
-    if (!it) { aviso(`Não achei ${codigo} na base carregada.`, "erro"); return; }
-    const corpo = $("#gaveta-corpo");
-    corpo.replaceChildren();
+    if (!acharItem(codigo)) { aviso(`${codigo} não está na base carregada.`, "erro"); return; }
+    location.hash = `#item/${codigo}`;
+  }
+  function pintarItem(codigo) {
+    const corpo = $("#item-conteudo");
+    const it = codigo ? acharItem(codigo) : null;
+    if (!it) {
+      corpo.replaceChildren(vazio(`${codigo || "Esse item"} não está na base`,
+        "Ele pode ter sido rejeitado ou ainda não ter sido carregado.", el("a", { class: "btn", href: "#hoje", text: "Voltar ao Hoje" })));
+      return;
+    }
     const linhas = [
-      ["Seção", NOME_SECAO[it.secao]],
+      ["Etapa", NOME_SECAO[it.secao]],
       ["Segmento", it.segmento ? capital(it.segmento) : "Todos os segmentos"],
-      ["Evidência", el("span", { class: "evid" }, sinal(it.evidencia), `${it.evidencia} · ${EVIDENCIA[it.evidencia]}`)],
+      ["Evidência", el("span", { class: "evid" }, trilha(it.evidencia), `${it.evidencia} · ${EVIDENCIA[it.evidencia]}`)],
       ["Status", STATUS[it.status] || it.status],
       ["O que foi feito", it.o_que_foi_feito],
       ["Resultado", it.resultado],
       ["Contexto", it.contexto_cliente],
       ["Quem registrou", it.autor],
       ["Quando", dataBr(it.data_evento)],
-      ["Fonte", it.fonte],
+      ["Origem", ORIGEM_ITEM[it.fonte] || it.fonte],
       ["Motivo", it.motivo_obsolescencia],
     ].filter(([, v]) => v);
-    corpo.append(
+    corpo.replaceChildren(
+      el("header", { class: "cab-tela" },
+        el("p", { class: "t-rotulo marca", text: `${it.codigo} · ${TIPOS[it.tipo] || it.tipo}` }),
+        el("h1", { class: "t-titulo", text: it.titulo })),
       metaItem(it),
-      el("h2", { text: it.titulo }),
       el("p", { class: "desc", text: it.descricao }),
       el("dl", {}, linhas.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", {}, v)])));
     if (it.relacoes && it.relacoes.length) {
-      corpo.append(el("span", { class: "rotulo", text: "Relações" }), el("div", { class: "relacoes" }, it.relacoes.map((r) => relacaoChip(r, it))));
+      corpo.append(el("h2", { class: "t-secao", text: "Ligações" }), el("div", { class: "relacoes" }, it.relacoes.map((r) => relacaoChip(r, it))));
     }
     const avs = avisosDeEvidencia(it);
     if (avs.length) corpo.append(listaAvisos(avs));
-    corpo.append(el("span", { class: "codigo", text: it.codigo }));
-    estado.focoAntes = document.activeElement;
-    const g = $("#gaveta");
-    g.removeAttribute("inert");
-    g.setAttribute("aria-hidden", "false");
-    g.classList.add("aberta");
-    $("#fundo-gaveta").hidden = false;
-    $("#fechar-gaveta").focus();
-  }
-  function fecharGaveta() {
-    const g = $("#gaveta");
-    if (!g.classList.contains("aberta")) return;
-    g.classList.remove("aberta");
-    g.setAttribute("aria-hidden", "true");
-    g.setAttribute("inert", "");
-    $("#fundo-gaveta").hidden = true;
-    if (estado.focoAntes && document.contains(estado.focoAntes)) estado.focoAntes.focus();
+    pintarAbas();  // o título da aba pode ter chegado agora
   }
 
   // ---------------------------------------------------------------- briefing (POST /briefing)
@@ -1249,7 +1506,7 @@
     return li;
   }
   function bloco(titulo, cor, conteudo, classes = "") {
-    return el("article", { class: `bloco vidro ${classes}`, style: `--c:${cor}` }, el("h3", { text: titulo }), conteudo);
+    return el("article", { class: `bloco ${classes}`, style: `--c:${cor}` }, el("h3", { text: titulo }), conteudo);
   }
   const semBase = (t) => el("p", { class: "sem-base", text: t });
 
@@ -1314,29 +1571,41 @@
     $("#rascunho").addEventListener("submit", enviarParaFila);
 
     $("#form-briefing").addEventListener("submit", montarBriefing);
-    $("#fechar-gaveta").addEventListener("click", fecharGaveta);
-    $("#fundo-gaveta").addEventListener("click", fecharGaveta);
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharGaveta(); });
-  }
+    $("#nova-conversa").addEventListener("click", () => {
+      if (!estado.ocupado) iniciarConversa();
+      $("#campo-chat").focus();
+    });
 
-  function pintarAtalhosChat() {
-    $("#atalhos-chat").replaceChildren(...ATALHOS_CHAT.map(([rotulo, texto, cor]) =>
-      el("button", { type: "button", class: "atalho", style: `--c:${cor}`, onclick: () => perguntar(texto) }, el("span", { class: "ponto" }), rotulo)));
+    // A barra lateral recolhe num trilho só de ícones; o navegador lembra a escolha (se o localStorage deixar).
+    const app = $("#app");
+    const recolher = $("#recolher-barra");
+    const aplicarBarra = (recolhida) => {
+      app.classList.toggle("barra-recolhida", recolhida);
+      recolher.setAttribute("aria-expanded", String(!recolhida));
+      recolher.setAttribute("aria-label", recolhida ? "Abrir a barra lateral" : "Recolher a barra lateral");
+      recolher.title = recolher.getAttribute("aria-label");
+    };
+    aplicarBarra(guardar.ler("cerebro.barra") === "recolhida");
+    recolher.addEventListener("click", () => {
+      const recolhida = !app.classList.contains("barra-recolhida");
+      aplicarBarra(recolhida);
+      guardar.escrever("cerebro.barra", recolhida ? "recolhida" : "aberta");
+    });
   }
 
   async function iniciar() {
     seguro(pintarMascotes, "mascote");
     ligarEventos();
-    seguro(() => pintarTopo("conversar"), "topo");
+    seguro(lerAbas, "abas");
     estado.modo = await detectarModo();
     pintarModo();
     if (!aoVivo()) {  // nada de dado inventado: sem servidor a tela só avisa
       atualizarNumeros();
       aviso("Não consegui falar com o servidor. Confira se o uvicorn está rodando e recarregue a página.", "erro");
+      rotear();
       return;
     }
     if (!(await verificarLogin())) return;  // sem sessão: a tela de entrada fica; o Google devolve para cá
-    pintarAtalhosChat();
     await carregarItens();
     atualizarNumeros();
     iniciarConversa();

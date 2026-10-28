@@ -13,153 +13,146 @@
 <!-- corpo:inicio -->
 <div id="cena" class="chao" aria-hidden="true"></div>
 
-<div class="app">
-  <nav class="trilho" aria-label="Seções">
-    <a class="marca" href="#conversar" aria-label="Cérebro Comercial, voltar para a conversa">
+<!-- O espaço único: a barra com a árvore da base à esquerda, o centro com abas e o painel do Cérebro à direita. -->
+<div class="app" id="app">
+  <nav class="barra" id="barra" aria-label="Navegação">
+    <div class="marca-linha">
       <span class="mascote p marca-orbe marca-viva" data-mascote="simbolo"></span>
-      <b>CITi</b>
-    </a>
-    <div class="nav">
-      <a href="#conversar" data-tela="conversar">
-        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/><path d="M8.5 9.5h7M8.5 12.5h4"/></svg>
-        <span>Conversar</span>
-      </a>
-      <a href="#registrar" data-tela="registrar">
-        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/><path d="M18 15.5v4M16 17.5h4"/></svg>
-        <span>Registrar</span>
-      </a>
-      <a href="#fila" data-tela="fila">
-        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-7.5h11L20 13v5.5A1.5 1.5 0 0 1 18.5 20h-13A1.5 1.5 0 0 1 4 18.5z"/><path d="M4 13h4.5l1.5 2.5h4l1.5-2.5H20"/></svg>
-        <span>Fila</span>
-        <b class="contador" id="contador-fila" hidden>0</b>
-      </a>
-      <a href="#fontes" data-tela="fontes">
-        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4"/><path d="M4 16l8 4 8-4"/></svg>
-        <span>Fontes</span>
-      </a>
-      <a href="#playbook" data-tela="playbook">
-        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A1.5 1.5 0 0 1 6.5 4H19v14H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19"/><path d="M9 8h6M9 11h4"/></svg>
-        <span>Playbook</span>
-      </a>
-      <a href="#briefing" data-tela="briefing">
-        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>
-        <span>Briefing</span>
-      </a>
+      <b class="marca-nome">Cérebro</b>
+      <span class="selo" id="modo" data-modo="conectando">Conectando…</span>
+      <button class="btn-icone" id="recolher-barra" type="button" aria-label="Recolher a barra lateral" aria-expanded="true" title="Recolher a barra lateral"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9.5 4.5v15"/></svg></button>
     </div>
+    <a class="no" href="#hoje"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span class="txt">Hoje</span></a>
+    <p class="t-rotulo grupo-barra">Base</p>
+    <div class="arvore" id="arvore" aria-label="As etapas do funil"></div>
+    <p class="t-rotulo grupo-barra">Trabalho</p>
+    <a class="no" href="#fila"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg><span class="txt">Fila</span><b class="selo-cont" id="contador-fila" hidden>0</b></a>
+    <a class="no" href="#preparar"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/><path d="m9 15 2 2 4-4"/></svg><span class="txt">Preparar reunião</span></a>
+    <p class="t-rotulo grupo-barra so-ao-vivo">Bastidores</p>
+    <a class="no so-ao-vivo" href="#fontes" data-tela="fontes"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.5"/><path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13"/><path d="M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5"/></svg><span class="txt">Fontes</span></a>
+    <div class="rodape" id="voce" hidden></div>
   </nav>
 
-  <main class="principal">
-    <header class="topo vidro">
-      <div class="ident" id="ident"></div>
-      <div class="acoes">
-        <span class="modo" id="modo" data-modo="conectando">Conectando…</span>
-        <div class="voce" id="voce" hidden></div>
-      </div>
-    </header>
-
+  <main class="centro" id="centro">
+    <nav class="abas" id="abas" aria-label="Abas abertas"></nav>
     <div class="telas">
-      <section class="tela tela-conversar" data-tela="conversar" aria-label="Conversar com o Cérebro">
-        <div class="conversa">
-          <div class="mensagens" id="mensagens" aria-live="polite"></div>
-          <form class="doca" id="form-chat">
-            <div class="entrada">
-              <a class="btn-icone" href="#registrar" title="Registrar um insight" aria-label="Registrar um insight">
-                <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-              </a>
-              <label class="sr" for="campo-chat">Sua pergunta</label>
-              <textarea class="campo-msg" id="campo-chat" rows="1" maxlength="4000" placeholder="Pergunte ao Cérebro…"></textarea>
-              <button class="enviar" id="enviar-chat" type="submit" aria-label="Enviar pergunta">
-                <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 11.5L20 4l-6.5 16-2.5-6.5z"/><path d="M11 13.5L20 4"/></svg>
-              </button>
-            </div>
-            <div class="atalhos" id="atalhos-chat"></div>
-          </form>
+      <section class="tela" data-tela="hoje" aria-label="Hoje">
+        <div class="miolo" id="hoje"></div>
+      </section>
+
+      <section class="tela" data-tela="item" aria-label="Item da base" hidden>
+        <div class="miolo item-pagina" id="item-conteudo"></div>
+      </section>
+
+      <section class="tela" data-tela="base" aria-label="Base" hidden>
+        <div class="miolo tela-lista">
+          <header class="cab-tela">
+            <p class="t-rotulo">Base · o que o time já aprovou</p>
+            <h1 class="t-titulo" id="titulo-base">A base inteira</h1>
+          </header>
+          <div class="funil" id="funil" role="group" aria-label="Filtrar por etapa do funil"></div>
+          <div class="filtros" id="filtros"></div>
+          <div id="grupos"></div>
         </div>
-        <aside class="palco" aria-label="O que o Cérebro sabe hoje">
-          <div class="mascote g orbe-grande" data-mascote=""></div>
-          <div class="ficha vidro">
-            <h2>O que eu sei hoje</h2>
-            <div class="numeros">
-              <div><b id="n-playbook">0</b><span>no playbook</span></div>
-              <div><b id="n-fila">0</b><span>na fila</span></div>
-              <div><b id="n-hipoteses">0</b><span>hipóteses abertas</span></div>
-              <div><b id="n-fontes">0</b><span>páginas lidas</span></div>
-            </div>
-            <p class="rodape" id="rodape-base"></p>
-          </div>
-        </aside>
       </section>
 
-      <section class="tela tela-registrar" data-tela="registrar" aria-label="Registrar um insight" hidden>
-        <div class="painel vidro registrar-chat">
-          <div class="cab">
-            <span class="mascote p av" data-mascote="simbolo"></span>
-            <div><h2>Curador</h2><p>Organiza o seu relato e pergunta o que faltou</p></div>
-          </div>
-          <div class="mensagens" id="mensagens-reg" aria-live="polite"></div>
-          <form class="doca" id="form-reg">
-            <div class="entrada">
-              <label class="sr" for="campo-reg">O que aconteceu</label>
-              <textarea class="campo-msg" id="campo-reg" rows="1" maxlength="8000" placeholder="Conte o que aconteceu…"></textarea>
-              <button class="enviar" id="enviar-reg" type="submit" aria-label="Enviar relato">
-                <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 11.5L20 4l-6.5 16-2.5-6.5z"/><path d="M11 13.5L20 4"/></svg>
-              </button>
-            </div>
-          </form>
+      <section class="tela" data-tela="fila" aria-label="Fila de curadoria" hidden>
+        <div class="miolo tela-lista">
+          <header class="cab-tela">
+            <p class="t-rotulo">Trabalho · Fila</p>
+            <h1 class="t-titulo">Esperando a leitura do time</h1>
+            <p class="t-corpo">Itens propostos e itens vindos de fontes antigas. Nada entra na base sem alguém aprovar.</p>
+          </header>
+          <div class="lista" id="lista-fila"></div>
         </div>
-        <form class="painel vidro rascunho" id="rascunho" novalidate aria-label="Rascunho do item"></form>
       </section>
 
-      <section class="tela tela-lista" data-tela="fila" aria-label="Fila de curadoria" hidden>
-        <div class="lista" id="lista-fila"></div>
-      </section>
-
-      <section class="tela tela-lista" data-tela="fontes" aria-label="Fontes importadas" hidden>
-        <div id="fontes-conteudo"></div>
-      </section>
-
-      <section class="tela tela-lista" data-tela="playbook" aria-label="Playbook" hidden>
-        <div class="funil vidro" id="funil" role="group" aria-label="Filtrar por etapa do funil"></div>
-        <div class="filtros" id="filtros"></div>
-        <div id="grupos"></div>
-      </section>
-
-      <section class="tela tela-lista" data-tela="briefing" aria-label="Briefing de reunião" hidden>
-        <form class="painel vidro briefing-form" id="form-briefing">
-          <div class="campo">
-            <label for="b-segmento">Segmento</label>
-            <select id="b-segmento"></select>
+      <section class="tela tela-registrar" data-tela="registrar" aria-label="Registrar um relato" hidden>
+        <div class="miolo">
+          <header class="cab-tela">
+            <p class="t-rotulo">Rascunho do curador · ainda não gravado</p>
+            <h1 class="t-titulo">Registrar um relato</h1>
+          </header>
+          <div class="painel registrar-chat">
+            <div class="cab">
+              <span class="mascote p av" data-mascote="simbolo"></span>
+              <div><h2>Curador</h2><p>Organiza o seu relato e pergunta o que faltou</p></div>
+            </div>
+            <div class="conversa" id="mensagens-reg" aria-live="polite"></div>
+            <form class="compor" id="form-reg">
+              <label class="t-rotulo" for="campo-reg">O que aconteceu</label>
+              <textarea class="campo-msg" id="campo-reg" rows="2" maxlength="8000" placeholder="Conte o que aconteceu…"></textarea>
+              <div class="compor-base">
+                <button class="btn primario enviar" id="enviar-reg" type="submit" aria-label="Enviar relato"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+              </div>
+            </form>
           </div>
-          <div class="campo">
-            <label for="b-tipo">Reunião</label>
-            <select id="b-tipo">
-              <option value="diagnostico">Diagnóstico</option>
-              <option value="proposta" selected>Proposta</option>
-              <option value="negociacao">Negociação</option>
-            </select>
-          </div>
-          <div class="campo contexto">
-            <label for="b-contexto">Contexto</label>
-            <textarea id="b-contexto" rows="2" maxlength="600" placeholder="O que você já sabe da reunião, sem nome, e-mail ou telefone de cliente (opcional)"></textarea>
-          </div>
-          <button class="btn primario" type="submit">Montar briefing</button>
-        </form>
-        <div id="briefing-saida"></div>
+          <form class="painel rascunho" id="rascunho" novalidate aria-label="Rascunho do item"></form>
+        </div>
+      </section>
+
+      <section class="tela" data-tela="preparar" aria-label="Preparar reunião" hidden>
+        <div class="miolo">
+          <header class="cab-tela">
+            <p class="t-rotulo">Trabalho · Preparar reunião</p>
+            <h1 class="t-titulo">Preparar reunião</h1>
+          </header>
+          <form class="painel briefing-form" id="form-briefing">
+            <div class="campo">
+              <label for="b-segmento">Segmento</label>
+              <select id="b-segmento"></select>
+            </div>
+            <div class="campo">
+              <label for="b-tipo">Reunião</label>
+              <select id="b-tipo">
+                <option value="diagnostico">Diagnóstico</option>
+                <option value="proposta" selected>Proposta</option>
+                <option value="negociacao">Negociação</option>
+              </select>
+            </div>
+            <div class="campo contexto">
+              <label for="b-contexto">Contexto</label>
+              <textarea id="b-contexto" rows="2" maxlength="600" placeholder="O que você já sabe da reunião, sem nome, e-mail ou telefone de cliente (opcional)"></textarea>
+            </div>
+            <button class="btn primario" type="submit">Montar briefing</button>
+          </form>
+          <div id="briefing-saida"></div>
+        </div>
+      </section>
+
+      <section class="tela" data-tela="fontes" aria-label="Fontes importadas" hidden>
+        <div class="miolo tela-lista">
+          <header class="cab-tela">
+            <p class="t-rotulo">Bastidores · Fontes</p>
+            <h1 class="t-titulo">O que o Cérebro leu</h1>
+            <p class="t-corpo">As páginas do Notion e os documentos do Drive, e o que virou item. Nada daqui entra na base sem passar pela Fila.</p>
+          </header>
+          <div id="fontes-conteudo"></div>
+        </div>
       </section>
     </div>
   </main>
+
+  <aside class="cerebro" id="painel-cerebro" aria-label="Cérebro">
+    <div class="cerebro-topo">
+      <span class="mascote p" data-mascote="simbolo"></span>
+      <h2 class="t-secao">Cérebro</h2>
+      <button class="btn fantasma acao" id="nova-conversa" type="button">Nova conversa</button>
+    </div>
+    <div class="conversa" id="mensagens" aria-live="polite"></div>
+    <form class="compor" id="form-chat">
+      <label class="t-rotulo" for="campo-chat">Pergunta</label>
+      <textarea class="campo-msg" id="campo-chat" rows="2" maxlength="4000" placeholder="Pergunte ou conte o que aconteceu"></textarea>
+      <div class="compor-base">
+        <button class="btn primario enviar" id="enviar-chat" type="submit" aria-label="Perguntar"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+      </div>
+    </form>
+  </aside>
 </div>
 
-<div class="fundo-gaveta" id="fundo-gaveta" hidden></div>
-<aside class="gaveta" id="gaveta" aria-label="Detalhe do item" aria-hidden="true" inert>
-  <button class="btn-icone fechar" id="fechar-gaveta" type="button" aria-label="Fechar">
-    <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-  </button>
-  <div id="gaveta-corpo"></div>
-</aside>
 <!-- Entrada (T5): cobre o app enquanto ninguém entrou com a conta Google do CITi. -->
 <div class="entrada-login" id="entrada-login" hidden>
-  <section class="vidro cartao-login" role="dialog" aria-modal="true" aria-labelledby="entrada-titulo">
+  <section class="cartao-login" role="dialog" aria-modal="true" aria-labelledby="entrada-titulo">
     <span class="mascote g marca-orbe grande" data-mascote="" aria-hidden="true"></span>
     <h1 id="entrada-titulo">Cérebro Comercial CITi</h1>
     <p class="entrada-texto">Entre com a sua conta Google do CITi (<b id="entrada-dominio">@citi.org.br</b>) para conversar, registrar e consultar o que o comercial já aprendeu.</p>

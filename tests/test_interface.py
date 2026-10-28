@@ -208,3 +208,25 @@ def test_js_tem_sintaxe_valida():
     """Os outros testes da tela conferem texto: um erro de sintaxe passaria por eles e deixaria a página parada."""
     r = subprocess.run(["node", "--check", str(JS)], capture_output=True, text=True, timeout=30)
     assert r.returncode == 0, r.stderr
+
+
+def test_casca_tem_barra_centro_e_painel():
+    """O espaço único: a barra com a árvore da base, o centro com abas e o painel do Cérebro fixo à direita."""
+    with TestClient(app) as client:
+        html = client.get("/").text
+        js = client.get("/static/cerebro.js").text
+    for id_ in ('id="barra"', 'id="arvore"', 'id="centro"', 'id="abas"', 'id="painel-cerebro"', 'id="form-chat"'):
+        assert id_ in html, id_
+    assert 'id="gaveta"' not in html  # o item abre numa aba do centro
+    assert 'data-tela="fontes"' in html and 'href="#fontes"' in html
+    # um link com "%" quebrado não derruba a navegação: o decodeURIComponent fica dentro de um try
+    assert "decodeURIComponent" in js and "catch {" in js.split("decodeURIComponent")[1][:200]
+
+
+def test_abas_lembradas_sem_depender_do_localstorage():
+    """As abas abertas ficam no localStorage, que pode falhar (aba anônima, armazenamento cheio): a tela segue sem."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert 'guardar.ler("cerebro.abas")' in js and 'guardar.escrever("cerebro.abas"' in js
+    assert "ler(chave) { try { return localStorage.getItem(chave); } catch { return null; } }" in js
+    assert 'location.hash = `#item/${codigo}`' in js  # o link do item funciona sozinho
