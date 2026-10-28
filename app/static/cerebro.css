@@ -3,33 +3,87 @@
    conhecimento (cada estrela um item, cada linha uma relação). Por cima, um trilho de vidro à esquerda e uma
    tela por vez. No Conversar, as bolhas flutuam sobre a cidade e o orbe do Cérebro fica no palco à direita.
    Visual único e escuro, escolhido de propósito: não há tema claro. */
+/* Tokens do Observatório (o tema único escolhido em 28/10): os mesmos nomes do tokens.json do Design System. */
 :root {
-  --noite: #080918;
-  --vidro: rgba(20, 22, 54, 0.62);
-  --vidro-forte: rgba(13, 14, 36, 0.84);
-  --campo: rgba(8, 9, 26, 0.58);
-  --borda: rgba(167, 160, 255, 0.18);
-  --borda-forte: rgba(167, 160, 255, 0.36);
-  --tinta: #ecebff;
-  --nevoa: #aaa7da;
-  --apagado: #7b78ae;
-  --anil: #5457ff;
-  --violeta: #6a3df0;
-  --lilas: #b896ff;
-  --ciano: #7fd7ff;
-  --ambar: #ffb867;
-  --ok: #63e6b5;
-  --alerta: #ffcf70;
-  --risco: #ff8aa0;
-  --bolha-cerebro: linear-gradient(155deg, rgba(86, 90, 255, 0.9), rgba(94, 54, 224, 0.86));
-  --bolha-eu: rgba(52, 50, 86, 0.7);
+  /* chão e superfícies */
+  --fundo: #080a11;
+  --superficie: #0e111a;
+  --superficie-2: #141823;
+  --superficie-3: #1b202d;
+  --linha: rgba(170, 185, 225, 0.08);
+  --linha-forte: rgba(170, 185, 225, 0.15);
+  --linha-campo: #666d82;
+  /* texto */
+  --texto-forte: #f3f4f8;
+  --texto: #d4d7e0;
+  --texto-suave: #a3a8b8;
+  --texto-fraco: #8b91a3;
+  /* marca e o que está acontecendo agora */
+  --marca: #a9a6dd;
+  --marca-forte: #d2d0f0;
+  --marca-tinta: #191b30;
+  --marca-linha: #444a78;
+  --sobre-marca: #0a0b17;
+  --vivo: #86c5d8;
+  --foco: #bfc6f5;
+  /* estado: sempre com uma palavra ou um ícone junto */
+  --ok: #72d0a0;
+  --ok-tinta: #0f2420;
+  --alerta: #e0b765;
+  --alerta-tinta: #261f10;
+  --risco: #e58aa0;
+  --risco-tinta: #2a1319;
+  /* evidência: um lilás só, do mais apagado (1) ao mais claro (4) */
+  --ev-1: #6e7289;
+  --ev-2: #8588bf;
+  --ev-3: #a9a9dc;
+  --ev-4: #e6e5f4;
+  --ev-trilho: #232838;
+  /* tipo */
+  --f-titulo: "Sora", "Segoe UI", system-ui, sans-serif;
+  --f-texto: "Inter", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --espaco-rotulo: 0.08em;
+  --espaco-titulo: -0.04em;
+  /* espaço, raio e sombra */
+  --espaco-1: 4px; --espaco-2: 8px; --espaco-3: 12px; --espaco-4: 16px;
+  --espaco-5: 24px; --espaco-6: 32px; --espaco-7: 48px;
+  --raio-p: 5px; --raio-m: 8px; --raio-g: 14px; --raio-no: 18px; --raio-pilula: 999px;
+  --r-p: var(--raio-p); --r-m: var(--raio-m); --r-g: var(--raio-g);
+  --sombra-sobreposta: 0 24px 48px rgba(0, 0, 0, 0.55);
+  --anel-foco: 0 0 0 2px #080a11, 0 0 0 4px #bfc6f5;
+  /* a casca */
+  --largura-barra: 260px;
+  --largura-trilho: 56px;
+  --largura-cerebro: 380px;
+  --largura-centro-min: 640px;
+  --alvo-min: 24px;
+  --alvo-toque: 44px;
+  --grade-pontos: 24px;
+  --grade: radial-gradient(circle, var(--linha-forte) 1px, transparent 1.6px) 0 0 / var(--grade-pontos) var(--grade-pontos);
 
-  --f-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
-  --f-corpo: "Onest", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --f-dado: "Martian Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-
-  --r-painel: 22px;
-  --sombra-neon: 0 18px 50px -20px rgba(84, 87, 255, 0.75);
+  /* Nomes da identidade antiga, apontando para os tokens novos enquanto a casca muda (saem no fim do PR 1). */
+  --noite: var(--fundo);
+  --vidro: var(--superficie);
+  --vidro-forte: var(--superficie);
+  --campo: var(--superficie-2);
+  --borda: var(--linha-forte);
+  --borda-forte: var(--linha-campo);
+  --tinta: var(--texto-forte);
+  --nevoa: var(--texto-suave);
+  --apagado: var(--texto-fraco);
+  --anil: var(--marca);
+  --violeta: var(--marca);
+  --lilas: var(--marca);
+  --ciano: var(--vivo);
+  --ambar: var(--alerta);
+  --bolha-cerebro: var(--superficie-2);
+  --bolha-eu: var(--superficie-3);
+  --f-display: var(--f-titulo);
+  --f-corpo: var(--f-texto);
+  --f-dado: var(--f-mono);
+  --r-painel: var(--raio-g);
+  --sombra-neon: none;
   color-scheme: dark;
 }
 
@@ -38,14 +92,26 @@
 html, body { height: 100%; }
 body {
   margin: 0;
-  background: var(--noite);
-  color: var(--tinta);
-  font: 400 15px/1.55 var(--f-corpo);
+  background: var(--fundo);
+  color: var(--texto);
+  font: 400 15px/1.55 var(--f-texto);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
-:focus-visible { outline: 2px solid var(--ciano); outline-offset: 2px; }
+:focus-visible { outline: none; }
+:where(button, a, input, textarea, select, summary, [tabindex]):focus-visible { box-shadow: var(--anel-foco); }
+
+/* Os estilos de texto do Design System (o mínimo é 12px; 11px só no rótulo mono em maiúsculas). */
+.t-display, .t-titulo { font-family: var(--f-titulo); font-weight: 300; font-style: italic; letter-spacing: var(--espaco-titulo); color: var(--texto-forte); margin: 0; }
+.t-display { font-size: 40px; line-height: 44px; }
+.t-titulo { font-size: 26px; line-height: 32px; }
+.t-secao { font: 400 18px/26px var(--f-titulo); color: var(--texto-forte); margin: 0; }
+.t-corpo { font: 400 15px/24px var(--f-texto); }
+.t-p { font: 400 13px/20px var(--f-texto); }
+.t-legenda { font: 500 12px/16px var(--f-texto); color: var(--texto-suave); }
+.t-rotulo { font: 500 11px/16px var(--f-mono); letter-spacing: var(--espaco-rotulo); text-transform: uppercase; color: var(--texto-suave); }
+.t-dado { font: 400 12px/18px var(--f-mono); font-variant-numeric: tabular-nums; }
 .sr {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;

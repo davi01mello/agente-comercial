@@ -173,3 +173,13 @@ def test_tela_tem_a_entrada_do_google_e_nao_pede_mais_o_nome():
     assert "r.status === 401" in js  # a sessão que acaba volta para a entrada
     assert "por_quem" not in js  # o corpo não leva mais o nome de quem aprova...
     assert "{ ...dados, autor" not in js.split("criado = await chamar")[1][:60]  # ...nem o de quem registra
+
+
+def test_css_tem_os_tokens_do_observatorio():
+    """O tema escolhido em 28/10 (Observatório): os tokens do Design System e as fontes Sora, Inter e JetBrains Mono."""
+    with TestClient(app) as client:
+        css = client.get("/static/cerebro.css").text
+        html = client.get("/").text
+    assert "--fundo: #080a11;" in css and "--marca: #a9a6dd;" in css and "--ev-4: #e6e5f4;" in css
+    assert "family=Sora" in html and "family=Inter" in html and "family=JetBrains+Mono" in html
+    assert "Bricolage" not in html
