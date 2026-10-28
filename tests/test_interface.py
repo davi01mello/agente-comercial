@@ -341,3 +341,16 @@ def test_rascunho_valida_no_campo_antes_de_enviar():
         assert msg in js, msg
     assert "function camposComDadoPessoal(" in js and "Nada foi gravado." in js
     assert "Responda, ou deixe em branco" in js
+
+
+def test_historico_do_chat_fica_so_no_navegador():
+    """A conversa fica no localStorage (por pessoa, até 30 falas) e nunca vai ao servidor além do papel e do texto de
+    cada fala. "Nova conversa" esquece a anterior. Com um item aberto, a pergunta leva o prefixo "Sobre o item"."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert "cerebro.conversa:" in js and "estado.conversa.slice(-30)" in js
+    assert "map(({ role, text }) => ({ role, text }))" in js  # o servidor só recebe papel e texto
+    assert "Nova conversa" in html
+    assert "`Sobre o item ${codigo}" in js and "slice(0, 4000)" in js
+    assert 'id="sobre-chip"' in html and "Tirar o item da pergunta" in js

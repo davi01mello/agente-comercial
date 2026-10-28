@@ -944,6 +944,22 @@ body.sem-login .app { visibility: hidden; }
 .lacuna-selo .t-rotulo { color: var(--alerta); }
 .lacuna-selo > span:not(.t-rotulo) { flex: 1 1 160px; font-size: 13px; line-height: 20px; color: var(--texto-forte); }
 
+/* ---------- o chip "Sobre INS-12" e o contador do compositor ---------- */
+.sobre {
+  display: flex; align-items: center; gap: 4px; align-self: flex-start; padding: 2px 4px 2px 10px;
+  border-radius: var(--raio-pilula); border: 1px solid var(--marca-linha); background: var(--marca-tinta);
+  color: var(--marca-forte); font: 500 12px/18px var(--f-mono);
+}
+.sobre button { width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 50%; background: none; color: var(--marca-forte); cursor: pointer; }
+.sobre button:hover { background: var(--superficie-3); }
+.sobre-fala { color: var(--marca-forte); margin-bottom: 2px; }
+.contador-msg { margin-right: auto; color: var(--texto-suave); }
+.contador-msg.perto { color: var(--alerta); }
+@media (max-width: 860px) {
+  .compor { flex-wrap: wrap; }
+  .sobre { flex-basis: auto; margin-left: -8px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

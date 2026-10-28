@@ -149,10 +149,12 @@
     <div class="cerebro-base">
     <button class="nav-mascote" id="nav-mascote" type="button" aria-label="Abrir a navegação" aria-controls="nav-celular" aria-expanded="false"><span class="mascote" data-mascote="simbolo"></span></button>
     <form class="compor" id="form-chat">
+      <div class="sobre" id="sobre-chip" hidden></div>
       <label class="t-rotulo" for="campo-chat">Pergunta</label>
       <textarea class="campo-msg" id="campo-chat" rows="2" maxlength="4000" placeholder="Pergunte ou conte o que aconteceu"></textarea>
       <p class="aviso-compor t-p" id="aviso-chat" role="alert" hidden></p>
       <div class="compor-base">
+        <span class="contador-msg t-dado" id="contador-msg" aria-live="polite" hidden></span>
         <button class="btn primario enviar" id="enviar-chat" type="submit" aria-label="Perguntar"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
       </div>
     </form>

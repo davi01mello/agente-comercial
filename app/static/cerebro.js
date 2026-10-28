@@ -74,6 +74,8 @@
     focoAntes: null,
     pessoa: null,  // quem entrou (GET /auth/eu): {email, nome, dev, dominio}; null enquanto não entrou
     erroCarga: null,  // a mensagem, quando a base não carregou
+    sobreItem: null,  // o item aberto no centro ("INS-12"): a pergunta pode levá-lo como contexto
+    sobreTirado: false,  // a pessoa tirou o chip "Sobre INS-12" deste item
     ultimaResposta: null,  // os códigos citados na última resposta do Cérebro, na ordem das notas (o mapa usa)
     telaHash: null,  // o endereço da tela aberta no centro ("#fila", "#item/INS-12")
     abas: [],  // as abas abertas além do Hoje (os endereços), lembradas no localStorage
@@ -516,12 +518,12 @@
 
   // Uma fala no painel. A da pessoa é um balão; a do Cérebro (ou o erro) leva o mascote, o texto com as notas numeradas
   // e, abaixo, o que a acompanha. A última resposta com notas fica guardada: o mapa (PR 3) a usa.
-  function adicionarMsg(caixa, { papel, texto, quem, nota: avisoFinal, extra, docs, registrar = false, lacunaId = null, lacunaPergunta = null }) {
+  function adicionarMsg(caixa, { papel, texto, quem, nota: avisoFinal, extra, docs, registrar = false, lacunaId = null, lacunaPergunta = null, sobre = null }) {
     const vazia = caixa.querySelector(".conversa-vazia");
     if (vazia) vazia.remove();
     let linha;
     if (papel === "eu") {
-      linha = el("div", { class: "fala-eu" }, formatar(texto, docs, null));
+      linha = el("div", { class: "fala-eu" }, sobre ? el("p", { class: "sobre-fala t-legenda", text: `Sobre ${sobre}` }) : null, formatar(texto, docs, null));
     } else {
       const notas = new Map();
       linha = el("div", { class: `fala-ele${papel === "erro" ? " erro" : ""}` },
@@ -606,6 +608,7 @@
     for (const s of $$(".tela")) s.hidden = s.dataset.tela !== rota.tela;
     pintarAbas();
     marcarAtivos();
+    atualizarSobre();
     if (rota.tela === "hoje") seguro(pintarHoje, "hoje");
     if (rota.tela === "item") pintarItem(rota.arg);
     if (rota.tela === "base") abrirBase(rota.arg);
@@ -897,24 +900,27 @@
     const compor = $("#form-chat");
     compor.classList.remove("com-erro");
     $("#aviso-chat").hidden = true;
-    const falaEu = semFala ? null : adicionarMsg(caixa, { papel: "eu", texto, quem: nomeDoUsuario() });
-    campo.value = ""; autoAltura(campo);
+    const sobre = codigoSobre();
+    const enviado = sobre ? comPrefixoDoItem(sobre, texto) : texto;
+    const falaEu = semFala ? null : adicionarMsg(caixa, { papel: "eu", texto, quem: nomeDoUsuario(), sobre });
+    campo.value = ""; autoAltura(campo); atualizarContadorMsg();
     estado.ocupado = true; $("#enviar-chat").disabled = true;
     const parar = new AbortController();
     const indicador = digitando(caixa, () => parar.abort());
     try {
-      const r = await chamar("POST", "/chat", { mensagem: texto, historico: estado.conversa.slice(-30) }, parar.signal);
+      const r = await chamar("POST", "/chat", { mensagem: enviado, historico: historicoParaApi() }, parar.signal);
       const resposta = r.resposta;
       const docs = r.documentos || [];
       const lacunaId = r.lacuna_id || null;
       indicador.remove();
       adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", docs,
         registrar: true, lacunaId, lacunaPergunta: texto });
-      estado.conversa.push({ role: "user", text: texto }, { role: "model", text: resposta });
+      estado.conversa.push({ role: "user", text: enviado, mostrar: texto, sobre }, { role: "model", text: resposta, docs, lacunaId });
+      salvarConversa();
       pulsarMascote();
     } catch (e) {
       indicador.remove();
-      if (!campo.value.trim()) { campo.value = texto; autoAltura(campo); }  // a pergunta volta ao campo, para tentar de novo
+      if (!campo.value.trim()) { campo.value = texto; autoAltura(campo); atualizarContadorMsg(); }  // a pergunta volta ao campo, para tentar de novo
       if (e.status === -1) {  // parou de esperar: nada foi respondido
         if (falaEu) falaEu.remove();
       } else if (e.status === 422) {  // dado pessoal (ou texto inválido): nada foi ao modelo, e a mensagem não repete o dado
@@ -931,7 +937,7 @@
         const extra = e.status === 502
           ? el("div", { class: "botoes" }, el("button", { type: "button", class: "btn", onclick: () => {
             linhaErro.remove();
-            if (campo.value.trim() === texto) { campo.value = ""; autoAltura(campo); }
+            if (campo.value.trim() === texto) { campo.value = ""; autoAltura(campo); atualizarContadorMsg(); }
             perguntar(texto, { semFala: true });
           } }, "Tentar de novo"))
           : null;
@@ -953,10 +959,72 @@
         el("p", { class: "t-p", text: "Ele responde com o que o time já aprovou e mostra de onde veio cada parte." })),
       pintarAtalhosChat());
   }
-  function iniciarConversa() {
+  // O histórico do chat fica só neste navegador (localStorage), por pessoa: não vai para o servidor, e a tela funciona
+  // sem ele. Guarda as últimas 30 falas, com os documentos e a lacuna de cada resposta, para reconstruir a conversa.
+  const chaveConversa = () => `cerebro.conversa:${estado.pessoa ? estado.pessoa.email : "dev"}`;
+  function salvarConversa() {
+    if (estado.conversa.length > 30) estado.conversa = estado.conversa.slice(-30);
+    guardar.escrever(chaveConversa(), JSON.stringify(estado.conversa.slice(-30)));
+  }
+  function lerConversaSalva() {
+    try {
+      const lida = JSON.parse(guardar.ler(chaveConversa()) || "[]");
+      return Array.isArray(lida)
+        ? lida.filter((m) => m && (m.role === "user" || m.role === "model") && typeof m.text === "string").slice(-30) : [];
+    } catch {
+      return [];  // o que estava guardado não é JSON: começa uma conversa nova
+    }
+  }
+  // Ao servidor vai só o papel e o texto (os documentos e a lacuna são da tela).
+  const historicoParaApi = () => estado.conversa.slice(-30).map(({ role, text }) => ({ role, text }));
+
+  // "Sobre INS-12": com um item aberto no centro, a pergunta leva o item como contexto. Não há rota para isso: o código
+  // escreve "Sobre o item INS-12 (título):" antes do texto, e o chip sai com o ×.
+  function codigoSobre() { return estado.sobreItem && !estado.sobreTirado ? estado.sobreItem : null; }
+  function comPrefixoDoItem(codigo, texto) {
+    const item = acharItem(codigo);
+    return `Sobre o item ${codigo}${item ? ` (${item.titulo.slice(0, 120)})` : ""}: ${texto}`.slice(0, 4000);  // o limite do servidor
+  }
+  function atualizarSobre() {
+    const [tela, arg] = (estado.telaHash || "").slice(1).split("/");
+    const codigo = tela === "item" && arg && acharItem(arg) ? arg : null;
+    if (codigo !== estado.sobreItem) { estado.sobreItem = codigo; estado.sobreTirado = false; }
+    const ativo = codigoSobre();
+    const chip = $("#sobre-chip");
+    chip.hidden = !ativo;
+    chip.replaceChildren(...(ativo ? [
+      el("span", { text: `Sobre ${ativo}` }),
+      el("button", { type: "button", "aria-label": "Tirar o item da pergunta", onclick: () => { estado.sobreTirado = true; atualizarSobre(); } }, icone("x", "ic p")),
+    ] : []));
+  }
+  // O contador só aparece perto do limite de 4.000 caracteres.
+  function atualizarContadorMsg() {
+    const n = $("#campo-chat").value.length;
+    const c = $("#contador-msg");
+    c.hidden = n < 3800;
+    c.classList.toggle("perto", n >= 3950);
+    c.textContent = `${n.toLocaleString("pt-BR")} / 4.000`;
+  }
+
+  function iniciarConversa({ restaurar = false } = {}) {
     const caixa = $("#mensagens");
     caixa.replaceChildren(conversaVazia());
     estado.conversa = [];
+    estado.ultimaResposta = null;
+    const salvas = restaurar ? lerConversaSalva() : [];
+    if (!restaurar) guardar.escrever(chaveConversa(), "[]");  // "Nova conversa" esquece a anterior
+    if (salvas.length) {  // reconstrói a conversa guardada
+      estado.conversa = salvas;
+      salvas.forEach((m, i) => {
+        if (m.role === "user") {
+          adicionarMsg(caixa, { papel: "eu", quem: nomeDoUsuario(), texto: m.mostrar || m.text, sobre: m.sobre || null });
+        } else {
+          const antes = salvas[i - 1];
+          adicionarMsg(caixa, { papel: "cerebro", quem: "Cérebro", texto: m.text, docs: m.docs || [], registrar: true,
+            lacunaId: m.lacunaId || null, lacunaPergunta: antes ? (antes.mostrar || antes.text) : null });
+        }
+      });
+    }
   }
 
   // ---------------------------------------------------------------- registrar (o rascunho do curador, prancha 3)
@@ -1014,7 +1082,7 @@
     if (location.hash === "#registrar") pintarRegistrar(); else location.hash = "#registrar";
     const relato = (texto || relatoDaConversa()).slice(0, 8000);
     try {
-      const corpo = { historico: estado.conversa.slice(-30) };
+      const corpo = { historico: historicoParaApi() };
       if (texto) corpo.texto = texto;
       if (lacunaId) corpo.lacuna_id = lacunaId;
       const proposta = await chamar("POST", "/chat/registrar", corpo);
@@ -2184,9 +2252,10 @@
 
     $("#form-briefing").addEventListener("submit", montarBriefing);
     $("#nova-conversa").addEventListener("click", () => {
-      if (!estado.ocupado) iniciarConversa();
+      if (!estado.ocupado) iniciarConversa();  // "Nova conversa" limpa também o que ficou guardado neste navegador
       $("#campo-chat").focus();
     });
+    $("#campo-chat").addEventListener("input", atualizarContadorMsg);
 
     // A barra lateral recolhe num trilho só de ícones; o navegador lembra a escolha (se o localStorage deixar).
     const app = $("#app");
@@ -2250,7 +2319,8 @@
     if (rascunho) { $("#campo-chat").value = rascunho; guardar.escrever("cerebro.rascunho-chat", ""); }
     await carregarItens();
     atualizarNumeros();
-    iniciarConversa();
+    iniciarConversa({ restaurar: true });
+    atualizarContadorMsg();
     rotear();
   }
 
