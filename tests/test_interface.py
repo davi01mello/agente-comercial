@@ -384,3 +384,22 @@ def test_pagina_do_item_mostra_ligacoes_de_ida_e_de_volta():
     assert 'ORDEM_LIGACAO = ["contradiz", "substitui", "reforca", "duplica"]' in js  # as que importam vêm primeiro
     assert "Perguntar sobre este item" in js and "Copiar código" in js
     assert "relacoes-de-quem-cita" not in js and "/citado" not in js  # a API não entrega "citado em"
+
+
+def test_fila_anda_pelo_teclado():
+    """J e K movem, Enter abre, A aprova, R vai ao motivo, X marca, Shift+A aprova os marcados (com a confirmação) e ?
+    mostra os atalhos. A legenda fica sempre visível, e nada é otimista: o cartão fica "aprovando…" até o servidor."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+        css = client.get("/static/cerebro.css").text
+    assert "function teclasDaFila(" in js and 'document.addEventListener("keydown", teclasDaFila)' in js
+    for trecho in ('k === "j"', 'k === "k"', 'k === "a"', 'k === "r"', 'k === "x"', 'k === "enter"'):
+        assert trecho in js, trecho
+    assert 'e.shiftKey && e.key.toLowerCase() === "a"' in js and "function pedirLote(" in js
+    assert 'id="teclas-fila"' in html and "aprovar marcados, sem ler um a um" in js
+    assert '"Aprovando…"' in js and "Contradiz um item aprovado" in js
+    assert "Recarregar a Fila" in js and "Para rejeitar, escreva o motivo." in js
+    # na Fila, de 1280 px em diante, o Cérebro vira um trilho de 64 px que reabre o painel
+    assert 'classList.toggle("fila-aberta"' in js and 'id="trilho-cerebro"' in html
+    assert "body.fila-aberta { --largura-cerebro: 64px; }" in css and "(min-width: 1280px)" in css

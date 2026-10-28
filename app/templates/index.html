@@ -75,10 +75,13 @@
         <div class="miolo tela-lista">
           <header class="cab-tela">
             <p class="t-rotulo">Trabalho · Fila</p>
-            <h1 class="t-titulo">Esperando a leitura do time</h1>
+            <h1 class="t-titulo" id="titulo-fila">Esperando a leitura do time</h1>
             <p class="t-corpo">Itens propostos e itens vindos de fontes antigas. Nada entra na base sem alguém aprovar.</p>
+            <div class="filtros" id="filtros-fila" role="group" aria-label="Filtrar por origem"></div>
           </header>
-          <div class="lista" id="lista-fila"></div>
+          <div id="lote-fila"></div>
+          <div class="fila-grade" id="lista-fila"></div>
+          <div class="teclas-fila" id="teclas-fila" aria-label="Atalhos de teclado da Fila"></div>
         </div>
       </section>
 
@@ -138,6 +141,7 @@
   </main>
 
   <aside class="cerebro" id="painel-cerebro" aria-label="Cérebro">
+    <button class="trilho-cerebro" id="trilho-cerebro" type="button" aria-label="Abrir o Cérebro" title="Abrir o Cérebro (⌘J)"><span class="mascote p" data-mascote="simbolo"></span><span class="t-rotulo">Cérebro</span></button>
     <div class="cerebro-topo">
       <span class="mascote p" data-mascote="simbolo"></span>
       <h2 class="t-secao">Cérebro</h2>

@@ -71,7 +71,8 @@
     fontes: null,  // o resumo de GET /fontes/resumo
     filtroFontes: { status: null, busca: "", origem: null },
     sync: { id: null, dry: false, exec: null, acompanhando: false, teto: 1, origem: "notion" },
-    fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [] },
+    fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [],
+      atual: null, processando: null, erro: null, ajuda: false },
     focoAntes: null,
     pessoa: null,  // quem entrou (GET /auth/eu): {email, nome, dev, dominio}; null enquanto não entrou
     erroCarga: null,  // a mensagem, quando a base não carregou
@@ -605,6 +606,7 @@
   function mostrarTela(rota) {
     estado.tela = rota.tela;
     estado.telaHash = rota.hash;
+    document.body.classList.toggle("fila-aberta", rota.tela === "fila");
     abrirAba(rota.hash);
     for (const s of $$(".tela")) s.hidden = s.dataset.tela !== rota.tela;
     pintarAbas();
@@ -624,8 +626,11 @@
     if (tela) tela.scrollTop = 0;
   }
   // O painel do Cérebro: fixo no desktop, gaveta de 861 a 1279 px e tela cheia no celular.
+  // Na Fila, de 1280 px em diante, o painel vira um trilho de 64 px (a lista e o detalhe ganham a largura); o trilho abre o
+  // Cérebro por cima, do mesmo jeito que a gaveta de 861 a 1279 px. Ao sair da Fila, o painel volta como estava.
+  const trilhoDaFila = () => document.body.classList.contains("fila-aberta") && !ESTREITO.matches;
   function mostrarCerebro() {
-    if (ehGaveta()) abrirGavetaCerebro();
+    if (ehGaveta() || trilhoDaFila()) abrirGavetaCerebro();
     else if (!CELULAR.matches) $("#campo-chat").focus();
   }
   function abrirGavetaCerebro() {
@@ -808,8 +813,8 @@
   }
   function seloDaFila(it) {
     if ((it.relacoes || []).some((r) => r.tipo === "contradiz")) return el("span", { class: "selo risco", text: "Contradiz" });
-    const origem = ORIGEM_ITEM[it.fonte] || it.fonte;
-    return el("span", { class: it.status === "historico_a_validar" ? "selo alerta" : "selo", text: origem });
+    if (it.status === "historico_a_validar") return el("span", { class: "selo alerta", text: "Histórico a validar" });
+    return el("span", { class: "selo", text: ORIGEM_ITEM[it.fonte] || it.fonte });
   }
   function painelFila(fila) {
     const sec = el("section", { class: "painel raso" }, el("div", { class: "cab-painel" },
@@ -1482,79 +1487,212 @@
     }
   }
 
-  // ---------------------------------------------------------------- fila
+  // ---------------------------------------------------------------- fila (a triagem pelo teclado, prancha 4)
+  // A lista à esquerda, o item selecionado à direita. Teclado (fora de campo de texto): J e K movem, Enter abre, A aprova,
+  // R vai ao motivo (obrigatório), X marca, Shift+A aprova os marcados (com a confirmação) e ? mostra os atalhos. Nada é
+  // otimista: o cartão fica "aprovando…" até o servidor responder. O lote é um laço de POST /insights/{id}/aprovar.
   const ORIGEM_ITEM = { chat: "Chat", notion: "Notion", drive: "Drive", canva: "Canva", reuniao: "Reunião", upload: "Arquivo" };
   const POR_PAGINA_FILA = 30;
-  let barraLote = null;
+  const ATALHOS_FILA = [
+    ["J", "K", "mover"], ["A", null, "aprovar"], ["R", null, "rejeitar"], ["X", null, "marcar"],
+    ["⇧A", null, "aprovar marcados, sem ler um a um"], ["?", null, "todos os atalhos"],
+  ];
+
+  // "hoje", "ontem" ou o dia: a data de quando o item foi registrado (sem criado_em, nada).
+  function dataRelativa(iso) {
+    if (!iso) return "";
+    const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`);
+    if (Number.isNaN(d.getTime())) return "";
+    const dias = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+    if (dias <= 0) return "hoje";
+    if (dias === 1) return "ontem";
+    return d.toLocaleDateString("pt-BR", { day: "numeric", month: "short" }).replace(".", "");
+  }
+  const filaAtual = () => estado.itens.find((i) => i.id === estado.fila.atual) || null;
 
   function pintarFila() {
-    const box = $("#lista-fila");
-    box.replaceChildren();
     const f = estado.fila;
-    const itens = estado.itens.filter(estaNaFila);
+    const itens = estado.itens.filter(estaNaFila).sort((a, b) => b.id - a.id);
     for (const id of [...f.selecionados]) if (!itens.some((i) => i.id === id)) f.selecionados.delete(id);  // já decididos
-    if (!itens.length) {
-      box.append(el("div", { class: "embrulho" }, vazio("A Fila está vazia",
-        "Quando alguém registrar um relato, ele aparece aqui para ser aprovado ou rejeitado.",
-        el("a", { class: "btn primario", href: "#registrar", text: "Registrar um relato" }))));
+    $("#titulo-fila").textContent = itens.length ? `${itens.length} ${itens.length === 1 ? "item esperando" : "itens esperando"} a leitura do time` : "Nada para revisar";
+    $("#teclas-fila").hidden = !itens.length || CELULAR.matches;
+    const lista = $("#lista-fila");
+    if (!itens.length) {  // a Fila em dia
+      $("#filtros-fila").replaceChildren();
+      $("#lote-fila").replaceChildren();
+      lista.replaceChildren(vazio("Nada para revisar",
+        "Itens novos chegam pela conversa, pelo Registrar e pela sincronização das fontes.",
+        el("a", { class: "btn primario", href: "#registrar", text: "Registrar algo" })));
       return;
     }
     const origens = [...new Set(itens.map((i) => i.fonte))];
     if (f.origem && !origens.includes(f.origem)) f.origem = null;
     const visiveis = itens.filter((i) => !f.origem || i.fonte === f.origem);
     f.visiveis = visiveis;
-
-    box.append(el("p", { class: "resumo-lista", text: `${itens.length} ${itens.length === 1 ? "item esperando" : "itens esperando"} revisão` }));
-    if (origens.length > 1) {
-      box.append(el("div", { class: "filtros" },
-        chip(`Todas (${itens.length})`, !f.origem, () => { f.origem = null; f.mostrar = POR_PAGINA_FILA; pintarFila(); }),
-        ...origens.map((o) => chip(`${ORIGEM_ITEM[o] || o} (${itens.filter((i) => i.fonte === o).length})`, f.origem === o,
-          () => { f.origem = f.origem === o ? null : o; f.mostrar = POR_PAGINA_FILA; pintarFila(); }))));
-    }
-    barraLote = el("div", { class: "barra-lote", role: "region", "aria-label": "Aprovar vários de uma vez" });
-    box.append(barraLote);
-    atualizarBarraLote();
-
-    for (const it of visiveis.slice(0, f.mostrar)) box.append(cartaoFila(it));
+    if (!visiveis.some((i) => i.id === f.atual)) f.atual = visiveis.length ? visiveis[0].id : null;
+    const reiniciar = (origem) => () => { f.origem = origem; f.mostrar = POR_PAGINA_FILA; pintarFila(); };
+    $("#filtros-fila").replaceChildren(
+      chip(`Todas as origens (${itens.length})`, !f.origem, reiniciar(null)),
+      ...(origens.length > 1 ? origens.map((o) => chip(`${ORIGEM_ITEM[o] || o} (${itens.filter((i) => i.fonte === o).length})`, f.origem === o,
+        reiniciar(f.origem === o ? null : o))) : []));
+    pintarLote();
+    const coluna = el("div", { class: "fila-lista", role: "list", "aria-label": "Itens esperando" },
+      ...visiveis.slice(0, f.mostrar).map(itemDaFila));
     if (visiveis.length > f.mostrar) {
-      box.append(el("button", { type: "button", class: "btn fantasma",
+      coluna.append(el("button", { type: "button", class: "btn fantasma",
         onclick: () => { f.mostrar += POR_PAGINA_FILA; pintarFila(); } },
-        `Mostrar mais ${Math.min(POR_PAGINA_FILA, visiveis.length - f.mostrar)} (restam ${visiveis.length - f.mostrar})`));
+      `Mostrar mais ${Math.min(POR_PAGINA_FILA, visiveis.length - f.mostrar)} (restam ${visiveis.length - f.mostrar})`));
     }
+    lista.replaceChildren(coluna, el("aside", { class: "fila-detalhe", id: "fila-detalhe", "aria-label": "Item selecionado" }));
+    pintarDetalhe();
+    pintarTeclasFila();
   }
-  function atualizarBarraLote() {
-    if (!barraLote) return;
+  function itemDaFila(it) {
     const f = estado.fila;
+    const marcado = f.selecionados.has(it.id);
+    const atual = f.atual === it.id;
+    const caixa = el("input", { type: "checkbox", class: "marcar", checked: marcado ? "" : null, "aria-label": `Marcar ${it.codigo}: ${it.titulo}` });
+    caixa.addEventListener("change", () => alternarMarca(it.id, caixa.checked));
+    const corpo = el("button", { type: "button", class: "fila-corpo", "aria-current": atual ? "true" : null,
+      onclick: () => { if (CELULAR.matches) abrirItem(it.codigo); else selecionarNaFila(it.id); } },
+    el("span", { class: "linha-topo" }, el("span", { class: "t-dado", text: it.codigo }),
+      el("span", { class: "t-rotulo", text: TIPOS[it.tipo] || it.tipo }), seloDaFila(it)),
+    el("b", { class: "titulo", text: it.titulo }),
+    el("span", { class: "evid" }, trilha(it.evidencia),
+      [EVIDENCIA[it.evidencia], ORIGEM_ITEM[it.fonte] || it.fonte, dataRelativa(it.criado_em)].filter(Boolean).join(" · ")));
+    const processando = f.processando === it.id;
+    return el("article", { class: `fila-item${atual ? " selecionado" : ""}${marcado ? " marcado" : ""}${processando ? " aprovando" : ""}`,
+      "data-id": String(it.id), role: "listitem", "aria-busy": processando ? "true" : null }, caixa, corpo);
+  }
+  function selecionarNaFila(id, { foco = false } = {}) {
+    const f = estado.fila;
+    f.atual = id;
+    f.erro = null;
+    for (const cartao of $$("#lista-fila .fila-item")) {
+      const dele = Number(cartao.dataset.id) === id;
+      cartao.classList.toggle("selecionado", dele);
+      const corpo = $(".fila-corpo", cartao);
+      if (dele) corpo.setAttribute("aria-current", "true"); else corpo.removeAttribute("aria-current");
+      if (dele && foco) { corpo.focus(); cartao.scrollIntoView({ block: "nearest" }); }
+    }
+    pintarDetalhe();
+  }
+  function moverNaFila(delta) {
+    const f = estado.fila;
+    if (!f.visiveis.length) return;
+    const i = f.visiveis.findIndex((x) => x.id === f.atual);
+    const novo = f.visiveis[Math.min(f.visiveis.length - 1, Math.max(0, (i < 0 ? 0 : i) + delta))];
+    selecionarNaFila(novo.id, { foco: true });
+  }
+  function alternarMarca(id, marcado) {
+    const f = estado.fila;
+    if (marcado) f.selecionados.add(id); else f.selecionados.delete(id);
+    f.confirmando = false;
+    const cartao = $(`#lista-fila .fila-item[data-id="${id}"]`);
+    if (cartao) { cartao.classList.toggle("marcado", marcado); $("input.marcar", cartao).checked = marcado; }
+    pintarLote();
+  }
+
+  // O item selecionado: o texto, a contradição com um item já aprovado, o motivo e as ações.
+  function pintarDetalhe() {
+    const f = estado.fila;
+    const caixa = $("#fila-detalhe");
+    const it = filaAtual();
+    if (!caixa) return;
+    if (!it) { caixa.replaceChildren(); return; }
+    const ocupado = f.processando === it.id;
+    const contradiz = (it.relacoes || []).filter((r) => r.tipo === "contradiz")
+      .map((r) => estado.itens.find((o) => o.id === r.relacionado_id)).filter((o) => o && !estaNaFila(o) && o.status !== "obsoleto");
+    const avs = avisosDeEvidencia(it);
+    const motivo = el("textarea", { id: "motivo-fila", rows: "2", maxlength: "1000", placeholder: "Por exemplo: um caso só, e vai contra o que já está aprovado" });
+    motivo.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); rejeitarAtual(); }
+      if (e.key === "Escape") { e.stopPropagation(); motivo.blur(); }
+    });
+    caixa.replaceChildren(...[
+      el("p", { class: "t-rotulo marca", text: `${it.codigo} · ${TIPOS[it.tipo] || it.tipo} · ${(STATUS[it.status] || it.status).toLowerCase()}` }),
+      el("div", { class: "meta" },
+        el("span", { class: "selo", text: [ORIGEM_ITEM[it.fonte] || it.fonte, it.autor, dataRelativa(it.criado_em)].filter(Boolean).join(" · ") })),
+      el("h2", { class: "t-titulo", text: it.titulo }),
+      el("p", { class: "desc", text: it.descricao }),
+      el("div", { class: "meta" },
+        el("span", { class: "etiqueta", text: NOME_SECAO[it.secao] || it.secao }),
+        el("span", { class: "etiqueta", text: it.segmento ? capital(it.segmento) : "Todos os segmentos" }),
+        el("span", { class: "evid" }, trilha(it.evidencia), EVIDENCIA[it.evidencia]),
+        linkOrigem(it)),
+      ...contradiz.map((o) => el("div", { class: "contradiz-aprovado", role: "note" },
+        el("p", { class: "t-rotulo" }, icone("alerta", "ic p"), "Contradiz um item aprovado"),
+        el("div", { class: "contradiz-duplo" },
+          el("div", { class: "cartao" }, el("span", { class: "t-legenda", text: "Este item" }), el("b", { text: it.titulo })),
+          el("a", { class: "cartao", href: `#item/${o.codigo}` }, el("span", { class: "t-legenda", text: `${o.codigo} · ${STATUS[o.status] || o.status}` }), el("b", { text: o.titulo }))),
+        el("p", { class: "t-p suave", text: `Aprovar não muda o ${o.codigo}: os dois ficam na base, ligados por “contradiz”, e o mapa mostra a linha entre eles.` }))),
+      avs.length ? listaAvisos(avs) : null,
+      f.erro && f.erro.id === it.id ? el("div", { class: "aviso-registro", role: "alert" }, icone("alerta", "ic p"), el("span", { class: "t-p", text: f.erro.msg }),
+        f.erro.recarregar ? el("button", { type: "button", class: "btn", onclick: async () => { f.erro = null; await carregarItens(); atualizarNumeros(); pintarFila(); } }, "Recarregar a Fila") : null) : null,
+      el("div", { class: "campo" }, el("label", { for: "motivo-fila", text: "Motivo para rejeitar (obrigatório)" }), motivo),
+      el("div", { class: "botoes" },
+        el("button", { type: "button", class: "btn primario", disabled: ocupado || null, onclick: aprovarAtual },
+          icone("check", "ic p"), ocupado ? "Aprovando…" : "Aprovar", ocupado ? null : tecla("A")),
+        el("button", { type: "button", class: "btn perigo", disabled: ocupado || null, onclick: rejeitarAtual }, "Rejeitar", tecla("R")),
+        el("button", { type: "button", class: "btn fantasma", onclick: () => moverNaFila(1) }, "Próximo", tecla("J")),
+        el("a", { class: "btn fantasma", href: `#item/${it.codigo}` }, "Abrir", tecla("↵"))),
+    ].filter(Boolean));
+  }
+  async function aprovarAtual() {
+    const f = estado.fila;
+    const it = filaAtual();
+    if (!it || f.processando) return;
+    const r = await decidir(it, "aprovar");
+    if (!r.ok) { f.erro = { id: it.id, msg: r.msg, recarregar: r.recarregar }; pintarDetalhe(); }
+  }
+  async function rejeitarAtual() {
+    const f = estado.fila;
+    const it = filaAtual();
+    if (!it || f.processando) return;
+    const campo = $("#motivo-fila");
+    if (!campo.value.trim()) { marcarErroCampo("motivo-fila", "Para rejeitar, escreva o motivo."); campo.focus(); return; }
+    const r = await decidir(it, "rejeitar", campo.value);
+    if (!r.ok) { f.erro = { id: it.id, msg: r.msg, recarregar: r.recarregar }; pintarDetalhe(); }
+  }
+
+  // A barra do lote: quantos estão marcados, "Aprovar os marcados (⇧A)", a confirmação e o progresso "7 de 12".
+  function pintarLote() {
+    const f = estado.fila;
+    const caixa = $("#lote-fila");
     const n = f.selecionados.size;
-    const todosMarcados = f.visiveis.length > 0 && f.visiveis.every((i) => f.selecionados.has(i.id));
     if (f.aprovando) {
-      barraLote.replaceChildren(el("span", { class: "lote-info", role: "status",
-        text: `Aprovando ${f.aprovando.feitos} de ${f.aprovando.total}…` }));
+      caixa.replaceChildren(el("div", { class: "barra-lote" }, el("span", { class: "lote-info", role: "status",
+        text: `Aprovando ${f.aprovando.feitos} de ${f.aprovando.total}…` })));
       return;
     }
-    barraLote.replaceChildren(...[  // replaceChildren(null) escreveria o texto "null": só entra o que existe
+    const todosMarcados = f.visiveis.length > 0 && f.visiveis.every((i) => f.selecionados.has(i.id));
+    const codigos = [...f.selecionados].map((id) => estado.itens.find((i) => i.id === id)).filter(Boolean).map((i) => i.codigo);
+    const resumo = codigos.length <= 3 ? codigos.join(", ").replace(/, ([^,]*)$/, " e $1") : `${codigos.slice(0, 2).join(", ")} e mais ${codigos.length - 2}`;
+    caixa.replaceChildren(el("div", { class: "barra-lote", role: "region", "aria-label": "Aprovar vários de uma vez" }, ...[
       el("button", { type: "button", class: "btn fantasma",
         onclick: () => {
-          if (todosMarcados) for (const i of f.visiveis) f.selecionados.delete(i.id);
-          else for (const i of f.visiveis) f.selecionados.add(i.id);
+          for (const i of f.visiveis) { if (todosMarcados) f.selecionados.delete(i.id); else f.selecionados.add(i.id); }
           f.confirmando = false;
-          for (const c of $$("#lista-fila .sel input")) c.checked = f.selecionados.has(Number(c.dataset.id));
-          for (const c of $$("#lista-fila .item")) c.classList.toggle("selecionado", f.selecionados.has(Number(c.dataset.id)));
-          atualizarBarraLote();
+          pintarFila();
         } }, todosMarcados ? "Desmarcar todos" : `Selecionar todos (${f.visiveis.length})`),
-      el("span", { class: "lote-info", text: n ? `${n} ${n === 1 ? "selecionado" : "selecionados"}` : "Marque os itens que quer aprovar de uma vez" }),
+      n ? el("span", { class: "selo marca", text: `${n} ${n === 1 ? "marcado" : "marcados"}` }) : null,
+      el("span", { class: "lote-info", text: n ? resumo : "Marque com X os itens que quer aprovar de uma vez" }),
       n && !f.confirmando
-        ? el("button", { type: "button", class: "btn primario",
-            onclick: () => { f.confirmando = true; atualizarBarraLote(); } }, n === 1 ? "Aprovar o item selecionado" : `Aprovar ${n} selecionados`)
+        ? el("button", { type: "button", class: "btn", onclick: pedirLote },
+          n === 1 ? "Aprovar o item marcado" : "Aprovar os marcados", tecla("⇧A"))
         : null,
       n && f.confirmando
-        ? el("button", { type: "button", class: "btn primario", onclick: aprovarSelecionados },
-            `Confirmar: aprovar ${n} sem ler um a um`)
+        ? el("button", { type: "button", class: "btn primario", id: "confirmar-lote", onclick: aprovarSelecionados },
+          `Confirmar: aprovar ${n} sem ler um a um`)
         : null,
       n && f.confirmando
-        ? el("button", { type: "button", class: "btn fantasma",
-            onclick: () => { f.confirmando = false; atualizarBarraLote(); } }, "Cancelar")
-        : null].filter(Boolean));
+        ? el("button", { type: "button", class: "btn fantasma", onclick: () => { f.confirmando = false; pintarLote(); } }, "Cancelar")
+        : null].filter(Boolean)));
+  }
+  function pedirLote() {  // o primeiro Shift+A pede a confirmação; o segundo a confirma
+    const f = estado.fila;
+    if (!f.selecionados.size || f.aprovando) return;
+    if (!f.confirmando) { f.confirmando = true; pintarLote(); const b = $("#confirmar-lote"); if (b) b.focus(); } else aprovarSelecionados();
   }
   async function aprovarSelecionados() {
     const autor = exigirAutor();
@@ -1563,11 +1701,11 @@
     const ids = [...f.selecionados];
     f.confirmando = false;
     f.aprovando = { feitos: 0, total: ids.length };
-    atualizarBarraLote();
+    pintarLote();
     let aprovados = 0;
     const falhas = [];
     let semServidor = false;
-    for (const id of ids) {
+    for (const id of ids) {  // um por um: quando um falha, a fila segue e diz qual falhou
       try {
         await chamar("POST", `/insights/${id}/aprovar`);
         aprovados += 1;
@@ -1577,11 +1715,11 @@
         if (e.status === 0) { semServidor = true; break; }  // sem servidor: não adianta tentar os outros
       }
       f.aprovando.feitos += 1;
-      atualizarBarraLote();
+      pintarLote();
     }
     f.aprovando = null;
     await carregarItens();
-    if (aprovados) { pulsarMascote(); }
+    if (aprovados) pulsarMascote();
     const restantes = semServidor ? ids.length - aprovados : falhas.length;
     aviso(restantes
       ? `${aprovados} aprovados. ${restantes} não foram aprovados${semServidor ? " (o servidor parou de responder)" : `: ${falhas.slice(0, 5).join(", ")}${falhas.length > 5 ? "…" : ""}`}. Continuam marcados.`
@@ -1589,60 +1727,67 @@
     atualizarNumeros();
     pintarFila();
   }
-  function cartaoFila(it) {
-    const idMotivo = `motivo-${it.id}`;
-    const motivo = el("div", { class: "motivo", hidden: true },
-      el("label", { class: "rotulo", for: idMotivo, text: "Motivo da rejeição" }),
-      el("textarea", { id: idMotivo, rows: "2", maxlength: "1000", placeholder: "Ex.: duplica outro item e não traz nada novo" }),
-      el("div", { class: "botoes" },
-        el("button", { type: "button", class: "btn perigo", onclick: () => decidir(it, "rejeitar", $(`#${idMotivo}`).value) }, "Confirmar rejeição"),
-        el("button", { type: "button", class: "btn fantasma", onclick: () => { motivo.hidden = true; } }, "Cancelar")));
-    const marcado = estado.fila.selecionados.has(it.id);
-    const caixa = el("input", { type: "checkbox", "data-id": String(it.id), checked: marcado ? "" : null,
-      "aria-label": `Selecionar ${it.codigo}: ${it.titulo}` });
-    caixa.addEventListener("change", () => {
-      const f = estado.fila;
-      if (caixa.checked) f.selecionados.add(it.id); else f.selecionados.delete(it.id);
-      f.confirmando = false;
-      card.classList.toggle("selecionado", caixa.checked);
-      atualizarBarraLote();
-    });
-    const card = el("article", { class: marcado ? "item selecionado" : "item", "data-id": String(it.id) },
-      el("label", { class: "sel" }, caixa, el("span", { text: "Selecionar" })),
-      metaItem(it),
-      el("h3", { text: it.titulo }),
-      el("p", { class: "desc", text: it.descricao }),
-      el("div", { class: "linha-evid" },
-        el("span", { class: "evid" }, trilha(it.evidencia), `Evidência ${it.evidencia} · ${EVIDENCIA[it.evidencia]}`),
-        el("span", { text: [it.autor, dataBr(it.data_evento), it.codigo].filter(Boolean).join(" · ") }),
-        linkOrigem(it)));
-    if (it.relacoes && it.relacoes.length) card.append(el("div", { class: "relacoes" }, it.relacoes.map((r) => relacaoChip(r, it))));
-    const avs = avisosDeEvidencia(it);
-    if (avs.length) card.append(listaAvisos(avs));
-    card.append(
-      el("div", { class: "botoes" },
-        el("button", { type: "button", class: "btn primario", onclick: () => decidir(it, "aprovar") }, "Aprovar"),
-        el("button", { type: "button", class: "btn perigo", onclick: () => { motivo.hidden = false; $(`#${idMotivo}`).focus(); } }, "Rejeitar"),
-        el("button", { type: "button", class: "btn fantasma", onclick: () => abrirItem(it.codigo) }, "Ver detalhes")),
-      motivo);
-    return card;
+
+  // A legenda fixa no rodapé e o painel de "todos os atalhos" (a tecla ?).
+  function pintarTeclasFila() {
+    const f = estado.fila;
+    const caixa = $("#teclas-fila");
+    caixa.replaceChildren(...[
+      ...ATALHOS_FILA.map(([a, b, texto]) => el("span", { class: "t-legenda" }, tecla(a), b ? tecla(b) : null, texto)),
+      f.ajuda ? el("div", { class: "atalhos-todos", role: "dialog", "aria-label": "Atalhos da Fila" },
+        el("p", { class: "t-rotulo", text: "Todos os atalhos da Fila" }),
+        el("ul", {},
+          [["J ou ↓", "próximo item"], ["K ou ↑", "item anterior"], ["Enter", "abrir o item"], ["A", "aprovar o item"],
+            ["R", "ir ao motivo para rejeitar (⌘↵ confirma)"], ["X", "marcar ou desmarcar"],
+            ["⇧A", "aprovar os marcados, com confirmação"], ["?", "mostrar ou esconder esta lista"]]
+            .map(([k, t]) => el("li", {}, tecla(k), ` ${t}`)))) : null].filter(Boolean));
   }
-  async function decidir(it, acao, motivo) {
-    const autor = exigirAutor();
-    if (!autor) return;
-    if (acao === "rejeitar" && !(motivo && motivo.trim())) { aviso("Para rejeitar, escreva o motivo.", "erro"); return; }
-    try {
-      await chamar("POST", `/insights/${it.id}/${acao}`, acao === "aprovar" ? undefined : { motivo: motivo.trim() });
-      await carregarItens();
-      aviso(acao === "aprovar" ? `${it.codigo} aprovado. Já está na base.` : `${it.codigo} rejeitado e marcado como obsoleto.`, "ok");
-      pulsarMascote();
-      atualizarNumeros();
-      pintarFila();
-    } catch (e) {
-      aviso(e.message, "erro");
+  function teclasDaFila(e) {
+    if (estado.tela !== "fila" || paleta.aberta || e.metaKey || e.ctrlKey || e.altKey) return;
+    const alvo = e.target;
+    if (alvo.matches("textarea, select, [contenteditable]") || (alvo.matches("input") && !["checkbox", "button"].includes(alvo.type))) return;  // digitando
+    const f = estado.fila;
+    if (e.key === "?") { e.preventDefault(); f.ajuda = !f.ajuda; pintarTeclasFila(); return; }
+    if (e.key === "Escape" && f.ajuda) { f.ajuda = false; pintarTeclasFila(); return; }
+    if (e.shiftKey && e.key.toLowerCase() === "a") { e.preventDefault(); pedirLote(); return; }
+    if (e.shiftKey) return;
+    const k = e.key.toLowerCase();
+    if (k === "j" || k === "arrowdown") { e.preventDefault(); moverNaFila(1); }
+    else if (k === "k" || k === "arrowup") { e.preventDefault(); moverNaFila(-1); }
+    else if (k === "a") { e.preventDefault(); aprovarAtual(); }
+    else if (k === "r") { e.preventDefault(); const c = $("#motivo-fila"); if (c) c.focus(); }
+    else if (k === "x") { e.preventDefault(); if (f.atual != null) alternarMarca(f.atual, !f.selecionados.has(f.atual)); }
+    else if (k === "enter" && (alvo === document.body || alvo.matches(".fila-corpo, .marcar"))) {  // Enter abre o item selecionado
+      const it = filaAtual();
+      if (it) { e.preventDefault(); abrirItem(it.codigo); }
     }
   }
 
+  // Aprovar ou rejeitar um item: o servidor decide, e a tela só reflete (nada de atualização otimista). Devolve
+  // { ok } ou { ok: false, msg, recarregar }: quem chamou mostra o erro onde faz sentido.
+  async function decidir(it, acao, motivo) {
+    const f = estado.fila;
+    if (acao === "rejeitar" && !(motivo && motivo.trim())) return { ok: false, msg: "Para rejeitar, escreva o motivo." };
+    f.processando = it.id;
+    f.erro = null;
+    if (estado.tela === "fila") pintarFila();
+    try {
+      await chamar("POST", `/insights/${it.id}/${acao}`, acao === "aprovar" ? undefined : { motivo: motivo.trim() });
+      await carregarItens();
+      const i = f.visiveis.findIndex((x) => x.id === it.id);  // o próximo da lista ganha o foco
+      const proximo = f.visiveis[i + 1] || f.visiveis[i - 1];
+      f.atual = proximo ? proximo.id : null;
+      aviso(acao === "aprovar" ? `${it.codigo} aprovado. Já está na base.` : `${it.codigo} rejeitado e marcado como obsoleto.`, "ok");
+      pulsarMascote();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, msg: e.message, recarregar: e.status === 422 && /outra pessoa/.test(e.message) };
+    } finally {
+      f.processando = null;
+      atualizarNumeros();
+      if (estado.tela === "fila") pintarFila();
+    }
+  }
 
   // ---------------------------------------------------------------- fontes
   const ORIGEM = { notion: "Notion", drive: "Drive", upload: "Arquivo" };
@@ -2048,7 +2193,8 @@
       el("h2", { class: "t-rotulo", text: titulo }), el("p", { class: "t-corpo", text: texto })) : null;
   }
   async function decidirNoItem(it, acao, motivo) {
-    await decidir(it, acao, motivo);
+    const r = await decidir(it, acao, motivo);
+    if (!r.ok) aviso(r.msg, "erro");
     if (estado.telaHash === `#item/${it.codigo}`) pintarItem(it.codigo);
   }
   function perguntarSobre() {
@@ -2442,6 +2588,7 @@
       $("#campo-chat").focus();
     });
     $("#campo-chat").addEventListener("input", atualizarContadorMsg);
+    document.addEventListener("keydown", teclasDaFila);
     const anexar = $("#anexar");
     const arquivo = $("#arquivo-anexo");
     anexar.addEventListener("click", () => arquivo.click());
@@ -2464,6 +2611,7 @@
 
     // A gaveta do Cérebro (de 861 a 1279 px): o botão no topo do centro ou Cmd+J; Esc e o fundo fecham.
     $("#abrir-cerebro").addEventListener("click", abrirGavetaCerebro);
+    $("#trilho-cerebro").addEventListener("click", abrirGavetaCerebro);
     $("#fechar-cerebro").addEventListener("click", fecharGavetaCerebro);
     $("#fundo-cerebro").addEventListener("click", fecharGavetaCerebro);
     $("#nav-mascote").addEventListener("click", () => { if (!fecharNavCelular()) abrirNavCelular(); });
@@ -2481,7 +2629,7 @@
       if (paleta.aberta) return;  // com a paleta aberta, o teclado é dela
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
         e.preventDefault();
-        if (ehGaveta() && fecharGavetaCerebro()) return;
+        if ((ehGaveta() || trilhoDaFila()) && fecharGavetaCerebro()) return;
         mostrarCerebro();
         return;
       }

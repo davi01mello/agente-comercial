@@ -582,8 +582,6 @@ button.item:hover { border-color: var(--marca-linha); background: var(--superfic
 .cartao .desc { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .item .pe { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 400 12px/18px var(--f-mono); color: var(--texto-suave); }
 .item.selecionado { border-color: var(--foco); background: var(--superficie-3); }
-.item .sel { display: inline-flex; align-items: center; gap: 8px; width: fit-content; color: var(--texto-suave); font-size: 12px; cursor: pointer; }
-.item .sel input { width: 18px; height: 18px; accent-color: var(--marca); cursor: pointer; }
 .motivo { display: grid; gap: 8px; }
 .barra-lote { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--raio-g); border: 1px solid var(--linha-forte); background: var(--superficie-2); }
 .barra-lote .lote-info { flex: 1 1 180px; color: var(--texto-suave); font-size: 13px; }
@@ -751,6 +749,23 @@ body.sem-login .app { visibility: hidden; }
   .fechar-cerebro { display: grid; }
 }
 
+/* Na Fila, de 1280 px em diante: o painel do Cérebro vira um trilho de 64 px e abre por cima (a prancha 4). */
+.trilho-cerebro { display: none; }
+@media (min-width: 1280px) {
+  body.fila-aberta { --largura-cerebro: 64px; }
+  body.fila-aberta .fechar-cerebro { display: grid; }
+  body.fila-aberta:not(.cerebro-aberto) .cerebro > :not(.trilho-cerebro) { display: none; }
+  body.fila-aberta:not(.cerebro-aberto) .trilho-cerebro {
+    display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px 0; width: 100%; min-height: var(--alvo-toque);
+    border: 0; background: none; color: var(--texto-suave); cursor: pointer;
+  }
+  .trilho-cerebro .t-rotulo { writing-mode: vertical-rl; }
+  .trilho-cerebro:hover { color: var(--texto-forte); }
+  body.fila-aberta.cerebro-aberto .cerebro {
+    position: fixed; z-index: 40; top: 0; right: 0; bottom: 0; width: 380px; box-shadow: var(--sombra-sobreposta);
+  }
+}
+
 /* Até 860 px, o celular: uma coluna só. A tela inicial é o Cérebro; o botão do mascote abre a navegação. */
 @media (max-width: 860px) {
   body { font-size: 16px; line-height: 24px; }
@@ -815,6 +830,8 @@ body.sem-login .app { visibility: hidden; }
   .btn-icone { min-width: var(--alvo-toque); }
   .busca, .campo input, .campo select, .campo textarea, .motivo textarea, .briefing-form select, .briefing-form textarea, .sync-teto input { font-size: 16px; }
   .briefing-form, .briefing-saida { grid-template-columns: minmax(0, 1fr); }
+  .fila-grade { grid-template-columns: minmax(0, 1fr); }
+  .fila-detalhe, .teclas-fila { display: none; }
   .evidencia-op { flex-basis: 100%; }
   .rascunho .linha-campos > .campo { flex-basis: 100%; }
   .fontes-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1008,6 +1025,49 @@ body.sem-login .app { visibility: hidden; }
 @media (max-width: 860px) {
   #anexar { width: var(--alvo-toque); padding: 0; }
   #anexar .txt { display: none; }
+}
+
+/* ---------- Fila: a triagem pelo teclado (prancha 4) ---------- */
+.miolo.tela-lista { max-width: 1180px; }
+.fila-grade { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 16px; align-items: start; }
+.fila-lista { display: grid; gap: 8px; align-content: start; }
+.fila-item {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start; padding: 10px 12px 10px 10px;
+  border-radius: var(--raio-g); border: 1px solid var(--linha-forte); background: var(--superficie);
+}
+.fila-item.selecionado { border-color: var(--foco); background: var(--superficie-3); }
+.fila-item.marcado .marcar { accent-color: var(--marca); }
+.fila-item.aprovando { opacity: 0.72; }
+.fila-item .marcar { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--marca); cursor: pointer; }
+.fila-corpo { display: grid; gap: 6px; text-align: left; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; min-width: 0; }
+.fila-corpo .linha-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.fila-corpo .linha-topo .selo { margin-left: auto; }
+.fila-corpo .titulo { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--texto-forte); }
+.fila-corpo .evid { font-size: 12px; color: var(--texto-suave); white-space: normal; }
+.fila-detalhe {
+  position: sticky; top: 0; display: grid; gap: 14px; padding: 22px 24px; min-width: 0;
+  border-radius: 16px; border: 1px solid var(--marca-linha); background: var(--superficie);
+}
+.fila-detalhe .t-titulo { font-size: 24px; line-height: 30px; }
+.fila-detalhe .desc { margin: 0; color: var(--texto); font-size: 14px; line-height: 22px; max-width: 72ch; }
+.fila-detalhe .botoes .btn { gap: 8px; }
+.fila-detalhe .botoes .tecla { margin-left: 2px; }
+.contradiz-aprovado { display: grid; gap: 10px; padding: 14px; border-radius: var(--raio-g); border: 1px solid var(--risco); background: var(--risco-tinta); }
+.contradiz-aprovado .t-rotulo { display: flex; align-items: center; gap: 8px; color: var(--risco); }
+.contradiz-duplo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.contradiz-duplo .cartao { display: grid; gap: 4px; text-decoration: none; color: var(--texto-forte); font-size: 13px; line-height: 18px; }
+.contradiz-duplo b { font-weight: 500; }
+.teclas-fila { position: sticky; bottom: 12px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 16px; border-radius: var(--raio-g); border: 1px solid var(--linha-forte); background: var(--superficie); }
+.teclas-fila > .t-legenda { display: inline-flex; align-items: center; gap: 6px; }
+.atalhos-todos {
+  position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 20; width: min(420px, 100%); padding: 16px;
+  border-radius: var(--raio-g); border: 1px solid var(--linha-forte); background: var(--superficie-2); box-shadow: var(--sombra-sobreposta);
+}
+.atalhos-todos ul { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 13px; }
+.atalhos-todos li { display: flex; align-items: center; gap: 6px; }
+@media (max-width: 1100px) {
+  .fila-grade { grid-template-columns: minmax(0, 1fr); }
+  .fila-detalhe { position: static; }
 }
 
 @media (prefers-reduced-motion: reduce) {
