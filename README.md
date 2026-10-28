@@ -132,6 +132,8 @@ Drive o dado pessoal **não** é mascarado nem pulado (só avisado). Detalhes no
    Fontes, escolhendo **Drive**. Com `DRIVE_SYNC_INTERVALO_MIN=15` o servidor faz isso sozinho a cada 15 minutos.
 
 - Lê docx, PDF **com texto** (PDF de imagem fica `vazia`: não há OCR), xlsx, csv, txt, md e Google Docs/Planilhas/Slides.
+- Vídeo nunca entra. Com `DRIVE_IDADE_MAX_ANOS` (0 = desligado), arquivo sem edição há mais que N anos também não
+  entra; o consultor recebe a data de edição de cada documento e, se dois divergem, vale o mais recente.
 - Arquivo acima de `DRIVE_MAX_MB` (30) não é baixado. Planilha ou documento com mais de `DRIVE_MAX_TRECHOS` (12) trechos
   vai **só para a busca** (`so_busca`), não para o curador.
 - Testes sem rede: `tests/drive_falso.py` serve arquivos SINTÉTICOS; nenhum documento real do CITi vai para o Git.

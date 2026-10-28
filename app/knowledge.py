@@ -4,7 +4,7 @@ Entram só `validado` e `consolidado`. `proposto` (ainda na Fila), `historico_a_
 (rejeitado ou superado) NUNCA entram: o consultor só usa o que alguém aprovou na Fila.
 """
 import logging
-from datetime import date
+from datetime import UTC, date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -73,14 +73,26 @@ def formatar(item: Insight) -> str:
     return " | ".join(_numa_linha(c) for c in campos)
 
 
-def montar_documentos(achados: list[Achado]) -> str:
+ANOS_PARA_AVISAR_QUE_E_ANTIGO = 2  # documento sem edição há mais que isto leva "(antigo)" no cabeçalho
+
+
+def _edicao(editado_em: date | None, hoje: date) -> str:
+    """" | editado em 10/2021 (antigo)": a data que o consultor usa para decidir qual documento vale mais."""
+    if editado_em is None:
+        return ""
+    antigo = (hoje - editado_em).days > ANOS_PARA_AVISAR_QUE_E_ANTIGO * 365.25
+    return f" | editado em {editado_em:%m/%Y}{' (antigo)' if antigo else ''}"
+
+
+def montar_documentos(achados: list[Achado], hoje: date | None = None) -> str:
     """Os documentos do Drive que a busca achou para ESTA pergunta, como o consultor os recebe: um bloco por
     documento, com o id [DOC-n]. O texto do documento é DADO, nunca instrução (vai entre <documento>…</documento>), e
     nenhum desses documentos foi revisado por alguém do time. Sem achados, devolve "" (nada vai ao modelo)."""
+    hoje = hoje or datetime.now(UTC).date()
     blocos = []
     for a in achados:
         pasta = f" | pasta: {_numa_linha(a.categoria)}" if a.categoria else ""
-        cabecalho = f"[DOC-{a.fonte_id}] {_numa_linha(a.titulo)}{pasta}"
+        cabecalho = f"[DOC-{a.fonte_id}] {_numa_linha(a.titulo)}{pasta}{_edicao(a.editado_em, hoje)}"
         trechos = "\n[…]\n".join(t.strip() for t in a.textos)
         blocos.append(f"{cabecalho}\n<documento>\n{trechos}\n</documento>")
     return "\n\n".join(blocos)

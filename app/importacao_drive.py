@@ -3,6 +3,8 @@
 É o mesmo pipeline do Notion (app/importacao.py: execução registrada, progresso por arquivo, teto de gasto, curador,
 Fila). O que muda aqui é a LEITURA e a TRIAGEM:
 
+- vídeo não entra na lista, e com DRIVE_IDADE_MAX_ANOS o arquivo sem edição há mais que N anos também não (a base
+  prefere o recente: o que é velho demais sai e o que sobrou leva a data de edição até o consultor);
 - lê a lista de arquivos (com as subpastas) e, só dos novos ou editados (`modifiedTime`), baixa e extrai o texto;
   arquivo acima de DRIVE_MAX_MB nem é baixado (fica `pulada_longa`, com o motivo);
 - dado pessoal NÃO barra nem mascara (decisão do Davi: o documento é privado e não sai do agente); fica só um aviso
@@ -16,6 +18,7 @@ Fila). O que muda aqui é a LEITURA e a TRIAGEM:
 Nunca loga nome de arquivo nem texto: o log tem só contagens.
 """
 import hashlib
+import logging
 import tempfile
 from pathlib import Path
 
@@ -27,6 +30,8 @@ from app.config import settings
 from app.drive import ArquivoDrive, ErroDrive, LeitorDrive
 from app.importacao import DRIVE, MIN_CARACTERES, TITULO_MAX, PaginaLida, Relatorio
 from app.models import ExecucaoImportacao, Fonte, TrechoDocumento
+
+logger = logging.getLogger(__name__)
 
 ORIGEM = DRIVE.nome
 TAMANHO_DO_TRECHO_DE_BUSCA = 1500  # caracteres de cada pedaço que o consultor recebe
@@ -59,6 +64,15 @@ def sincronizar(
     leitor: LeitorDrive, db: Session, relatorio: Relatorio, limite_paginas: int | None, execucao: ExecucaoImportacao
 ) -> None:
     busca = leitor.arquivos(limite=limite_paginas)
+    videos = getattr(busca, "videos_ignorados", 0)
+    antigos = getattr(busca, "antigos_ignorados", 0)
+    if videos or antigos:
+        logger.info("Drive: %d vídeo(s) e %d arquivo(s) antigo(s) ficaram de fora da lista", videos, antigos)
+    if antigos:
+        relatorio.avisos.append(
+            f"{antigos} arquivo(s) sem edição há mais de {settings.drive_idade_max_anos} ano(s) ficaram de fora "
+            "(DRIVE_IDADE_MAX_ANOS). Se algum já tinha sido importado, ele sai da base como removido."
+        )
     vistas: set[str] = set()
     hashes: dict[str, str] = {}  # hash -> título dos arquivos tratados nesta execução (duplicatas no dry-run)
     for arquivo in busca.arquivos:

@@ -14,8 +14,10 @@ Itens do tipo case, regra e template vêm com a descrição inteira e um campo a
 Depois da base, pode vir uma seção DOCUMENTOS DO DRIVE (AINDA NÃO REVISADOS): pedaços de documentos do comercial
 (propostas, briefings, guias) que a busca achou para esta pergunta, um bloco por documento:
 
-[DOC-7] título | pasta: Resumo Comercial
+[DOC-7] título | pasta: Resumo Comercial | editado em 10/2021 (antigo)
 <documento>…o texto…</documento>
+
+O "editado em" é o mês e o ano da última edição do arquivo; "(antigo)" marca o que não é editado há mais de 2 anos.
 
 Eles NÃO foram aprovados por ninguém do time. Valem menos que a base (os [INS-n]) e nunca a contradizem.
 
@@ -129,6 +131,10 @@ Logo depois do id, entre parênteses, UMA vez por item na resposta (na primeira 
   documento diz outra coisa.
 - Cite com `[DOC-n]`, exatamente como está, logo depois da afirmação que veio dele, um colchete por documento. Toda
   resposta que usar um documento diz, uma vez, que ele é um documento do Drive ainda não revisado pelo time.
+- Recência: quando dois documentos dizem coisas diferentes sobre o mesmo ponto (preço, prazo, forma de abordar), vale
+  o mais recente: diga a data de cada um ("o guia de 2024 diz X; o de 2019 dizia Y"). Documento marcado "(antigo)" só
+  entra como contexto, com o aviso de que pode estar desatualizado, e nunca como a prática de hoje. Não deduza data
+  que o cabeçalho não traz.
 - Documento não tem evidência: não o trate como padrão comprovado. Uma proposta ou um briefing mostra o que o CITi
   escreveu ou fez naquele caso, não que funcionou. Só diga que algo funcionou se o texto disser.
 - Não use documento para inventar números: todo número citado tem que estar escrito nele.

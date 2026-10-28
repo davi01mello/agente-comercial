@@ -14,7 +14,7 @@ import re
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.config import settings
@@ -31,6 +31,9 @@ EXPORTACAO = {
     "application/vnd.google-apps.presentation": "text/plain",
     "application/vnd.google-apps.spreadsheet": "text/csv",
 }
+# Vídeo não tem texto para ler (e é pesado): fica fora da lista, sem aparecer em Fontes. Vale o tipo do arquivo e,
+# para o que o Drive marca como "binário genérico", a extensão do nome.
+EXTENSOES_DE_VIDEO = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".wmv", ".mpg", ".mpeg", ".3gp")
 CAMPOS = "nextPageToken,files(id,name,mimeType,modifiedTime,md5Checksum,size,webViewLink)"
 TIMEOUT_S = 60
 TENTATIVAS = 4
@@ -87,6 +90,19 @@ class ArquivoDrive:
 class BuscaDrive:
     arquivos: list[ArquivoDrive] = field(default_factory=list)
     completa: bool = True  # False: a lista foi cortada (limite) ou uma subpasta não pôde ser lida
+    videos_ignorados: int = 0  # vídeos que nem entraram na lista (não aparecem em Fontes)
+    antigos_ignorados: int = 0  # arquivos mais antigos que DRIVE_IDADE_MAX_ANOS (também fora da lista)
+
+
+def e_video(mime: str, nome: str) -> bool:
+    return mime.startswith("video/") or nome.lower().endswith(EXTENSOES_DE_VIDEO)
+
+
+def data_de_corte(anos: int) -> datetime | None:
+    """A data (UTC sem fuso) antes da qual o arquivo é velho demais para entrar; None se o corte está desligado (0)."""
+    if anos <= 0:
+        return None
+    return datetime.now(UTC).replace(tzinfo=None) - timedelta(days=round(365.25 * anos))
 
 
 def _data(texto: str) -> datetime:
@@ -181,13 +197,15 @@ class LeitorDrive:
         return str(dados.get("name") or pasta_id)
 
     def arquivos(self, limite: int | None = None) -> BuscaDrive:
-        """Todos os arquivos das pastas e das subpastas (atalhos e a lixeira ficam de fora), do mais antigo ao mais novo
-        por pasta. Com `limite`, só os N primeiros (e a busca sai `completa=False`: não dá para saber o que sumiu).
+        """Todos os arquivos das pastas e das subpastas (atalhos, a lixeira, vídeos e, com DRIVE_IDADE_MAX_ANOS, os
+        arquivos velhos demais ficam de fora), do mais antigo ao mais novo por pasta.
+        Com `limite`, só os N primeiros (e a busca sai `completa=False`: não dá para saber o que sumiu).
 
         A primeira pasta é a principal: se ela falhar, a execução toda falha. Uma das outras que não puder ser lida
         (ex.: ainda não foi compartilhada com a conta de serviço) só deixa a busca incompleta. As categorias das
         outras pastas começam pelo nome delas ("Conhecimento / Consultoria"); as da principal não mudam."""
         busca = BuscaDrive()
+        corte = data_de_corte(settings.drive_idade_max_anos)
         fila: list[tuple[str, tuple[str, ...]]] = []
         for i, raiz in enumerate(self.pastas):
             if i == 0:
@@ -218,12 +236,19 @@ class LeitorDrive:
                     continue
                 if f["mimeType"] == MIME_ATALHO or f["id"] in arquivos_vistos:
                     continue  # o mesmo arquivo alcançado por duas pastas entra uma vez só
+                if e_video(f["mimeType"], f["name"]):
+                    busca.videos_ignorados += 1
+                    continue
+                modificado_em = _data(f["modifiedTime"])
+                if corte is not None and modificado_em < corte:
+                    busca.antigos_ignorados += 1
+                    continue
                 if limite is not None and len(busca.arquivos) >= limite:
                     busca.completa = False
                     return busca
                 arquivos_vistos.add(f["id"])
                 busca.arquivos.append(ArquivoDrive(
-                    id=f["id"], nome=f["name"], mime=f["mimeType"], modificado_em=_data(f["modifiedTime"]),
+                    id=f["id"], nome=f["name"], mime=f["mimeType"], modificado_em=modificado_em,
                     tamanho=int(f["size"]) if f.get("size") else None, caminho=caminho, md5=f.get("md5Checksum"),
                 ))
         return busca

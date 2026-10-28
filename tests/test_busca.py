@@ -1,6 +1,6 @@
 """Busca nos documentos do Drive (app/busca.py) e o texto que o consultor recebe (knowledge.montar_documentos), com
 documentos INVENTADOS gravados direto no banco de teste. Sem rede e sem modelo."""
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
@@ -169,3 +169,38 @@ def test_as_tags_de_origem_estao_no_prompt_do_curador():
 
     for tag in ["[Opinião]", "[Experiência]", "[faço sempre]", "[aconteceu 1x]"]:
         assert tag in prompt
+
+
+# --- a data do documento: o mais recente vale mais ---------------------------------------------------------------
+
+def test_cabecalho_traz_a_data_de_edicao_e_marca_o_antigo():
+    achados = [Achado(7, "Guia", "u", "Resumo", ("t",), date(2021, 10, 15)),
+               Achado(9, "Proposta", "u", None, ("t",), date(2026, 3, 2))]
+
+    texto = knowledge.montar_documentos(achados, hoje=date(2026, 10, 28))
+
+    assert "[DOC-7] Guia | pasta: Resumo | editado em 10/2021 (antigo)\n" in texto
+    assert "[DOC-9] Proposta | editado em 03/2026\n" in texto
+
+
+def test_fator_de_recencia_cai_5_por_cento_ao_ano_ate_o_minimo():
+    hoje = date(2026, 10, 28)
+
+    assert busca.fator_de_recencia(None, hoje) == 1.0
+    assert busca.fator_de_recencia(date(2026, 1, 1), hoje) == 1.0
+    assert busca.fator_de_recencia(date(2023, 10, 28), hoje) == pytest.approx(0.90, abs=0.01)
+    assert busca.fator_de_recencia(date(2010, 1, 1), hoje) == pytest.approx(0.70)
+
+
+def test_documento_igual_mas_mais_recente_vem_primeiro_e_leva_a_data(db):
+    velho = documento(db, "Guia antigo", "Sobre desconto: peço pagamento em uma parcela só.")
+    novo = documento(db, "Guia novo", "Sobre desconto: peço pagamento em uma parcela só.")
+    velho.editado_em = datetime(2019, 3, 1)
+    novo.editado_em = datetime(2026, 8, 1)
+    db.commit()
+    busca.limpar_cache()
+
+    achados = busca.buscar(db, "desconto parcela")
+
+    assert [a.fonte_id for a in achados][:2] == [novo.id, velho.id]
+    assert achados[0].editado_em == date(2026, 8, 1)

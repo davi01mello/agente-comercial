@@ -302,3 +302,43 @@ def test_pasta_principal_sem_acesso_derruba_tudo(sessao):
 
     with pytest.raises(ErroDrive, match="404"):
         LeitorDrive(f"{RAIZ},extra", sessao=sessao).arquivos()
+
+
+# --- vídeos e arquivos velhos ficam de fora ----------------------------------------------------------------------
+
+def test_video_nao_entra_na_lista_nem_por_tipo_nem_por_extensao(sessao, leitor):
+    sessao.pastas[RAIZ] = [[
+        item("v1", "case.mp4", "video/mp4"),
+        item("v2", "reuniao.MOV", "application/octet-stream"),  # o Drive às vezes não sabe o tipo: vale a extensão
+        item("d1", "guia.docx", MIME_DOCX),
+    ]]
+
+    busca = leitor.arquivos()
+
+    assert [a.id for a in busca.arquivos] == ["d1"]
+    assert busca.videos_ignorados == 2
+    assert busca.completa  # ignorar vídeo não deixa a lista "incompleta": o que sumiu continua sendo conferido
+
+
+def test_corte_por_idade_tira_o_arquivo_velho_e_conta(sessao, leitor, monkeypatch):
+    monkeypatch.setattr(drive.settings, "drive_idade_max_anos", 3)
+    agora = datetime.now(drive.UTC)
+    recente = agora.replace(year=agora.year - 1).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    velho = agora.replace(year=agora.year - 5).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    sessao.pastas[RAIZ] = [[
+        item("novo", "recente.docx", MIME_DOCX, modificado=recente),
+        item("velho", "antigo.docx", MIME_DOCX, modificado=velho),
+    ]]
+
+    busca = leitor.arquivos()
+
+    assert [a.id for a in busca.arquivos] == ["novo"]
+    assert busca.antigos_ignorados == 1
+
+
+def test_sem_corte_configurado_arquivo_antigo_entra(sessao, leitor):
+    sessao.pastas[RAIZ] = [[item("velho", "antigo.docx", MIME_DOCX, modificado="2018-05-01T10:00:00.000Z")]]
+
+    busca = leitor.arquivos()
+
+    assert [a.id for a in busca.arquivos] == ["velho"] and busca.antigos_ignorados == 0
