@@ -448,3 +448,20 @@ def test_mapa_nivel_0_tem_as_7_etapas_e_a_pouca_base():
     assert "A base ainda não tem itens aprovados" in js
     assert "e.key === \"ArrowRight\"" in js and "function teclasDoMapa(" in js
     assert 'chamar("GET", "/mapa' not in js  # a API não tem rota de mapa
+
+
+def test_mapa_da_resposta_usa_so_as_notas_e_as_relacoes():
+    """O canvas da resposta (nível 1): só as notas da última resposta viram cartões, ligados pelas relações reais entre
+    elas. "contradiz" e "substitui" ficam sempre visíveis; "reforça" e "duplica" só acendem com o mouse ou o foco."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        css = client.get("/static/cerebro.css").text
+    assert "function notasDaResposta(" in js and "estado.ultimaResposta" in js
+    assert "const forte = tipo === \"contradiz\" || tipo === \"substitui\"" in js
+    assert ".liga.fraca { opacity: 0;" in css and ".liga.fraca.on { opacity: 1; }" in css
+    assert "const VAGAS = [" in js and "function vagasDasNotas(" in js and "MAX_NOTAS_CANVAS = VAGAS.length" in js
+    assert "if (!larg) return;" in js  # sem largura, não mede nem desenha
+    # o canvas não encolhe para caber: o texto dele nunca fica abaixo de 12 px (só o zoom escala)
+    assert "PASSOS_ZOOM = [1, 1.2, 1.4]" in js and "Math.min(1, larg / L)" not in js
+    assert "Ver no mapa" in js and "function caminhoEntre(" in js
+    assert "Nenhuma resposta aberta" in js  # sem resposta, o canvas não inventa notas

@@ -71,6 +71,9 @@
     briefing: novoBriefing(),  // o pedido e o resultado de Preparar reunião
     mapa: novoMapa(),  // o mapa: a vista, o segmento, o zoom e a etapa selecionada
     mapaEtapa: null,  // a etapa aberta no mapa (null: o nível 0)
+    mapaVista: null,  // a vista aberta na etapa: "foco" ou "lista"
+    mapaObs: null,  // o ResizeObserver do canvas aberto
+    mapaAjustar: null,  // reajusta a escala do canvas aberto
     filtro: { secao: null, segmento: null, busca: "", historico: false, origem: null, mostrar: {} },
     fontes: null,  // o resumo de GET /fontes/resumo
     filtroFontes: { status: null, busca: "", origem: null },
@@ -547,10 +550,20 @@
           el("span", { text: "Guardei como lacuna: a base não cobre isso." }),
           el("button", { type: "button", class: "btn fantasma", onclick: () => registrarDoChat({ lacunaId, lacunaPergunta }) }, "Registrar o que você sabe")));
       }
+      const primeiraEtapa = [...notas.keys()].map((cod) => acharItem(cod)).find(Boolean);
+      const acoes = [];
+      if (papel === "cerebro" && primeiraEtapa) {  // o canvas da resposta: as notas desta resposta, ligadas entre si
+        acoes.push(el("button", { type: "button", class: "btn fantasma", onclick: () => {
+          estado.ultimaResposta = { notas: [...notas.keys()], docs: docs || [] };
+          estado.mapa.vista = "foco";
+          if (location.hash === `#mapa/${primeiraEtapa.secao}`) pintarMapa(primeiraEtapa.secao); else location.hash = `#mapa/${primeiraEtapa.secao}`;
+        } }, icone("mapa", "ic p"), "Ver no mapa"));
+      }
       if (papel === "cerebro" && registrar) {
-        linha.append(el("button", { type: "button", class: "btn fantasma registrar-isso", onclick: () => registrarDoChat({ lacunaId, lacunaPergunta }) },
+        acoes.push(el("button", { type: "button", class: "btn fantasma", onclick: () => registrarDoChat({ lacunaId, lacunaPergunta }) },
           icone("registrar", "ic p"), "Registrar isso"));
       }
+      if (acoes.length) linha.append(el("div", { class: "acoes-resposta" }, ...acoes));
       if (papel === "cerebro" && notas.size) estado.ultimaResposta = { notas: [...notas.keys()], docs: docs || [] };
     }
     caixa.append(linha);
@@ -2705,6 +2718,7 @@
   function pintarMapa(chave) {
     const M = estado.mapa;
     const caixa = $("#mapa-conteudo");
+    if (estado.mapaObs) { estado.mapaObs.disconnect(); estado.mapaObs = null; }
     const etapa = SECOES.some(([c]) => c === chave) ? chave : null;
     estado.mapaEtapa = etapa;
     const aprovados = itensDaBase().filter(noSegmento);
@@ -2716,7 +2730,20 @@
       el("h1", { class: "t-titulo", text: etapa ? NOME_SECAO[etapa] : "A base em 7 etapas" }),
       el("div", { class: "mapa-controles" }, passosDoMapa(etapa), seletorDeSegmento()),
       trilhaDoMapa(etapa));
-    if (etapa) { caixa.replaceChildren(cab, listaDaEtapa(etapa, aprovados)); return; }
+    if (etapa) {
+      const temNotas = notasDaResposta().length > 0;
+      const vista = M.vista || (temNotas ? "foco" : "lista");  // sem resposta aberta, o mapa abre na lista da etapa
+      estado.mapaVista = vista;
+      const corpo = vista === "foco"
+        ? (temNotas ? canvasDaResposta(etapa, aprovados)
+          : vazio("Nenhuma resposta aberta", "Pergunte ao Cérebro e toque em “Ver no mapa” na resposta: as notas dela aparecem aqui, ligadas entre si.",
+            el("button", { type: "button", class: "btn", onclick: () => { M.vista = "lista"; pintarMapa(etapa); } }, "Ver a lista da etapa")))
+        : listaDaEtapa(etapa, aprovados);
+      caixa.replaceChildren(cab, barraDasVistas(etapa, vista, temNotas), corpo);
+      if (corpo.querySelector && corpo.querySelector(".cv-janela") && estado.mapaAjustar) estado.mapaAjustar();
+      return;
+    }
+    estado.mapaVista = null;
     const mesa = el("div", { id: "mesa-mapa" });
     const mostrarMesa = () => {
       for (const a of $$(".no-etapa", caixa)) a.classList.toggle("sel", a.dataset.chave === M.sel);
@@ -2743,6 +2770,9 @@
       e.preventDefault();
       if (etapa) { M.vista = null; location.hash = `#mapa/${novo}`; }
       else { M.sel = novo; pintarMapa(null); const no = $(".no-etapa.sel"); if (no) no.focus(); }
+    } else if (/^[1-9]$/.test(e.key) && etapa && estado.mapaVista === "foco") {  // vai à nota pelo número
+      const cartao = $(`.cv-cartao[data-nota="${e.key}"]`);
+      if (cartao) { e.preventDefault(); cartao.focus(); }
     } else if (e.key === "Enter" && !etapa && alvo === document.body) {
       e.preventDefault();
       location.hash = `#mapa/${M.sel}`;
@@ -2750,6 +2780,242 @@
       e.preventDefault();
       location.hash = "#mapa";
     }
+  }
+
+  // ---------------------------------------------------------------- o canvas do mapa (a geometria e o desenho)
+  // O canvas é um bloco de tamanho fixo (cartões em px, ligações em SVG) que se escala por inteiro para caber na largura:
+  // assim as setas nunca descolam dos cartões. Só mede e desenha com largura maior que 0 (a janela pode estar fechada).
+  const CANVAS_L = 660, CANVAS_A = 600;  // o canvas da resposta
+  const CARTAO_L = 200, CARTAO_A = 164;
+  // As vagas dos cartões: a nota 1 no centro e as outras em volta (cima à direita, baixo à esquerda, baixo à direita...).
+  const VAGAS = [[230, 218], [450, 28], [10, 408], [450, 408], [10, 28], [10, 218], [450, 218]];
+  const MAX_NOTAS_CANVAS = VAGAS.length;
+
+  function rng(semente) {
+    let s = semente | 0;
+    return () => {
+      s = (s + 0x6d2b79f5) | 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function svgEl(tag, attrs = {}, ...filhos) {
+    const n = document.createElementNS(NS_SVG, tag);
+    for (const [k, v] of Object.entries(attrs)) if (v != null) n.setAttribute(k, v);
+    n.append(...filhos);
+    return n;
+  }
+  // Uma curva de borda a borda: sai e chega pela face mais próxima (com 5 px de folga), e a ponta da seta é um segundo
+  // traço em V. Devolve também o ponto do meio (t = 0,5), onde fica a etiqueta.
+  function caminhoEntre(ra, rb) {
+    const ca = { x: ra.x + ra.l / 2, y: ra.y + ra.a / 2 }, cb = { x: rb.x + rb.l / 2, y: rb.y + rb.a / 2 };
+    const dx = cb.x - ca.x, dy = cb.y - ca.y;
+    const horiz = Math.abs(dx) / (ra.l + rb.l) > Math.abs(dy) / (ra.a + rb.a);
+    const folga = 5;
+    const s = Math.sign(horiz ? dx : dy) || 1;
+    const d0 = horiz ? { x: s, y: 0 } : { x: 0, y: s };
+    const p0 = horiz ? { x: s > 0 ? ra.x + ra.l : ra.x, y: ca.y } : { x: ca.x, y: s > 0 ? ra.y + ra.a : ra.y };
+    const p1 = horiz ? { x: s > 0 ? rb.x - folga : rb.x + rb.l + folga, y: cb.y } : { x: cb.x, y: s > 0 ? rb.y - folga : rb.y + rb.a + folga };
+    const k = Math.max(40, (horiz ? Math.abs(p1.x - p0.x) : Math.abs(p1.y - p0.y)) * 0.45);
+    const c1 = { x: p0.x + d0.x * k, y: p0.y + d0.y * k }, c2 = { x: p1.x - d0.x * k, y: p1.y - d0.y * k };
+    const meio = { x: (p0.x + 3 * c1.x + 3 * c2.x + p1.x) / 8, y: (p0.y + 3 * c1.y + 3 * c2.y + p1.y) / 8 };
+    const n = Math.hypot(p1.x - c2.x, p1.y - c2.y) || 1;
+    const u = { x: (p1.x - c2.x) / n, y: (p1.y - c2.y) / n };
+    const f = (v) => v.toFixed(1);
+    return {
+      d: `M${f(p0.x)} ${f(p0.y)} C${f(c1.x)} ${f(c1.y)} ${f(c2.x)} ${f(c2.y)} ${f(p1.x)} ${f(p1.y)}`,
+      ponta: `M${f(p1.x - u.x * 8 - u.y * 5)} ${f(p1.y - u.y * 8 + u.x * 5)} L${f(p1.x)} ${f(p1.y)} L${f(p1.x - u.x * 8 + u.y * 5)} ${f(p1.y - u.y * 8 - u.x * 5)}`,
+      meio,
+    };
+  }
+  // A etiqueta ("reforça", "contradiz") fica ao lado da curva, sem cobrir um cartão.
+  function posicaoDoRotulo(meio, texto, retas) {
+    const l = texto.length * 7.5 + 18, a = 20;
+    const colide = (cx, cy) => retas.some((r) => cx + l / 2 > r.x - 4 && cx - l / 2 < r.x + r.l + 4 && cy + a / 2 > r.y - 4 && cy - a / 2 < r.y + r.a + 4);
+    for (const dy of [0, -26, 26, -52, 52]) {
+      for (const dx of [0, -30, 30]) if (!colide(meio.x + dx, meio.y + dy)) return { x: meio.x + dx, y: meio.y + dy, l, a };
+    }
+    return { x: meio.x, y: meio.y, l, a };
+  }
+  // "contradiz" e "substitui" ficam sempre visíveis; "reforça" e "duplica" só acendem com o mouse ou o foco no cartão.
+  function ligacaoSvg(ra, rb, tipo, retas, atraso, de, para, naFila = false) {
+    const { d, ponta, meio } = caminhoEntre(ra, rb);
+    const forte = tipo === "contradiz" || tipo === "substitui";
+    const rotulo = RELACOES[tipo] || tipo;
+    const p = posicaoDoRotulo(meio, rotulo, retas);
+    return svgEl("g", { class: `liga ${tipo} ${forte ? "forte" : "fraca"}${naFila ? " na-fila" : ""}`, "data-a": String(de), "data-b": String(para), style: `--d:${atraso}s` },
+      svgEl("path", { class: "tracado", d, pathLength: "1" }),
+      svgEl("path", { class: "ponta", d: ponta }),
+      svgEl("g", { class: "liga-rot" },
+        svgEl("rect", { x: (p.x - p.l / 2).toFixed(1), y: (p.y - p.a / 2).toFixed(1), width: p.l.toFixed(1), height: p.a, rx: 10 }),
+        svgEl("text", { x: p.x.toFixed(1), y: (p.y + 4).toFixed(1), "text-anchor": "middle" }, rotulo)));
+  }
+  function acenderLigacoes(canvas, id) {
+    for (const g of $$(".liga.fraca", canvas)) g.classList.toggle("on", id != null && (g.dataset.a === String(id) || g.dataset.b === String(id)));
+  }
+  // A janela do canvas: o bloco nunca encolhe para caber (o texto dele não pode ficar abaixo de 12 px). Se o centro for mais
+  // estreito que o bloco, a moldura rola por dentro (a página não rola). O zoom (100, 120 e 140%) é a única escala.
+  function janelaDoCanvas(L, A) {
+    const quadro = el("div", { class: "cv-quadro", style: `width:${L}px;height:${A}px` });
+    const janela = el("div", { class: "cv-janela" }, quadro);
+    const ajustar = () => {
+      const larg = janela.clientWidth;
+      if (!larg) return;  // sem tamanho (janela fechada), não mede nem desenha
+      const escala = estado.mapa.zoom;
+      quadro.style.transform = `scale(${escala.toFixed(3)})`;
+      janela.style.height = `${Math.ceil(A * escala) + 18}px`;  // a folga é da barra de rolagem de baixo
+    };
+    if (estado.mapaObs) estado.mapaObs.disconnect();
+    if (typeof ResizeObserver === "function") { estado.mapaObs = new ResizeObserver(ajustar); estado.mapaObs.observe(janela); }
+    estado.mapaAjustar = ajustar;
+    return { janela, quadro, ajustar };
+  }
+  const PASSOS_ZOOM = [1, 1.2, 1.4];
+  function controlesDeZoom() {
+    const M = estado.mapa;
+    const rotulo = el("span", { class: "t-dado", "aria-live": "polite", text: `${Math.round(M.zoom * 100)}%` });
+    const mudar = (delta) => {
+      const i = Math.min(PASSOS_ZOOM.length - 1, Math.max(0, PASSOS_ZOOM.indexOf(M.zoom) + delta));
+      M.zoom = PASSOS_ZOOM[i];
+      rotulo.textContent = `${Math.round(M.zoom * 100)}%`;
+      if (estado.mapaAjustar) estado.mapaAjustar();
+    };
+    return el("div", { class: "cv-zoom", role: "group", "aria-label": "Zoom" },
+      el("button", { type: "button", class: "btn", "aria-label": "Afastar", onclick: () => mudar(-1) }, "−"), rotulo,
+      el("button", { type: "button", class: "btn", "aria-label": "Aproximar", onclick: () => mudar(1) }, "+"));
+  }
+
+  // As notas da última resposta do chat, na ordem em que aparecem (o número de cada uma é o da nota no chat).
+  function notasDaResposta() {
+    const r = estado.ultimaResposta;
+    if (!r) return [];
+    return r.notas.map((codigo, i) => {
+      const item = acharItem(codigo);
+      const doc = codigo.startsWith("DOC-") ? (r.docs || []).find((d) => `DOC-${d.id}` === codigo) : null;
+      return item || doc ? { n: i + 1, codigo, item, doc } : null;
+    }).filter(Boolean);
+  }
+  // Uma contradição ainda na Fila vira o selo no cartão, nunca uma seta para um item que não está na base.
+  function contradicoesNaFila(item) {
+    return estado.itens.filter((o) => estaNaFila(o) && (o.relacoes || []).some((r) => r.tipo === "contradiz" && r.relacionado_id === item.id));
+  }
+  function cartaoDoCanvas(c, x, y, i, etapa) {
+    const estilo = `left:${x}px;top:${y}px;animation-delay:${(i * 0.15).toFixed(2)}s`;
+    if (c.doc) {
+      const url = linkSeguro(c.doc.url);
+      return el(url ? "a" : "div", { class: "cv-cartao doc", style: estilo, "data-nota": String(c.n), href: url, target: url ? "_blank" : null, rel: url ? "noopener noreferrer" : null,
+        "aria-label": `Nota ${c.n}, ${c.codigo}, documento ainda não revisado: ${c.doc.titulo}` },
+      el("span", { class: "cv-topo" }, nota(c.n, true), el("span", { class: "cod", text: c.codigo })),
+      el("b", { text: c.doc.titulo }),
+      el("span", { class: "t-legenda", text: c.doc.categoria ? `Documento da pasta ${c.doc.categoria}` : "Documento ainda não revisado" }));
+    }
+    const it = c.item;
+    const naFila = contradicoesNaFila(it);
+    return el("a", { class: `cv-cartao${c.n === 1 ? " sim" : ""}`, style: estilo, href: `#item/${it.codigo}`, "data-id": String(it.id), "data-nota": String(c.n),
+      "aria-label": `Nota ${c.n}, ${it.codigo}: ${it.titulo}` },
+    el("span", { class: "cv-topo" }, nota(c.n), el("span", { class: "cod", text: `${it.codigo} · ${TIPOS[it.tipo] || it.tipo}` }),
+      it.secao !== etapa ? el("span", { class: "selo", text: `etapa ${numeroDaEtapa(it.secao)}` }) : null),
+    el("b", { text: it.titulo }),
+    el("span", { class: "evid" }, trilha(it.evidencia), EVIDENCIA[it.evidencia]),
+    naFila.length ? el("span", { class: "selo risco", text: `${naFila.length > 1 ? `+${naFila.length} contradições` : "+1 contradição"} na Fila · ${naFila[0].codigo}` }) : null);
+  }
+
+  // Quais vagas cada nota ocupa: a nota 1 fica no centro, e as outras vão para as vagas que deixam as notas ligadas entre si
+  // mais perto (a ordem das notas só desempata). São no máximo 6 notas em volta, então dá para testar todas as ordens.
+  function vagasDasNotas(n, ligacoes) {
+    const slot = Array.from({ length: n }, (_, i) => i);
+    if (n <= 3) return slot;
+    const centro = (v) => [VAGAS[v][0] + CARTAO_L / 2, VAGAS[v][1] + CARTAO_A / 2];
+    const custo = (cand) => ligacoes.reduce((t, l) => {
+      const [x1, y1] = centro(cand[l.i]), [x2, y2] = centro(cand[l.j]);
+      return t + Math.hypot(x1 - x2, y1 - y2);
+    }, 0) + cand.reduce((t, v, i) => t + 0.01 * Math.abs(v - i), 0);
+    let melhor = slot, menor = custo(slot);
+    const testar = (cand, livres) => {
+      if (!livres.length) {
+        const c = custo(cand);
+        if (c < menor) { menor = c; melhor = [...cand]; }
+        return;
+      }
+      for (const v of livres) { cand.push(v); testar(cand, livres.filter((x) => x !== v)); cand.pop(); }
+    };
+    testar([0], slot.slice(1));
+    return melhor;
+  }
+  // O canvas da resposta (nível 1): só as notas viram cartões, ligados pelas relações reais entre elas; o resto da etapa
+  // fica apagado ao fundo.
+  function canvasDaResposta(etapa, aprovados) {
+    const todas = notasDaResposta();
+    const notas = todas.slice(0, MAX_NOTAS_CANVAS);
+    const { janela, quadro } = janelaDoCanvas(CANVAS_L, CANVAS_A);
+    const idsDasNotas = new Set(notas.filter((c) => c.item).map((c) => c.item.id));
+    const ligacoes = [];
+    notas.forEach((a, i) => {
+      if (!a.item) return;
+      for (const r of a.item.relacoes || []) {
+        const j = notas.findIndex((b) => b.item && b.item.id === r.relacionado_id);
+        if (j >= 0 && j !== i) ligacoes.push({ i, j, tipo: r.tipo });
+      }
+    });
+    const vaga = vagasDasNotas(notas.length, ligacoes);
+    const retas = notas.map((_, i) => ({ x: VAGAS[vaga[i]][0], y: VAGAS[vaga[i]][1], l: CARTAO_L, a: CARTAO_A }));
+    // o fundo apagado: o resto da etapa, em posições fixas por semente (o id), fora dos cartões
+    const fundo = svgEl("g", { class: "apagado" });
+    const resto = aprovados.filter((o) => o.secao === etapa && !idsDasNotas.has(o.id)).slice(0, 36);
+    const pontos = new Map();
+    for (const o of resto) {
+      const sorte = rng(o.id * 9973);
+      for (let t = 0; t < 25; t++) {
+        const x = 16 + sorte() * (CANVAS_L - 32), y = 16 + sorte() * (CANVAS_A - 32);
+        if (retas.some((r) => x > r.x - 14 && x < r.x + r.l + 14 && y > r.y - 14 && y < r.y + r.a + 14)) continue;
+        pontos.set(o.id, { x, y, o });
+        break;
+      }
+    }
+    for (const { o, x, y } of pontos.values()) {  // só as relações reais entre eles, bem fracas
+      for (const r of o.relacoes || []) {
+        const outro = pontos.get(r.relacionado_id);
+        if (outro) fundo.append(svgEl("line", { x1: x.toFixed(1), y1: y.toFixed(1), x2: outro.x.toFixed(1), y2: outro.y.toFixed(1) }));
+      }
+    }
+    for (const { o, x, y } of pontos.values()) {
+      fundo.append(svgEl("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: (2.5 + 0.6 * o.evidencia).toFixed(1) }, svgEl("title", {}, `${o.codigo} · ${o.titulo}`)));
+    }
+    const svg = svgEl("svg", { class: "cv-ligacoes", width: CANVAS_L, height: CANVAS_A, viewBox: `0 0 ${CANVAS_L} ${CANVAS_A}`, "aria-hidden": "true", focusable: "false" }, fundo);
+    ligacoes.forEach((l, k) => {
+      const a = notas[l.i], b = notas[l.j];
+      svg.append(ligacaoSvg(retas[l.i], retas[l.j], l.tipo, retas, (notas.length * 0.15 + 0.2 + k * 0.12).toFixed(2), a.item.id, b.item.id));
+    });
+    quadro.append(svg, ...notas.map((c, i) => cartaoDoCanvas(c, retas[i].x, retas[i].y, i, etapa)));
+    for (const cartao of $$(".cv-cartao[data-id]", quadro)) {
+      const id = Number(cartao.dataset.id);
+      cartao.addEventListener("mouseenter", () => acenderLigacoes(quadro, id));
+      cartao.addEventListener("focus", () => acenderLigacoes(quadro, id));
+      cartao.addEventListener("mouseleave", () => acenderLigacoes(quadro, null));
+      cartao.addEventListener("blur", () => acenderLigacoes(quadro, null));
+    }
+    const extras = todas.slice(MAX_NOTAS_CANVAS);
+    return el("div", { class: "cv-bloco" }, janela,
+      el("ul", { class: "sr", "aria-label": "Ligações entre as notas" }, ligacoes.map((l) =>
+        el("li", { text: `${notas[l.i].codigo} ${RELACOES[l.tipo] || l.tipo} ${notas[l.j].codigo}` }))),
+      el("p", { class: "t-legenda", text: `Os outros ${resto.length} ${resto.length === 1 ? "item fica apagado" : "itens ficam apagados"} ao fundo.` }),
+      el("p", { class: "t-legenda atalhos-mapa" }, tecla("1–9"), "ir para a nota", tecla("↵"), "abrir o item", tecla("←"), tecla("→"), "trocar de etapa", tecla("Esc"), "subir um nível"),
+      extras.length ? el("section", { class: "painel raso" },
+        el("p", { class: "t-p", text: `+${extras.length} ${extras.length === 1 ? "nota" : "notas"} na resposta · ver lista` }),
+        ...extras.map((c) => c.item
+          ? el("a", { class: "linha-lista", href: `#item/${c.codigo}` }, nota(c.n), el("span", { class: "t-dado suave", text: c.codigo }), el("span", { class: "txt", text: c.item.titulo }))
+          : el("div", { class: "linha-lista" }, nota(c.n, true), el("span", { class: "t-dado suave", text: c.codigo }), el("span", { class: "txt", text: c.doc.titulo })))) : null);
+  }
+  // O que a barra de vistas oferece: o foco na resposta (se há notas) e a lista da etapa, mais o zoom.
+  function barraDasVistas(etapa, vista, temNotas) {
+    const M = estado.mapa;
+    const escolher = (v) => () => { M.vista = v; pintarMapa(etapa); };
+    return el("div", { class: "cv-barra" },
+      el("div", { class: "pilulas-abas", role: "group", "aria-label": "Vista" },
+        chip("Foco na resposta", vista === "foco", escolher("foco")),
+        chip("Lista da etapa", vista === "lista", escolher("lista"))),
+      vista === "foco" && temNotas ? controlesDeZoom() : null);
   }
 
   // ---------------------------------------------------------------- paleta Cmd+K: buscar ou agir
