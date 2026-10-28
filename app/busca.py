@@ -13,6 +13,7 @@ import threading
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -23,6 +24,10 @@ MAX_PEDACOS = 5  # os pedaços que o consultor recebe por pergunta (~7.500 carac
 MAX_POR_DOCUMENTO = 2  # no máximo 2 do mesmo documento: um só não ocupa o espaço dos outros
 K1 = 1.4
 B = 0.75
+# Documento velho perde um pouco de nota (5% por ano acima de 1 ano, no máximo 30%): empatados no assunto, o recente
+# aparece antes. É um desempate, não um filtro: quem quer cortar o antigo de vez usa DRIVE_IDADE_MAX_ANOS.
+DESCONTO_POR_ANO = 0.05
+DESCONTO_MAXIMO = 0.30
 PESO_DO_TITULO = 2  # o título e a pasta entram no índice repetidos: "Briefing Italiana" acha o briefing
 
 PALAVRAS_VAZIAS = frozenset("""
@@ -48,6 +53,7 @@ class Achado:
     url: str
     categoria: str | None
     textos: tuple[str, ...]  # os pedaços achados deste documento, na ordem do documento
+    editado_em: date | None = None  # a última edição do arquivo no Drive: o consultor usa para saber qual vale mais
 
 
 @dataclass(frozen=True)
@@ -63,10 +69,10 @@ class _Pedaco:
 class _Indice:
     """O índice em memória: refeito quando os pedaços do banco mudam (a chave é a contagem e o maior id)."""
 
-    def __init__(self, chave: tuple, pedacos: list[_Pedaco], docs: dict[int, tuple[str, str, str | None]]):
+    def __init__(self, chave: tuple, pedacos: list[_Pedaco], docs: dict[int, tuple[str, str, str | None, date | None]]):
         self.chave = chave
         self.pedacos = pedacos
-        self.docs = docs  # fonte_id -> (título, url, categoria)
+        self.docs = docs  # fonte_id -> (título, url, categoria, data de edição)
         self.media = (sum(p.tamanho for p in pedacos) / len(pedacos)) if pedacos else 0.0
         frequencia: Counter = Counter()
         for p in pedacos:
@@ -97,18 +103,26 @@ def _indice(db: Session) -> _Indice:
             return _cache
         linhas = db.execute(
             select(TrechoDocumento.id, TrechoDocumento.fonte_id, TrechoDocumento.ordem, TrechoDocumento.texto,
-                   Fonte.titulo, Fonte.url, Fonte.categoria)
+                   Fonte.titulo, Fonte.url, Fonte.categoria, Fonte.editado_em)
             .join(Fonte, Fonte.id == TrechoDocumento.fonte_id)
             .where(Fonte.status != "removida")
         ).all()
         pedacos, docs = [], {}
-        for id_, fonte_id, ordem, texto, titulo, url, categoria in linhas:
-            docs[fonte_id] = (titulo, url, categoria)
+        for id_, fonte_id, ordem, texto, titulo, url, categoria, editado_em in linhas:
+            docs[fonte_id] = (titulo, url, categoria, editado_em.date() if editado_em else None)
             termos = Counter(palavras(texto))
             termos.update({t: PESO_DO_TITULO * c for t, c in Counter(palavras(f"{titulo} {categoria or ''}")).items()})
             pedacos.append(_Pedaco(id_, fonte_id, ordem, texto, termos, sum(termos.values())))
         _cache = _Indice(chave, pedacos, docs)
         return _cache
+
+
+def fator_de_recencia(editado_em: date | None, hoje: date) -> float:
+    """1.0 para o documento de até 1 ano (ou sem data); depois cai 5% por ano, até 0.70."""
+    if editado_em is None:
+        return 1.0
+    anos = (hoje - editado_em).days / 365.25
+    return 1.0 - min(DESCONTO_MAXIMO, max(0.0, anos - 1) * DESCONTO_POR_ANO)
 
 
 def buscar(db: Session, consulta: str, limite: int = MAX_PEDACOS) -> list[Achado]:
@@ -121,6 +135,8 @@ def buscar(db: Session, consulta: str, limite: int = MAX_PEDACOS) -> list[Achado
     if not indice.pedacos:
         return []
 
+    hoje = datetime.now(UTC).date()
+    fatores = {fonte_id: fator_de_recencia(doc[3], hoje) for fonte_id, doc in indice.docs.items()}
     pontuados = []
     for p in indice.pedacos:
         nota = 0.0
@@ -129,7 +145,7 @@ def buscar(db: Session, consulta: str, limite: int = MAX_PEDACOS) -> list[Achado
             if f:
                 nota += indice.idf[t] * f * (K1 + 1) / (f + K1 * (1 - B + B * p.tamanho / indice.media))
         if nota > 0:
-            pontuados.append((nota, p))
+            pontuados.append((nota * fatores[p.fonte_id], p))
     pontuados.sort(key=lambda x: (-x[0], x[1].fonte_id, x[1].ordem))
 
     escolhidos: list[_Pedaco] = []
@@ -145,7 +161,8 @@ def buscar(db: Session, consulta: str, limite: int = MAX_PEDACOS) -> list[Achado
     for p in escolhidos:  # a ordem de chegada é a do melhor pedaço de cada documento
         achados.setdefault(p.fonte_id, []).append(p)
     return [
-        Achado(fonte_id, *indice.docs[fonte_id], tuple(p.texto for p in sorted(ps, key=lambda p: p.ordem)))
+        Achado(fonte_id, *indice.docs[fonte_id][:3], tuple(p.texto for p in sorted(ps, key=lambda p: p.ordem)),
+               indice.docs[fonte_id][3])
         for fonte_id, ps in achados.items()
     ]
 

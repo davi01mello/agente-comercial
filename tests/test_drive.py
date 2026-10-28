@@ -6,7 +6,7 @@ from datetime import datetime
 import pytest
 
 from app import drive
-from app.drive import API, ErroDrive, LeitorDrive
+from app.drive import API, ErroDrive, LeitorDrive, ids_das_pastas
 from app.extrair_texto import MIME_DOCX, MIME_PDF
 from tests.drive_falso import RespostaFalsa, SessaoFalsa, atalho, item, pasta
 
@@ -244,3 +244,101 @@ def test_credencial_por_arquivo_que_nao_existe():
 def test_credencial_json_sem_os_campos_da_conta_de_servico():
     with pytest.raises(ErroDrive, match="MalformedError"):
         LeitorDrive(RAIZ, credenciais_json=json.dumps({"type": "service_account"}))
+
+
+# --- várias pastas ---------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("texto, esperado", [
+    ("abc", ["abc"]),
+    (" abc , def;ghi\njkl ", ["abc", "def", "ghi", "jkl"]),
+    ("abc,abc", ["abc"]),
+    ("https://drive.google.com/drive/folders/1y0tQ5PAy?usp=sharing", ["1y0tQ5PAy"]),
+    ("https://drive.google.com/drive/u/0/folders/0AJv7Ehj", ["0AJv7Ehj"]),
+    ("", []),
+    ("  ,  ", []),
+])
+def test_ids_das_pastas_aceita_varios_e_o_endereco_inteiro(texto, esperado):
+    assert ids_das_pastas(texto) == esperado
+
+
+def test_varias_pastas_as_extras_levam_o_nome_na_categoria(sessao):
+    sessao.pastas[RAIZ] = [[item("a1", "principal.docx", MIME_DOCX), pasta("p1", "Resumo Comercial")]]
+    sessao.pastas["p1"] = [[item("a2", "dentro.docx", MIME_DOCX)]]
+    sessao.pastas["extra"] = [[item("b1", "objecoes.docx", MIME_DOCX), pasta("p9", "Consultoria")]]
+    sessao.pastas["p9"] = [[item("b2", "guia.docx", MIME_DOCX)]]
+    sessao.nomes["extra"] = "Conhecimento"
+    leitor = LeitorDrive(f"{RAIZ}, extra", sessao=sessao)
+
+    busca = leitor.arquivos()
+
+    assert busca.completa
+    categorias = {a.id: a.categoria for a in busca.arquivos}
+    assert categorias == {
+        "a1": None, "a2": "Resumo Comercial", "b1": "Conhecimento", "b2": "Conhecimento / Consultoria",
+    }
+
+
+def test_arquivo_alcancado_por_duas_pastas_entra_uma_vez(sessao):
+    sessao.pastas[RAIZ] = [[item("igual", "x.docx", MIME_DOCX)]]
+    sessao.pastas["extra"] = [[item("igual", "x.docx", MIME_DOCX), item("outro", "y.docx", MIME_DOCX)]]
+    sessao.nomes["extra"] = "Outra"
+
+    busca = LeitorDrive(f"{RAIZ},extra", sessao=sessao).arquivos()
+
+    assert sorted(a.id for a in busca.arquivos) == ["igual", "outro"]
+
+
+def test_pasta_extra_sem_acesso_so_deixa_a_busca_incompleta(sessao):
+    sessao.pastas[RAIZ] = [[item("a1", "ok.docx", MIME_DOCX)]]  # "extra" não tem nome: o 404 da fake
+
+    busca = LeitorDrive(f"{RAIZ},extra", sessao=sessao).arquivos()
+
+    assert [a.id for a in busca.arquivos] == ["a1"]
+    assert busca.completa is False
+
+
+def test_pasta_principal_sem_acesso_derruba_tudo(sessao):
+    sessao.programadas = [RespostaFalsa(json={"name": "Extra"}), RespostaFalsa(status=404)]  # o nome, e a lista da 1ª
+
+    with pytest.raises(ErroDrive, match="404"):
+        LeitorDrive(f"{RAIZ},extra", sessao=sessao).arquivos()
+
+
+# --- vídeos e arquivos velhos ficam de fora ----------------------------------------------------------------------
+
+def test_video_nao_entra_na_lista_nem_por_tipo_nem_por_extensao(sessao, leitor):
+    sessao.pastas[RAIZ] = [[
+        item("v1", "case.mp4", "video/mp4"),
+        item("v2", "reuniao.MOV", "application/octet-stream"),  # o Drive às vezes não sabe o tipo: vale a extensão
+        item("d1", "guia.docx", MIME_DOCX),
+    ]]
+
+    busca = leitor.arquivos()
+
+    assert [a.id for a in busca.arquivos] == ["d1"]
+    assert busca.videos_ignorados == 2
+    assert busca.completa  # ignorar vídeo não deixa a lista "incompleta": o que sumiu continua sendo conferido
+
+
+def test_corte_por_idade_tira_o_arquivo_velho_e_conta(sessao, leitor, monkeypatch):
+    monkeypatch.setattr(drive.settings, "drive_idade_max_anos", 3)
+    agora = datetime.now(drive.UTC)
+    recente = agora.replace(year=agora.year - 1).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    velho = agora.replace(year=agora.year - 5).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    sessao.pastas[RAIZ] = [[
+        item("novo", "recente.docx", MIME_DOCX, modificado=recente),
+        item("velho", "antigo.docx", MIME_DOCX, modificado=velho),
+    ]]
+
+    busca = leitor.arquivos()
+
+    assert [a.id for a in busca.arquivos] == ["novo"]
+    assert busca.antigos_ignorados == 1
+
+
+def test_sem_corte_configurado_arquivo_antigo_entra(sessao, leitor):
+    sessao.pastas[RAIZ] = [[item("velho", "antigo.docx", MIME_DOCX, modificado="2018-05-01T10:00:00.000Z")]]
+
+    busca = leitor.arquivos()
+
+    assert [a.id for a in busca.arquivos] == ["velho"] and busca.antigos_ignorados == 0

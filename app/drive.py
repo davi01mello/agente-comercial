@@ -10,10 +10,11 @@ são HTTP simples (google-auth + requests): sem o cliente gigante do Google. Os 
 """
 import json
 import logging
+import re
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.config import settings
@@ -30,6 +31,9 @@ EXPORTACAO = {
     "application/vnd.google-apps.presentation": "text/plain",
     "application/vnd.google-apps.spreadsheet": "text/csv",
 }
+# Vídeo não tem texto para ler (e é pesado): fica fora da lista, sem aparecer em Fontes. Vale o tipo do arquivo e,
+# para o que o Drive marca como "binário genérico", a extensão do nome.
+EXTENSOES_DE_VIDEO = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".wmv", ".mpg", ".mpeg", ".3gp")
 CAMPOS = "nextPageToken,files(id,name,mimeType,modifiedTime,md5Checksum,size,webViewLink)"
 TIMEOUT_S = 60
 TENTATIVAS = 4
@@ -45,6 +49,17 @@ class ErroDrive(Exception):
     def __init__(self, mensagem: str, status: int | None = None):
         super().__init__(mensagem)
         self.status = status
+
+
+def ids_das_pastas(texto: str) -> list[str]:
+    """Os ids de pasta de um valor do .env: um ou vários, separados por vírgula, ponto e vírgula, espaço ou quebra de
+    linha. Cada um pode ser o id puro ou o endereço inteiro da pasta (".../folders/<id>?usp=sharing"). Sem repetir."""
+    ids: list[str] = []
+    for pedaco in re.split(r"[,;\s]+", texto.strip()):
+        pedaco = pedaco.split("/folders/")[-1].split("?")[0].strip("/") if pedaco else ""
+        if pedaco and pedaco not in ids:
+            ids.append(pedaco)
+    return ids
 
 
 def _dormir(segundos: float) -> None:
@@ -75,6 +90,19 @@ class ArquivoDrive:
 class BuscaDrive:
     arquivos: list[ArquivoDrive] = field(default_factory=list)
     completa: bool = True  # False: a lista foi cortada (limite) ou uma subpasta não pôde ser lida
+    videos_ignorados: int = 0  # vídeos que nem entraram na lista (não aparecem em Fontes)
+    antigos_ignorados: int = 0  # arquivos mais antigos que DRIVE_IDADE_MAX_ANOS (também fora da lista)
+
+
+def e_video(mime: str, nome: str) -> bool:
+    return mime.startswith("video/") or nome.lower().endswith(EXTENSOES_DE_VIDEO)
+
+
+def data_de_corte(anos: int) -> datetime | None:
+    """A data (UTC sem fuso) antes da qual o arquivo é velho demais para entrar; None se o corte está desligado (0)."""
+    if anos <= 0:
+        return None
+    return datetime.now(UTC).replace(tzinfo=None) - timedelta(days=round(365.25 * anos))
 
 
 def _data(texto: str) -> datetime:
@@ -105,10 +133,11 @@ class LeitorDrive:
 
     def __init__(self, pasta_id: str | None = None, *, credenciais_json: str | None = None,
                  caminho_credenciais: str | None = None, sessao=None):
-        self.pasta_id = (pasta_id if pasta_id is not None else settings.drive_pasta_id).strip()
-        if not self.pasta_id:
+        self.pastas = ids_das_pastas(pasta_id if pasta_id is not None else settings.drive_pasta_id)
+        if not self.pastas:
             raise ErroDrive("Falta DRIVE_PASTA_ID no .env: é o id da pasta \"Conhecimento Comercial\" (o final do "
-                            "endereço dela no Drive).")
+                            "endereço dela no Drive). Para várias pastas, separe os ids por vírgula.")
+        self.pasta_id = self.pastas[0]  # a principal: as outras entram com o nome delas no começo da categoria
         if sessao is None:
             json_da_chave = (credenciais_json if credenciais_json is not None
                              else settings.google_service_account_json).strip()
@@ -163,19 +192,39 @@ class LeitorDrive:
             if not pagina:
                 return
 
+    def _nome_da_pasta(self, pasta_id: str) -> str:
+        dados = self._get(f"{API}/{pasta_id}", {"fields": "name", "supportsAllDrives": "true"}).json()
+        return str(dados.get("name") or pasta_id)
+
     def arquivos(self, limite: int | None = None) -> BuscaDrive:
-        """Todos os arquivos da pasta e das subpastas (atalhos e a lixeira ficam de fora), do mais antigo ao mais novo
-        por pasta. Com `limite`, só os N primeiros (e a busca sai `completa=False`: não dá para saber o que sumiu)."""
+        """Todos os arquivos das pastas e das subpastas (atalhos, a lixeira, vídeos e, com DRIVE_IDADE_MAX_ANOS, os
+        arquivos velhos demais ficam de fora), do mais antigo ao mais novo por pasta.
+        Com `limite`, só os N primeiros (e a busca sai `completa=False`: não dá para saber o que sumiu).
+
+        A primeira pasta é a principal: se ela falhar, a execução toda falha. Uma das outras que não puder ser lida
+        (ex.: ainda não foi compartilhada com a conta de serviço) só deixa a busca incompleta. As categorias das
+        outras pastas começam pelo nome delas ("Conhecimento / Consultoria"); as da principal não mudam."""
         busca = BuscaDrive()
-        fila: list[tuple[str, tuple[str, ...]]] = [(self.pasta_id, ())]
-        vistas = {self.pasta_id}
+        corte = data_de_corte(settings.drive_idade_max_anos)
+        fila: list[tuple[str, tuple[str, ...]]] = []
+        for i, raiz in enumerate(self.pastas):
+            if i == 0:
+                fila.append((raiz, ()))
+                continue
+            try:
+                fila.append((raiz, (self._nome_da_pasta(raiz),)))
+            except ErroDrive as e:
+                logger.warning("pasta extra do Drive não pôde ser lida (status %s)", e.status)
+                busca.completa = False
+        vistas = {raiz for raiz, _ in fila}
+        arquivos_vistos: set[str] = set()
         while fila:
             pasta_id, caminho = fila.pop(0)
             try:
                 filhos = list(self._filhos(pasta_id))
             except ErroDrive as e:
                 if pasta_id == self.pasta_id:
-                    raise  # a raiz é o que importa: sem ela, a execução toda falha com o motivo certo
+                    raise  # a pasta principal é o que importa: sem ela, a execução toda falha com o motivo certo
                 logger.warning("subpasta do Drive não pôde ser lida (status %s)", e.status)
                 busca.completa = False
                 continue
@@ -185,13 +234,21 @@ class LeitorDrive:
                         vistas.add(f["id"])
                         fila.append((f["id"], (*caminho, f["name"])))
                     continue
-                if f["mimeType"] == MIME_ATALHO:
+                if f["mimeType"] == MIME_ATALHO or f["id"] in arquivos_vistos:
+                    continue  # o mesmo arquivo alcançado por duas pastas entra uma vez só
+                if e_video(f["mimeType"], f["name"]):
+                    busca.videos_ignorados += 1
+                    continue
+                modificado_em = _data(f["modifiedTime"])
+                if corte is not None and modificado_em < corte:
+                    busca.antigos_ignorados += 1
                     continue
                 if limite is not None and len(busca.arquivos) >= limite:
                     busca.completa = False
                     return busca
+                arquivos_vistos.add(f["id"])
                 busca.arquivos.append(ArquivoDrive(
-                    id=f["id"], nome=f["name"], mime=f["mimeType"], modificado_em=_data(f["modifiedTime"]),
+                    id=f["id"], nome=f["name"], mime=f["mimeType"], modificado_em=modificado_em,
                     tamanho=int(f["size"]) if f.get("size") else None, caminho=caminho, md5=f.get("md5Checksum"),
                 ))
         return busca

@@ -27,8 +27,9 @@ class Settings(BaseSettings):
     # (GOOGLE_SERVICE_ACCOUNT_JSON, na Railway). Só no .env: nunca no código, no chat ou em log.
     google_application_credentials: str = ""
     google_service_account_json: str = ""
-    drive_pasta_id: str = ""  # a pasta "Conhecimento Comercial" (a raiz da leitura, com as subpastas)
+    drive_pasta_id: str = ""  # a pasta "Conhecimento Comercial" (e outras, separadas por vírgula): as raízes da leitura
     drive_max_mb: int = 30  # arquivo maior que isto não é baixado (os PDFs de slides de 50 MB não têm texto mesmo)
+    drive_idade_max_anos: int = 0  # 0 = sem corte; >0: arquivo sem edição há mais que N anos nem entra
     drive_max_trechos: int = 12  # documento com mais trechos (~96 mil caracteres) fica só na busca, sem ir ao curador
     drive_sync_intervalo_min: int = 0  # 0 = desligado; >0: o servidor sincroniza o Drive sozinho a cada N minutos
     drive_sync_teto_usd: float = 0.5  # o teto de gasto do curador em cada sincronização automática

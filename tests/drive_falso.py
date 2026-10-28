@@ -173,6 +173,7 @@ class SessaoFalsa:
     def __init__(self):
         self.pastas: dict[str, list[list[dict]]] = {}  # id da pasta -> páginas de filhos
         self.corpos: dict[str, bytes] = {}  # id do arquivo (ou id/export) -> bytes
+        self.nomes: dict[str, str] = {}  # id da pasta -> nome (a resposta de GET /files/{id}?fields=name)
         self.pedidos: list[tuple[str, dict]] = []
         self.programadas: list = []  # respostas (ou exceções) usadas antes das normais, na ordem
 
@@ -193,6 +194,10 @@ class SessaoFalsa:
                 corpo["nextPageToken"] = str(indice + 1)
             return RespostaFalsa(json=corpo)
         chave = url.removeprefix(API + "/")
+        if params.get("fields") == "name":
+            if chave not in self.nomes:
+                return RespostaFalsa(status=404)
+            return RespostaFalsa(json={"name": self.nomes[chave]})
         return RespostaFalsa(corpo=self.corpos[chave])
 
 
