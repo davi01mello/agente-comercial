@@ -69,6 +69,8 @@
     reg: novoReg(),  // o rascunho do curador em andamento
     lacunas: novoEstadoLacunas(),  // GET /lacunas: as abertas e as resolvidas
     briefing: novoBriefing(),  // o pedido e o resultado de Preparar reunião
+    mapa: novoMapa(),  // o mapa: a vista, o segmento, o zoom e a etapa selecionada
+    mapaEtapa: null,  // a etapa aberta no mapa (null: o nível 0)
     filtro: { secao: null, segmento: null, busca: "", historico: false, origem: null, mostrar: {} },
     fontes: null,  // o resumo de GET /fontes/resumo
     filtroFontes: { status: null, busca: "", origem: null },
@@ -568,9 +570,9 @@
   // A navegação é por hash, para o link funcionar ("#item/INS-12", "#base/proposta"). Os endereços antigos
   // (#conversar, #playbook, #briefing) continuam abrindo a tela certa. As abas abertas ficam no localStorage, que pode
   // falhar: sem ele, a tela abre só com o Hoje.
-  const TELAS = ["hoje", "cerebro", "item", "base", "fila", "lacunas", "registrar", "preparar", "fontes"];
+  const TELAS = ["hoje", "cerebro", "item", "base", "mapa", "fila", "lacunas", "registrar", "preparar", "fontes"];
   const APELIDOS = { conversar: "cerebro", playbook: "base", briefing: "preparar" };
-  const NOME_TELA = { fila: "Fila", lacunas: "Lacunas", registrar: "Rascunho", preparar: "Preparar reunião", fontes: "Fontes" };
+  const NOME_TELA = { mapa: "Mapa", fila: "Fila", lacunas: "Lacunas", registrar: "Rascunho", preparar: "Preparar reunião", fontes: "Fontes" };
   const MAX_ABAS = 8;
 
   function lerRota() {
@@ -617,6 +619,7 @@
     if (rota.tela === "hoje") seguro(pintarHoje, "hoje");
     if (rota.tela === "item") pintarItem(rota.arg);
     if (rota.tela === "base") abrirBase(rota.arg);
+    if (rota.tela === "mapa") pintarMapa(rota.arg);
     if (rota.tela === "fila") pintarFila();
     if (rota.tela !== "lacunas") estado.lacunas.aviso = null;  // a faixa "Enviado para a Fila" some ao sair da tela
     if (rota.tela === "lacunas") {
@@ -682,6 +685,7 @@
       return { codigo: arg, texto: it ? it.titulo : "fora da base" };
     }
     if (tela === "base") return { texto: arg ? `Base · ${NOME_SECAO[arg] || arg}` : "Base" };
+    if (tela === "mapa") return { texto: arg ? `Mapa · ${NOME_SECAO[arg] || arg}` : "Mapa" };
     return { texto: NOME_TELA[tela] || tela };
   }
   function lerAbas() {
@@ -787,7 +791,7 @@
 
   // Os 7 nós da base por etapa (Hoje e, no PR 3, o mapa): a cor da borda é a evidência média, e o tracejado marca a
   // "pouca base" (nenhum item com evidência 3 ou mais). A cor nunca vai sozinha: o número e o "evid." vão junto.
-  function nosEtapas(itens, { href } = {}) {
+  function nosEtapas(itens, { href, selecionada, aoEscolher, aoEntrar } = {}) {
     return el("div", { class: "nos-etapas" }, SECOES.map(([chave, nome]) => {
       const da = itens.filter((i) => i.secao === chave);
       const media = da.length ? da.reduce((t, i) => t + i.evidencia, 0) / da.length : 0;
@@ -795,7 +799,10 @@
       const tom = Math.min(4, Math.max(1, Math.round(media)));
       const rotulo = da.length ? `evid. ${media.toFixed(1).replace(".", ",")}` : "sem itens";
       return el(href ? "a" : "div", {
-        class: `no-etapa c${tom}`, href: href ? href(chave) : null, role: href ? null : "img",
+        class: `no-etapa c${tom}${selecionada === chave ? " sel" : ""}`, href: href ? href(chave) : null, role: href ? null : "img",
+        "data-chave": chave,
+        onmouseenter: aoEscolher ? () => aoEscolher(chave) : null, onfocus: aoEscolher ? () => aoEscolher(chave) : null,
+        onclick: aoEntrar ? () => aoEntrar(chave) : null,
         "aria-label": `${nome}: ${da.length} ${da.length === 1 ? "item" : "itens"}, ${rotulo}${pouca ? ", pouca base" : ""}`,
       },
       el("div", { class: `cx${pouca ? " pouca" : ""}`, "aria-hidden": "true" }, el("span", { class: "numero", text: String(da.length) })),
@@ -886,9 +893,11 @@
     ];
     if (base.length) {
       filhos.push(el("section", { class: "painel" },
-        el("div", { class: "cab-tela" }, el("h2", { class: "t-titulo", text: "A base por etapa" }),
-          el("p", { class: "t-p suave", text: "A cor da borda é a evidência média. Tracejado: pouca base, nenhum item com evidência 3 ou mais." })),
-        nosEtapas(base, { href: (chave) => `#base/${chave}` })));
+        el("div", { class: "cab-painel" },
+          el("div", { class: "cab-tela" }, el("h2", { class: "t-titulo", text: "A base por etapa" }),
+            el("p", { class: "t-p suave", text: "A cor da borda é a evidência média. Tracejado: pouca base, nenhum item com evidência 3 ou mais." })),
+          el("a", { class: "btn", href: "#mapa" }, "Abrir o mapa", icone("seta", "ic p"))),
+        nosEtapas(base, { href: (chave) => `#mapa/${chave}` })));
     } else {
       filhos.push(vazio("A base ainda está vazia",
         "Sem itens aprovados eu não monto roteiro: prefiro não inventar. Registre o primeiro relato ou aprove o que está na Fila.",
@@ -2632,12 +2641,123 @@
       docs, avisos].filter(Boolean);
   }
 
+  // ---------------------------------------------------------------- mapa (a base em nós)
+  // O nível 0 são as 7 etapas como nós; entrar numa etapa abre o nível 1 (o canvas da resposta, a etapa inteira). Tudo sai
+  // dos itens já carregados e do campo `relacoes`: a API não tem rota de mapa.
+  const ORDEM_TIPOS_MAPA = ["regra", "case", "aprendizado", "objecao", "perfil_segmento", "hipotese", "template"];
+  const ROTULO_ZONA = { regra: "Regras", case: "Cases", aprendizado: "Aprendizados", objecao: "Objeções",
+    perfil_segmento: "Perfil de segmento", hipotese: "Hipóteses", template: "Template" };
+  function novoMapa() {
+    return { vista: null, segmento: null, zoom: 1, sel: null, selItem: null };
+  }
+  // O filtro por segmento: o item de um segmento só aparece nele, e o item sem segmento aparece em todos.
+  const noSegmento = (i) => !estado.mapa.segmento || !i.segmento || i.segmento === estado.mapa.segmento;
+  const numeroDaEtapa = (chave) => String(SECOES.findIndex(([c]) => c === chave) + 1).padStart(2, "0");
+
+  function passosDoMapa(etapa) {  // 01 a 07: pular direto para uma etapa
+    return el("nav", { class: "passos-mapa", "aria-label": "Etapa do funil" }, SECOES.map(([chave, nome], i) =>
+      el("a", { href: `#mapa/${chave}`, title: nome, "aria-label": nome, "aria-current": chave === etapa ? "step" : null,
+        onclick: () => { estado.mapa.vista = null; } }, String(i + 1).padStart(2, "0"))));
+  }
+  function seletorDeSegmento() {
+    const M = estado.mapa;
+    const todos = [...new Set([...SEGMENTOS, ...estado.itens.map((i) => i.segmento).filter(Boolean)])].sort();
+    const s = el("select", { class: "seletor-segmento", "aria-label": "Segmento" },
+      el("option", { value: "", text: "Todos os segmentos" }), ...todos.map((x) => el("option", { value: x, text: capital(x) })));
+    s.value = M.segmento || "";
+    s.addEventListener("change", () => { M.segmento = s.value || null; pintarMapa(estado.mapaEtapa); });
+    return s;
+  }
+  function trilhaDoMapa(etapa) {
+    const M = estado.mapa;
+    return el("nav", { class: "trilha-mapa t-legenda", "aria-label": "Onde você está" },
+      el("a", { href: "#mapa", onclick: () => { M.vista = null; } }, "Mapa"),
+      etapa ? [" / ", el("span", { text: NOME_SECAO[etapa] })] : null,
+      M.segmento ? [" / ", el("button", { type: "button", class: "btn fantasma", title: "Tirar o filtro de segmento",
+        onclick: () => { M.segmento = null; pintarMapa(estado.mapaEtapa); } }, `segmento: ${M.segmento} ×`)] : null);
+  }
+  // A mesa da etapa: o que há nela, por tipo, e os 3 itens mais fortes.
+  function mesaDaEtapa(chave, itens) {
+    const da = itens.filter((i) => i.secao === chave);
+    const porTipo = ORDEM_TIPOS_MAPA.map((t) => [t, da.filter((i) => i.tipo === t).length]).filter(([, n]) => n);
+    return el("section", { class: "painel mesa-etapa", "aria-label": `Mesa da etapa ${NOME_SECAO[chave]}` },
+      el("div", { class: "cab-painel" },
+        el("h2", { class: "t-secao", text: `${numeroDaEtapa(chave)} · ${NOME_SECAO[chave]}` }),
+        el("a", { class: "btn primario", href: `#mapa/${chave}`, onclick: () => { estado.mapa.vista = null; } }, "Entrar na etapa", icone("seta", "ic p"))),
+      da.length ? el("div", { class: "meta" }, porTipo.map(([t, n]) => el("span", { class: "etiqueta", text: `${ROTULO_ZONA[t]} · ${n}` }))) : null,
+      da.length ? el("div", {}, maisFortes(da).slice(0, 3).map((i) => el("a", { class: "linha-lista", href: `#item/${i.codigo}` },
+        pontoEv(i.evidencia), el("span", { class: "t-dado suave", text: i.codigo }), el("span", { class: "txt", text: i.titulo }))))
+        : el("p", { class: "t-p suave", text: "Nenhum item aprovado nesta etapa." }));
+  }
+  // A lista da etapa: os mais fortes, com a ligação para a base inteira.
+  function listaDaEtapa(etapa, itens) {
+    const da = maisFortes(itens.filter((i) => i.secao === etapa));
+    if (!da.length) {
+      return vazio("Nenhum item aprovado nesta etapa", "Registre um relato, ou aprove o que está na Fila, para ela ganhar itens.",
+        el("a", { class: "btn primario", href: "#registrar", text: "Registrar um relato" }));
+    }
+    return el("section", { class: "painel raso" }, ...da.slice(0, 25).map((i) => el("a", { class: "linha-lista", href: `#item/${i.codigo}` },
+      pontoEv(i.evidencia), el("span", { class: "t-dado suave", text: i.codigo }), el("span", { class: "txt", text: i.titulo }),
+      el("span", { class: "t-legenda", text: EVIDENCIA[i.evidencia] }))),
+    da.length > 25 ? el("a", { class: "btn fantasma", href: `#base/${etapa}`, text: `+${da.length - 25} itens nesta etapa · ver lista` }) : null);
+  }
+
+  function pintarMapa(chave) {
+    const M = estado.mapa;
+    const caixa = $("#mapa-conteudo");
+    const etapa = SECOES.some(([c]) => c === chave) ? chave : null;
+    estado.mapaEtapa = etapa;
+    const aprovados = itensDaBase().filter(noSegmento);
+    const daEtapa = etapa ? aprovados.filter((i) => i.secao === etapa) : [];
+    if (!SECOES.some(([c]) => c === M.sel)) M.sel = (SECOES.find(([c]) => aprovados.some((i) => i.secao === c)) || SECOES[0])[0];
+    const itensTxt = (n) => `${n} ${n === 1 ? "item" : "itens"}`;
+    const cab = el("header", { class: "cab-tela" },
+      el("p", { class: "t-rotulo", text: etapa ? `Mapa · etapa ${numeroDaEtapa(etapa)} de 07 · ${itensTxt(daEtapa.length)}` : `Mapa · a base em 7 etapas · ${itensTxt(aprovados.length)}` }),
+      el("h1", { class: "t-titulo", text: etapa ? NOME_SECAO[etapa] : "A base em 7 etapas" }),
+      el("div", { class: "mapa-controles" }, passosDoMapa(etapa), seletorDeSegmento()),
+      trilhaDoMapa(etapa));
+    if (etapa) { caixa.replaceChildren(cab, listaDaEtapa(etapa, aprovados)); return; }
+    const mesa = el("div", { id: "mesa-mapa" });
+    const mostrarMesa = () => {
+      for (const a of $$(".no-etapa", caixa)) a.classList.toggle("sel", a.dataset.chave === M.sel);
+      mesa.replaceChildren(mesaDaEtapa(M.sel, aprovados));
+    };
+    const nos = nosEtapas(aprovados, { href: (c) => `#mapa/${c}`, selecionada: M.sel,
+      aoEscolher: (c) => { if (M.sel !== c) { M.sel = c; mostrarMesa(); } }, aoEntrar: () => { M.vista = null; } });
+    caixa.replaceChildren(cab, el("section", { class: "painel" }, nos),
+      aprovados.length ? mesa : vazio("A base ainda não tem itens aprovados", "Registre um relato ou aprove o que está na Fila: cada item aprovado vira um ponto neste mapa.",
+        el("div", { class: "botoes" }, el("a", { class: "btn primario", href: "#registrar", text: "Registrar um relato" }),
+          el("a", { class: "btn", href: "#fila", text: "Abrir a Fila" }))));
+    if (aprovados.length) mostrarMesa();
+  }
+  // Teclado do mapa: ← e → trocam de etapa, Enter entra e Esc sobe um nível.
+  function teclasDoMapa(e) {
+    if (estado.tela !== "mapa" || paleta.aberta || e.metaKey || e.ctrlKey || e.altKey) return;
+    const alvo = e.target;
+    if (alvo.matches("textarea, select, [contenteditable]") || (alvo.matches("input") && !["checkbox", "button"].includes(alvo.type))) return;  // digitando
+    const M = estado.mapa;
+    const etapa = estado.mapaEtapa;
+    const i = SECOES.findIndex(([c]) => c === (etapa || M.sel));
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      const novo = SECOES[Math.min(SECOES.length - 1, Math.max(0, i + (e.key === "ArrowRight" ? 1 : -1)))][0];
+      e.preventDefault();
+      if (etapa) { M.vista = null; location.hash = `#mapa/${novo}`; }
+      else { M.sel = novo; pintarMapa(null); const no = $(".no-etapa.sel"); if (no) no.focus(); }
+    } else if (e.key === "Enter" && !etapa && alvo === document.body) {
+      e.preventDefault();
+      location.hash = `#mapa/${M.sel}`;
+    } else if (e.key === "Escape" && etapa) {
+      e.preventDefault();
+      location.hash = "#mapa";
+    }
+  }
+
   // ---------------------------------------------------------------- paleta Cmd+K: buscar ou agir
   // Busca nos itens já carregados (a API não tem busca própria de itens) e, ao vivo, nas fontes (GET /fontes?q=).
   // Teclado: setas movem, Enter abre, Cmd+Enter pergunta ao Cérebro, Tab troca o filtro e Esc fecha.
   const paleta = { aberta: false, termo: "", filtro: "tudo", sel: 0, opcoes: [], fontes: [], pedido: 0, espera: null, focoAntes: null };
   const FILTROS_PALETA = [["tudo", "Tudo"], ["itens", "Itens"], ["fontes", "Fontes"], ["acoes", "Ações"]];
-  const TELAS_PALETA = [["#hoje", "hoje", "Hoje"], ["#fila", "fila", "Fila"], ["#lacunas", "lacuna", "Lacunas"], ["#preparar", "preparar", "Preparar reunião"], ["#fontes", "fontes", "Fontes"]];
+  const TELAS_PALETA = [["#hoje", "hoje", "Hoje"], ["#mapa", "mapa", "Mapa"], ["#fila", "fila", "Fila"], ["#lacunas", "lacuna", "Lacunas"], ["#preparar", "preparar", "Preparar reunião"], ["#fontes", "fontes", "Fontes"]];
   const MAX_ITENS_PALETA = 8;
 
   // O trecho que bate com o termo vai num <mark> (a comparação ignora acento e maiúscula).
@@ -2879,6 +2999,7 @@
     });
     $("#campo-chat").addEventListener("input", atualizarContadorMsg);
     document.addEventListener("keydown", teclasDaFila);
+    document.addEventListener("keydown", teclasDoMapa);
     const anexar = $("#anexar");
     const arquivo = $("#arquivo-anexo");
     anexar.addEventListener("click", () => arquivo.click());

@@ -433,3 +433,18 @@ def test_briefing_vem_da_api_e_nao_inventa_roteiro():
     assert "cerebro.briefings:" in js and "Só neste computador" in js
     assert "camposComDadoPessoal(e.message)" in js and "Diga o segmento da reunião." in js
     assert 'id="preparar-conteudo"' in html
+
+
+def test_mapa_nivel_0_tem_as_7_etapas_e_a_pouca_base():
+    """O nível 0 do mapa são as 7 etapas como nós: a borda é a evidência média, o tracejado marca a "pouca base" (nenhum
+    item com evidência 3 ou mais) e o número e o "evid." vão junto da cor. Tudo sai dos itens já carregados."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert "function nosEtapas(" in js and "const pouca = !da.some((i) => i.evidencia >= 3)" in js
+    assert "pouca base" in js and "href: (c) => `#mapa/${c}`" in js
+    assert "function mesaDaEtapa(" in js and "slice(0, 3)" in js  # a mesa: os 3 itens mais fortes
+    assert 'data-tela="mapa"' in html and 'href="#mapa"' in html and 'id="mapa-conteudo"' in html
+    assert "A base ainda não tem itens aprovados" in js
+    assert "e.key === \"ArrowRight\"" in js and "function teclasDoMapa(" in js
+    assert 'chamar("GET", "/mapa' not in js  # a API não tem rota de mapa

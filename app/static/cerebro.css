@@ -1106,6 +1106,27 @@ body.sem-login .app { visibility: hidden; }
   .lacuna-linha .txt { flex-basis: 100%; white-space: normal; order: -1; }
 }
 
+/* ---------- Mapa: o nível 0, os nós das etapas ---------- */
+.mapa-miolo { max-width: none; padding: 24px 24px 48px; }
+.mapa-controles { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.passos-mapa { display: flex; flex-wrap: wrap; gap: 6px; }
+.passos-mapa a {
+  width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--raio-m);
+  border: 1px solid var(--linha-forte); color: var(--texto-suave); text-decoration: none; font: 500 12px/1 var(--f-mono);
+}
+.passos-mapa a:hover { color: var(--texto-forte); border-color: var(--linha-campo); }
+.passos-mapa a[aria-current="step"] { color: var(--marca-forte); border-color: var(--marca); background: var(--marca-tinta); }
+.seletor-segmento {
+  min-height: 32px; padding: 4px 12px; border-radius: var(--raio-pilula); border: 1px solid var(--linha-campo);
+  background: var(--superficie-2); color: var(--texto-forte); font-size: 13px;
+}
+.trilha-mapa { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.trilha-mapa a { color: var(--marca-forte); }
+.trilha-mapa .btn { min-height: 24px; padding: 0 8px; }
+.no-etapa.sel .cx { background: var(--marca-tinta); border-color: var(--marca); box-shadow: 0 0 0 5px var(--fundo), 0 0 0 7px var(--marca-linha); }
+.mesa-etapa { display: grid; gap: 12px; }
+@media (max-width: 860px) { .mapa-miolo { padding: 20px 16px 40px; } }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

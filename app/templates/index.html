@@ -29,6 +29,7 @@
       <span class="esqueleto"></span><span class="esqueleto"></span><span class="esqueleto curto"></span>
     </div>
     <p class="t-rotulo grupo-barra">Trabalho</p>
+    <a class="no" href="#mapa"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="10" cy="18" r="2.5"/><path d="M8.4 6.4 15.6 7.6M6.8 8.4l2.4 7.2M16.6 10.1l-5 6"/></svg><span class="txt">Mapa</span></a>
     <a class="no" href="#fila"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg><span class="txt">Fila</span><b class="selo-cont" id="contador-fila" hidden>0</b></a>
     <a class="no" href="#lacunas"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.3-2.5 4"/><path d="M12 17.5h.01"/></svg><span class="txt">Lacunas</span><span class="cont" id="contador-lacunas" hidden>0</span></a>
     <a class="no" href="#preparar"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/><path d="m9 15 2 2 4-4"/></svg><span class="txt">Preparar reunião</span></a>
@@ -96,6 +97,10 @@
           <div class="aviso-registro" id="registrar-aviso" role="alert" hidden></div>
           <div id="registrar-corpo"></div>
         </div>
+      </section>
+
+      <section class="tela" data-tela="mapa" aria-label="Mapa" hidden>
+        <div class="miolo mapa-miolo" id="mapa-conteudo"></div>
       </section>
 
       <section class="tela" data-tela="lacunas" aria-label="Lacunas" hidden>
@@ -169,6 +174,7 @@
   <a class="no" href="#cerebro"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8 8 0 0 1-11.8 7L3.5 20.5 5 15.6A8 8 0 1 1 20.5 12z"/></svg><span class="txt">Cérebro</span></a>
   <a class="no" href="#base"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span class="txt">Base</span></a>
   <a class="no" href="#preparar"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/><path d="m9 15 2 2 4-4"/></svg><span class="txt">Preparar reunião</span></a>
+  <a class="no" href="#mapa"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="10" cy="18" r="2.5"/><path d="M8.4 6.4 15.6 7.6M6.8 8.4l2.4 7.2M16.6 10.1l-5 6"/></svg><span class="txt">Mapa</span></a>
   <a class="no" href="#fila"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg><span class="txt">Fila</span><b class="selo-cont" id="contador-fila-celular" hidden>0</b></a>
   <a class="no" href="#lacunas"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.3-2.5 4"/><path d="M12 17.5h.01"/></svg><span class="txt">Lacunas</span></a>
   <a class="no" href="#hoje"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span class="txt">Hoje</span></a>
