@@ -372,3 +372,15 @@ def test_anexo_vai_por_multipart_e_acompanha_o_curador():
     assert "nomeDoAnexo(arquivo.name)" in js and "painel.nomear(f.titulo)" in js
     assert "const RE_PESSOAL = [" in js  # o padrão que o nomeDoAnexo usa (saiu com a demonstração no #19)
     assert 'id="arquivo-anexo"' in html and ".docx,.pdf,.xlsx,.csv,.txt,.md" in html
+
+
+def test_pagina_do_item_mostra_ligacoes_de_ida_e_de_volta():
+    """As ligações que saem do item vêm de `relacoes`; as que chegam nele são calculadas dos itens carregados (não há
+    rota de "citado em"). Um item ligado que não está carregado aparece como "fora da base atual", sem título."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert "function ligacoesDoItem(" in js and "chega: true" in js and "chega: false" in js
+    assert "fora da base atual" in js
+    assert 'ORDEM_LIGACAO = ["contradiz", "substitui", "reforca", "duplica"]' in js  # as que importam vêm primeiro
+    assert "Perguntar sobre este item" in js and "Copiar código" in js
+    assert "relacoes-de-quem-cita" not in js and "/citado" not in js  # a API não entrega "citado em"

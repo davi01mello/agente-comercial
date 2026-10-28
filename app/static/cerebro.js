@@ -2011,10 +2011,50 @@
   }
 
   // ---------------------------------------------------------------- página do item
-  // O item abre numa aba do centro (no lugar da gaveta). O PR 2 completa a página com as ligações.
+  // O item abre numa aba do centro (no lugar da gaveta), no modelo da "Estação da conta": o rótulo, o título, a faixa de
+  // propriedades, o texto, a evidência, de onde veio e as ligações. Tudo sai do que o GET /insights já trouxe. Não há
+  // "editar": a API não tem rota de edição.
+  const FRASE_NIVEL = { 1: "Opinião, sem caso que sustente.", 2: "Observação única: se apoia em um único caso.",
+    3: "Padrão repetido: visto em vários casos.", 4: "Resultado medido: exige um número, e ele está no item." };
+  const ORDEM_LIGACAO = ["contradiz", "substitui", "reforca", "duplica"];
   function abrirItem(codigo) {
     if (!acharItem(codigo)) { aviso(`${codigo} não está na base carregada.`, "erro"); return; }
     location.hash = `#item/${codigo}`;
+  }
+  // As ligações do item: as que saem dele (relacoes) e as que chegam nele (calculadas dos itens carregados).
+  function ligacoesDoItem(it) {
+    const saem = (it.relacoes || []).map((r) => ({ tipo: r.tipo, id: r.relacionado_id, chega: false }));
+    const chegam = estado.itens.filter((o) => o.id !== it.id)
+      .flatMap((o) => (o.relacoes || []).filter((r) => r.relacionado_id === it.id).map((r) => ({ tipo: r.tipo, id: o.id, chega: true })));
+    return [...saem, ...chegam].sort((a, b) => ORDEM_LIGACAO.indexOf(a.tipo) - ORDEM_LIGACAO.indexOf(b.tipo));
+  }
+  function linhaLigacao(l) {
+    const outro = estado.itens.find((i) => i.id === l.id);
+    const rotulo = `${l.chega ? "← " : ""}${capital(RELACOES[l.tipo] || l.tipo)}`;
+    const filhos = outro
+      ? [pontoEv(outro.evidencia), el("span", { class: "t-dado", text: outro.codigo }), el("span", { class: "txt", text: outro.titulo }),
+        estaNaFila(outro) ? el("span", { class: "selo alerta", text: "na Fila" }) : null,
+        outro.status === "obsoleto" ? el("span", { class: "selo risco", text: "obsoleto" }) : null]
+      : [el("span", { class: "txt suave", text: `INS-${l.id} · fora da base atual` })];  // um item que não está carregado
+    return el(outro ? "a" : "div", { class: `ligacao ${l.tipo}`, href: outro ? `#item/${outro.codigo}` : null },
+      el("span", { class: "tipo", text: rotulo }), ...filhos.filter(Boolean));
+  }
+  function faixa(pares) {
+    return el("dl", { class: "faixa" }, pares.filter(([, v]) => v).map(([k, v]) =>
+      el("div", {}, el("dt", { text: k }), el("dd", {}, v))));
+  }
+  function textoDoItem(titulo, texto, destaque = false) {
+    return texto ? el("section", { class: `texto-item${destaque ? " destaque" : ""}` },
+      el("h2", { class: "t-rotulo", text: titulo }), el("p", { class: "t-corpo", text: texto })) : null;
+  }
+  async function decidirNoItem(it, acao, motivo) {
+    await decidir(it, acao, motivo);
+    if (estado.telaHash === `#item/${it.codigo}`) pintarItem(it.codigo);
+  }
+  function perguntarSobre() {
+    estado.sobreTirado = false;
+    atualizarSobre();
+    if (CELULAR.matches) location.hash = "#cerebro"; else mostrarCerebro();
   }
   function pintarItem(codigo) {
     const corpo = $("#item-conteudo");
@@ -2024,31 +2064,66 @@
         "Ele pode ter sido rejeitado ou ainda não ter sido carregado.", el("a", { class: "btn", href: "#hoje", text: "Voltar ao Hoje" })));
       return;
     }
-    const linhas = [
-      ["Etapa", NOME_SECAO[it.secao]],
-      ["Segmento", it.segmento ? capital(it.segmento) : "Todos os segmentos"],
-      ["Evidência", el("span", { class: "evid" }, trilha(it.evidencia), `${it.evidencia} · ${EVIDENCIA[it.evidencia]}`)],
-      ["Status", STATUS[it.status] || it.status],
-      ["O que foi feito", it.o_que_foi_feito],
-      ["Resultado", it.resultado],
-      ["Contexto", it.contexto_cliente],
-      ["Quem registrou", it.autor],
-      ["Quando", dataBr(it.data_evento)],
-      ["Origem", ORIGEM_ITEM[it.fonte] || it.fonte],
-      ["Motivo", it.motivo_obsolescencia],
-    ].filter(([, v]) => v);
-    corpo.replaceChildren(
+    const ligacoes = ligacoesDoItem(it);
+    const origem = linkOrigem(it);
+    const motivo = el("div", { class: "motivo", hidden: true },
+      el("label", { class: "t-rotulo", for: "motivo-item", text: "Motivo da rejeição (obrigatório)" }),
+      el("textarea", { id: "motivo-item", rows: "2", maxlength: "1000", placeholder: "Ex.: duplica outro item e não traz nada novo" }),
+      el("div", { class: "botoes" },
+        el("button", { type: "button", class: "btn perigo", onclick: () => decidirNoItem(it, "rejeitar", $("#motivo-item").value) }, "Confirmar rejeição"),
+        el("button", { type: "button", class: "btn fantasma", onclick: () => { motivo.hidden = true; } }, "Cancelar")));
+    const avs = avisosDeEvidencia(it);
+
+    corpo.replaceChildren(...[  // replaceChildren(null) escreveria o texto "null": só entra o que existe
       el("header", { class: "cab-tela" },
         el("p", { class: "t-rotulo marca", text: `${it.codigo} · ${TIPOS[it.tipo] || it.tipo}` }),
-        el("h1", { class: "t-titulo", text: it.titulo })),
-      metaItem(it),
+        el("h1", { class: "t-display", text: it.titulo })),
+      // no celular, a evidência vira o quadro grande do topo (prancha 2b)
+      el("div", { class: `evidencia-topo c${it.evidencia}` },
+        el("div", { class: "evidencia-quadro", role: "img", "aria-label": `Evidência ${it.evidencia} de 4, ${EVIDENCIA[it.evidencia].toLowerCase()}` },
+          el("span", { class: "numero", text: String(it.evidencia) }), el("span", { class: "t-rotulo", text: "de 4" })),
+        el("div", {}, el("p", { class: "evid" }, EVIDENCIA[it.evidencia]), el("p", { class: "t-legenda", text: FRASE_NIVEL[it.evidencia] }))),
+      it.status === "obsoleto"
+        ? el("div", { class: "aviso-obsoleto", role: "note" }, el("b", { text: "Obsoleto." }), ` ${it.motivo_obsolescencia || "Foi rejeitado ou substituído."}`)
+        : null,
+      faixa([
+        ["Etapa", NOME_SECAO[it.secao]],
+        ["Segmento", it.segmento ? capital(it.segmento) : "Todos os segmentos"],
+        ["Serviço", it.servico],
+        ["Evidência", el("span", { class: "evid" }, trilha(it.evidencia), EVIDENCIA[it.evidencia])],
+        ["Status", STATUS[it.status] || it.status],
+        ["Autor", it.autor],
+        ["Data do evento", dataBr(it.data_evento)],
+        ["Criado em", it.criado_em ? dataHora(it.criado_em).split(",")[0] : null],
+      ]),
       el("p", { class: "desc", text: it.descricao }),
-      el("dl", {}, linhas.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", {}, v)])));
-    if (it.relacoes && it.relacoes.length) {
-      corpo.append(el("h2", { class: "t-secao", text: "Ligações" }), el("div", { class: "relacoes" }, it.relacoes.map((r) => relacaoChip(r, it))));
-    }
-    const avs = avisosDeEvidencia(it);
-    if (avs.length) corpo.append(listaAvisos(avs));
+      textoDoItem("O que foi feito", it.o_que_foi_feito),
+      textoDoItem(it.evidencia === 4 ? "Resultado medido" : "Resultado", it.resultado, it.evidencia === 4),
+      textoDoItem("Contexto do cliente", it.contexto_cliente),
+      el("section", { class: "evidencia-secao" },
+        el("h2", { class: "t-secao", text: "Evidência" }),
+        el("div", { class: "evid" }, trilha(it.evidencia, true), el("b", { text: EVIDENCIA[it.evidencia] })),
+        el("p", { class: "t-p suave", text: FRASE_NIVEL[it.evidencia] })),
+      avs.length ? listaAvisos(avs) : null,
+      el("section", { class: "de-onde-veio" },
+        el("h2", { class: "t-secao", text: "De onde veio" }),
+        el("div", { class: "meta" },
+          el("span", { class: "selo", text: ORIGEM_ITEM[it.fonte] || it.fonte }),
+          origem, !origem && it.fonte_ref && it.fonte !== "chat" ? el("span", { class: "t-p suave", text: it.fonte_ref }) : null,
+          el("span", { class: "t-p suave", text: `Registrado por ${it.autor}` }))),
+      el("section", { class: "ligacoes-secao" },
+        el("h2", { class: "t-secao", text: "Ligações" }),
+        ligacoes.length ? el("div", { class: "ligacoes" }, ligacoes.map(linhaLigacao))
+          : el("p", { class: "t-p suave", text: "Este item não tem ligações com outros itens." })),
+      el("div", { class: "botoes acoes-item" },
+        el("button", { type: "button", class: "btn primario", onclick: perguntarSobre }, icone("chat", "ic p"), "Perguntar sobre este item"),
+        el("button", { type: "button", class: "btn", onclick: () => {
+          const copiar = navigator.clipboard ? navigator.clipboard.writeText(it.codigo) : Promise.reject(new Error("sem área de transferência"));
+          copiar.then(() => aviso(`${it.codigo} copiado.`, "ok"), () => aviso("Não consegui copiar. Selecione o código na tela.", "erro"));
+        } }, icone("copiar", "ic p"), "Copiar código"),
+        estaNaFila(it) ? el("button", { type: "button", class: "btn", onclick: () => decidirNoItem(it, "aprovar") }, icone("check", "ic p"), "Aprovar") : null,
+        estaNaFila(it) ? el("button", { type: "button", class: "btn perigo", onclick: () => { motivo.hidden = false; $("#motivo-item").focus(); } }, "Rejeitar") : null),
+      estaNaFila(it) ? motivo : null].filter(Boolean));
     pintarAbas();  // o título da aba pode ter chegado agora
   }
 

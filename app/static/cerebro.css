@@ -524,11 +524,36 @@ select option { background: var(--superficie-2); color: var(--texto-forte); }
 .no-etapa.c3 { --cor: var(--ev-3); }
 .no-etapa.c4 { --cor: var(--ev-4); }
 
-/* ---------- página do item (o PR 2 a completa) ---------- */
+/* ---------- página do item (a "Estação da conta") ---------- */
+.item-pagina { gap: 22px; }
+.item-pagina .cab-tela .t-display { font-size: 40px; line-height: 44px; }
 .item-pagina .desc { margin: 0; color: var(--texto-forte); font-size: 15px; line-height: 24px; max-width: 72ch; }
-.item-pagina dl { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 10px 20px; margin: 0; }
-.item-pagina dt { padding-top: 2px; font: 500 11px/16px var(--f-mono); letter-spacing: var(--espaco-rotulo); text-transform: uppercase; color: var(--texto-suave); }
-.item-pagina dd { margin: 0; min-width: 0; color: var(--texto-forte); }
+.faixa { display: flex; flex-wrap: wrap; gap: 1px; margin: 0; overflow: hidden; border: 1px solid var(--linha-forte); border-radius: var(--raio-g); background: var(--linha-forte); }
+.faixa > div { flex: 1 1 132px; display: flex; flex-direction: column; gap: 3px; padding: 12px 16px; background: var(--superficie-2); min-width: 0; }
+.faixa dt { font: 500 11px/16px var(--f-mono); letter-spacing: var(--espaco-rotulo); text-transform: uppercase; color: var(--texto-suave); }
+.faixa .evid { flex-wrap: wrap; white-space: normal; }
+.faixa dd { margin: 0; font-size: 14px; line-height: 20px; color: var(--texto-forte); overflow-wrap: anywhere; }
+.texto-item { display: grid; gap: 6px; max-width: 72ch; }
+.texto-item .t-corpo { color: var(--texto); }
+.texto-item.destaque { padding: 14px 16px; border-radius: var(--raio-g); border: 1px solid var(--marca-linha); background: var(--marca-tinta); }
+.texto-item.destaque .t-corpo { color: var(--texto-forte); font-size: 17px; line-height: 26px; }
+.evidencia-secao { display: grid; gap: 8px; }
+.evidencia-topo { display: none; }
+.aviso-obsoleto { padding: 10px 14px; border-radius: var(--raio-m); border: 1px solid var(--risco); background: var(--risco-tinta); color: var(--texto-forte); font-size: 14px; }
+.de-onde-veio, .ligacoes-secao { display: grid; gap: 10px; }
+.ligacoes { display: grid; gap: 8px; }
+.ligacao {
+  display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 14px; min-width: 0;
+  border-radius: var(--raio-m); border: 1px solid var(--linha-forte); background: var(--superficie);
+  color: var(--texto-forte); text-decoration: none; font-size: 13px; line-height: 20px;
+}
+a.ligacao:hover { border-color: var(--marca-linha); background: var(--superficie-2); color: var(--texto-forte); }
+.ligacao .tipo { flex: none; min-width: 96px; font: 500 11px/16px var(--f-mono); letter-spacing: var(--espaco-rotulo); text-transform: uppercase; color: var(--texto-suave); }
+.ligacao .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ligacao.contradiz { border-color: var(--risco); background: var(--risco-tinta); }
+.ligacao.contradiz .tipo { color: var(--risco); }
+.ligacao.substitui { border-style: dashed; border-color: var(--marca-linha); }
+.acoes-item { margin-top: 4px; }
 
 /* ---------- Base (a lista de uma etapa) ---------- */
 .funil { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -793,8 +818,20 @@ body.sem-login .app { visibility: hidden; }
   .evidencia-op { flex-basis: 100%; }
   .rascunho .linha-campos > .campo { flex-basis: 100%; }
   .fontes-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .item-pagina dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-  .item-pagina dd { margin-bottom: 10px; }
+  .item-pagina .cab-tela .t-display { font-size: 26px; line-height: 32px; }
+  .evidencia-topo { display: flex; gap: 16px; align-items: center; }
+  .evidencia-quadro {
+    width: 88px; height: 88px; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    border-radius: 26px; border: 1.5px solid var(--cor); background: var(--superficie-2); box-shadow: 0 0 0 6px var(--fundo), 0 0 0 7px var(--linha-forte);
+    margin: 7px;
+  }
+  .evidencia-quadro .numero { font-size: 36px; line-height: 1; }
+  .evidencia-topo.c1 { --cor: var(--ev-1); } .evidencia-topo.c2 { --cor: var(--ev-2); }
+  .evidencia-topo.c3 { --cor: var(--ev-3); } .evidencia-topo.c4 { --cor: var(--ev-4); }
+  .evidencia-secao { display: none; }
+  .ligacao { min-height: 52px; }
+  .ligacao .tipo { min-width: 0; }
+  .acoes-item .btn { flex: 1 1 100%; }
 }
 @media (max-width: 860px) {
   .nav-celular[hidden] { display: none !important; }
