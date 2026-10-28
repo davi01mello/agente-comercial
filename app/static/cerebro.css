@@ -627,6 +627,113 @@ button.item:hover { border-color: var(--marca-linha); background: var(--superfic
 .entrada-nota { margin: 0; font-size: 12px; color: var(--texto-suave); }
 body.sem-login .app { visibility: hidden; }
 
+/* ---------- o topo do centro, a gaveta do Cérebro e o celular ---------- */
+.topo-centro { display: flex; align-items: flex-end; gap: 8px; border-bottom: 1px solid var(--linha); background: var(--fundo); min-width: 0; }
+.topo-centro .abas { flex: 1; min-width: 0; border-bottom: 0; }
+.abrir-cerebro, .voltar, .voltar-rotulo, .fechar-cerebro, .nav-mascote, .aviso-celular, .modo-celular { display: none; }
+.cerebro-base { display: contents; }
+#nova-conversa .ic { display: none; }
+.fundo-gaveta { position: fixed; inset: 0; z-index: 39; background: rgba(4, 5, 10, 0.6); }
+
+/* De 861 a 1279 px: a barra vira trilho e o Cérebro vira gaveta à direita. */
+@media (max-width: 1279px) {
+  .app, .app.barra-recolhida { grid-template-columns: var(--largura-trilho) minmax(0, 1fr); }
+  .app .barra { padding-inline: 8px; align-items: center; }
+  .app .barra .txt, .app .barra .cont, .app .barra .selo, .app .barra .marca-nome, .app .barra .grupo-barra,
+  .app .barra .arvore, .app .barra .quem-entrou, .app .barra .rodape .btn, #recolher-barra { display: none; }
+  .app .marca-linha { flex-direction: column; padding: 2px 0 12px; }
+  .app .barra .no { justify-content: center; padding: 6px; width: 40px; position: relative; }
+  .app .barra .selo-cont { position: absolute; top: -2px; right: -6px; min-width: 18px; padding: 0 4px; line-height: 18px; }
+  .app .barra .rodape { padding: 12px 0 2px; }
+  .abrir-cerebro { display: inline-flex; margin: 0 16px 6px 0; flex: none; }
+  .cerebro {
+    position: fixed; z-index: 40; top: 0; right: 0; bottom: 0; width: min(var(--largura-cerebro), 100%);
+    box-shadow: var(--sombra-sobreposta);
+    transform: translateX(100%); visibility: hidden;
+    transition: transform 0.25s ease, visibility 0.25s;
+  }
+  body.cerebro-aberto .cerebro { transform: none; visibility: visible; }
+  .fechar-cerebro { display: grid; }
+}
+
+/* Até 860 px, o celular: uma coluna só. A tela inicial é o Cérebro; o botão do mascote abre a navegação. */
+@media (max-width: 860px) {
+  body { font-size: 16px; line-height: 24px; }
+  .app, .app.barra-recolhida { display: block; height: 100%; }
+  .app .barra, .abas, .abrir-cerebro { display: none; }
+  .centro { height: 100%; }
+  .cerebro {
+    position: static; width: auto; height: 100%; transform: none; visibility: visible;
+    border-left: 0; box-shadow: none; transition: none;
+  }
+  body.ver-centro .cerebro { display: none; }
+  body:not(.ver-centro) .centro { display: none; }
+  .fechar-cerebro, .fundo-gaveta { display: none !important; }
+  .topo-centro { align-items: center; gap: 4px; padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 8px; border-bottom: 1px solid var(--linha); }
+  .voltar { display: grid; }
+  .voltar-rotulo { display: inline; }
+  .modo-celular { display: inline-flex; margin-left: auto; }
+  .modo-celular + #nova-conversa { margin-left: 8px; }
+  .miolo { padding: 20px 16px 40px; gap: 22px; }
+  .hoje-cab .t-display { font-size: 34px; line-height: 40px; }
+  .t-titulo { font-size: 24px; line-height: 30px; }
+  .metrica { padding: 4px 16px; flex-basis: 140px; }
+  .nos-etapas { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 18px; }
+  .nos-etapas::before { display: none; }
+  .no-etapa .cx { width: 52px; height: 52px; border-radius: 16px; }
+  .atalho-grande { flex-basis: 100%; }
+  .aviso-celular { display: block; margin: 0; padding: 16px; border-radius: var(--raio-g); border: 1.5px dashed var(--linha-forte); color: var(--texto-suave); }
+  #fontes-conteudo { display: none; }
+
+  /* o painel do Cérebro em tela cheia */
+  .cerebro-topo { padding: calc(14px + env(safe-area-inset-top, 0px)) 16px 10px 20px; border-bottom: 0; }
+  .cerebro-topo .t-secao { font: 600 17px/1 var(--f-titulo); }
+  #nova-conversa { width: var(--alvo-toque); height: var(--alvo-toque); padding: 0; border: 1px solid var(--linha-forte); }
+  #nova-conversa .txt { display: none; }
+  #nova-conversa .ic { display: block; }
+  .conversa { padding: 8px 20px 16px; }
+  .resposta { font-size: 16px; line-height: 26px; }
+  .cerebro-base { display: flex; align-items: flex-end; gap: 10px; padding: 12px 14px calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .nav-mascote {
+    display: grid; place-items: center; flex: none; width: 56px; height: 56px;
+    border-radius: var(--raio-no); border: 1px solid var(--linha-forte); background: var(--superficie);
+    cursor: pointer;
+  }
+  .nav-mascote .mascote { width: 30px; height: 26px; }
+  .nav-mascote[aria-expanded="true"] { border-color: var(--marca); background: var(--marca-tinta); }
+  .compor { flex: 1; min-width: 0; margin: 0; padding: 6px 6px 6px 16px; flex-direction: row; align-items: flex-end; gap: 6px; border-radius: 28px; }
+  .compor > .t-rotulo { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .campo-msg { flex: 1; min-height: 44px; padding: 11px 0; font-size: 16px; line-height: 22px; }
+  .compor-base { flex: none; }
+  .enviar { width: var(--alvo-toque); height: var(--alvo-toque); border-radius: 50%; }
+
+  /* a coluna de navegação, acima do botão do mascote */
+  .nav-celular {
+    position: fixed; z-index: 50; left: 14px; bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+    width: min(280px, calc(100% - 28px)); display: grid; gap: 2px; padding: 8px;
+    border-radius: 16px; border: 1px solid var(--linha-forte); background: var(--superficie-2);
+    box-shadow: var(--sombra-sobreposta);
+  }
+
+  /* os alvos de toque e os campos (16px: o iOS não dá zoom) */
+  .btn, .chip, .etapa-filtro, .no, .atalho, .btn-icone, .exemplo, .escala label { min-height: var(--alvo-toque); }
+  .btn-icone { min-width: var(--alvo-toque); }
+  .busca, .campo input, .campo select, .campo textarea, .motivo textarea, .briefing-form select, .briefing-form textarea, .sync-teto input { font-size: 16px; }
+  .campos, .briefing-form, .briefing-saida { grid-template-columns: minmax(0, 1fr); }
+  .tela-registrar .miolo { grid-template-columns: minmax(0, 1fr); }
+  .registrar-chat { max-height: none; }
+  .escala { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fontes-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .item-pagina dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .item-pagina dd { margin-bottom: 10px; }
+}
+@media (max-width: 860px) {
+  .nav-celular[hidden] { display: none !important; }
+}
+@media (min-width: 861px) {
+  .nav-celular { display: none !important; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

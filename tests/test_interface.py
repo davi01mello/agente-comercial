@@ -230,3 +230,17 @@ def test_abas_lembradas_sem_depender_do_localstorage():
     assert 'guardar.ler("cerebro.abas")' in js and 'guardar.escrever("cerebro.abas"' in js
     assert "ler(chave) { try { return localStorage.getItem(chave); } catch { return null; } }" in js
     assert 'location.hash = `#item/${codigo}`' in js  # o link do item funciona sozinho
+
+
+def test_celular_tem_a_navegacao_do_mascote_e_alvos_de_toque():
+    """No celular, o chat é a tela inicial e o botão do mascote abre a navegação; os alvos têm 44px e os campos
+    16px (o iOS não dá zoom). De 861 a 1279 px, o Cérebro vira gaveta."""
+    with TestClient(app) as client:
+        html = client.get("/").text
+        css = client.get("/static/cerebro.css").text
+        js = client.get("/static/cerebro.js").text
+    assert 'id="nav-mascote"' in html and 'id="nav-celular"' in html and 'id="abrir-cerebro"' in html
+    celular = "".join(css.split("@media (max-width: 860px) {")[1:])  # todos os blocos do celular
+    assert "min-height: var(--alvo-toque)" in celular and "font-size: 16px" in celular
+    assert "@media (max-width: 1279px)" in css
+    assert 'matchMedia("(max-width: 860px)")' in js

@@ -471,6 +471,7 @@
   const MAX_ABAS = 8;
 
   function lerRota() {
+    if (!location.hash && CELULAR.matches) return { tela: "cerebro", arg: null, hash: "#cerebro" };  // no celular, começa no chat
     let decodificado;
     try {
       decodificado = decodeURIComponent((location.hash || "").slice(1));
@@ -485,6 +486,9 @@
   }
   function rotear() {
     const rota = lerRota();
+    fecharNavCelular();
+    if (rota.tela !== "cerebro") fecharGavetaCerebro();  // abrir um item pela gaveta mostra o item, não a gaveta
+    document.body.classList.toggle("ver-centro", rota.tela !== "cerebro");  // no celular, uma coluna por vez
     if (rota.tela === "cerebro") {  // o Cérebro é o painel da direita: a tela do centro continua a que estava
       if (!estado.telaHash) mostrarTela(lerRotaPadrao());
       mostrarCerebro();
@@ -492,6 +496,10 @@
     }
     mostrarTela(rota);
   }
+  // As larguras da casca: até 860 px é o celular (uma coluna); até 1279 px o Cérebro vira gaveta.
+  const CELULAR = matchMedia("(max-width: 860px)");
+  const ESTREITO = matchMedia("(max-width: 1279px)");
+  const ehGaveta = () => ESTREITO.matches && !CELULAR.matches;
   function lerRotaPadrao() { return { tela: "hoje", arg: null, hash: "#hoje" }; }
   function mostrarTela(rota) {
     estado.tela = rota.tela;
@@ -509,7 +517,45 @@
     const tela = $(`.tela[data-tela="${rota.tela}"]`);
     if (tela) tela.scrollTop = 0;
   }
-  function mostrarCerebro() { $("#campo-chat").focus(); }
+  // O painel do Cérebro: fixo no desktop, gaveta de 861 a 1279 px e tela cheia no celular.
+  function mostrarCerebro() {
+    if (ehGaveta()) abrirGavetaCerebro();
+    else if (!CELULAR.matches) $("#campo-chat").focus();
+  }
+  function abrirGavetaCerebro() {
+    if (document.body.classList.contains("cerebro-aberto")) { $("#campo-chat").focus(); return; }
+    estado.focoAntes = document.activeElement;
+    document.body.classList.add("cerebro-aberto");
+    $("#fundo-cerebro").hidden = false;
+    $("#abrir-cerebro").setAttribute("aria-expanded", "true");
+    $("#campo-chat").focus();
+  }
+  function fecharGavetaCerebro() {
+    if (!document.body.classList.contains("cerebro-aberto")) return false;
+    document.body.classList.remove("cerebro-aberto");
+    $("#fundo-cerebro").hidden = true;
+    $("#abrir-cerebro").setAttribute("aria-expanded", "false");
+    if (estado.focoAntes && document.contains(estado.focoAntes)) estado.focoAntes.focus();
+    return true;
+  }
+  // Celular: o botão do mascote abre a coluna de navegação (Esc ou tocar fora fecha).
+  function abrirNavCelular() {
+    const nav = $("#nav-celular");
+    nav.hidden = false;
+    $("#nav-mascote").setAttribute("aria-expanded", "true");
+    for (const a of $$("a.no", nav)) {
+      if (a.getAttribute("href") === (document.body.classList.contains("ver-centro") ? estado.telaHash : "#cerebro")) a.setAttribute("aria-current", "page");
+      else a.removeAttribute("aria-current");
+    }
+    $("a.no", nav).focus();
+  }
+  function fecharNavCelular() {
+    const nav = $("#nav-celular");
+    if (nav.hidden) return false;
+    nav.hidden = true;
+    $("#nav-mascote").setAttribute("aria-expanded", "false");
+    return true;
+  }
 
   function rotuloDaAba(hash) {
     const [tela, arg] = hash.slice(1).split("/");
@@ -572,19 +618,21 @@
   }
   function atualizarNumeros() {
     const naFila = estado.itens.filter(estaNaFila).length;
-    const contador = $("#contador-fila");
-    contador.textContent = naFila;
-    contador.hidden = naFila === 0;
+    for (const contador of [$("#contador-fila"), $("#contador-fila-celular")]) {
+      contador.textContent = naFila;
+      contador.hidden = naFila === 0;
+    }
     seguro(pintarBarra, "árvore");
     if (estado.tela === "hoje") seguro(pintarHoje, "hoje");
   }
   function pintarModo() {
-    const m = $("#modo");
     const dev = Boolean(estado.pessoa && estado.pessoa.dev);
-    m.dataset.modo = estado.modo;
-    m.className = `selo ${aoVivo() ? (dev ? "" : "vivo") : "alerta"}`;
-    m.replaceChildren(...(aoVivo() && !dev ? [el("span", { class: "ponto-vivo", "aria-hidden": "true" })] : []),
-      aoVivo() ? (dev ? "Dev local" : "Ao vivo") : "Sem servidor");
+    for (const m of [$("#modo"), $("#modo-celular")]) {  // o selo da barra e o do topo do Cérebro no celular
+      m.dataset.modo = estado.modo;
+      m.className = `selo ${m.id === "modo-celular" ? "modo-celular " : ""}${aoVivo() ? (dev ? "" : "vivo") : "alerta"}`;
+      m.replaceChildren(...(aoVivo() && !dev ? [el("span", { class: "ponto-vivo", "aria-hidden": "true" })] : []),
+        aoVivo() ? (dev ? "Dev local" : "Ao vivo") : "Sem servidor");
+    }
     document.body.classList.toggle("sem-servidor", !aoVivo());
   }
 
@@ -1586,6 +1634,25 @@
       recolher.title = recolher.getAttribute("aria-label");
     };
     aplicarBarra(guardar.ler("cerebro.barra") === "recolhida");
+
+    // A gaveta do Cérebro (de 861 a 1279 px): o botão no topo do centro ou Cmd+J; Esc e o fundo fecham.
+    $("#abrir-cerebro").addEventListener("click", abrirGavetaCerebro);
+    $("#fechar-cerebro").addEventListener("click", fecharGavetaCerebro);
+    $("#fundo-cerebro").addEventListener("click", fecharGavetaCerebro);
+    $("#nav-mascote").addEventListener("click", () => { if (!fecharNavCelular()) abrirNavCelular(); });
+    document.addEventListener("click", (e) => {
+      if (!$("#nav-celular").hidden && !e.target.closest("#nav-celular, #nav-mascote")) fecharNavCelular();
+    });
+    document.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        if (ehGaveta() && fecharGavetaCerebro()) return;
+        mostrarCerebro();
+        return;
+      }
+      if (e.key === "Escape" && (fecharNavCelular() || fecharGavetaCerebro())) e.preventDefault();
+    });
+    ESTREITO.addEventListener?.("change", () => { if (!ehGaveta()) fecharGavetaCerebro(); });
     recolher.addEventListener("click", () => {
       const recolhida = !app.classList.contains("barra-recolhida");
       aplicarBarra(recolhida);

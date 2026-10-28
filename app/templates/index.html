@@ -34,7 +34,12 @@
   </nav>
 
   <main class="centro" id="centro">
-    <nav class="abas" id="abas" aria-label="Abas abertas"></nav>
+    <div class="topo-centro">
+      <nav class="abas" id="abas" aria-label="Abas abertas"></nav>
+      <button class="btn abrir-cerebro" id="abrir-cerebro" type="button" aria-controls="painel-cerebro" aria-expanded="false"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8 8 0 0 1-11.8 7L3.5 20.5 5 15.6A8 8 0 1 1 20.5 12z"/></svg>Cérebro<span class="tecla">⌘J</span></button>
+      <a class="btn-icone voltar" href="#cerebro" aria-label="Voltar à conversa"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></a>
+      <span class="t-rotulo voltar-rotulo">Voltar à conversa</span>
+    </div>
     <div class="telas">
       <section class="tela" data-tela="hoje" aria-label="Hoje">
         <div class="miolo" id="hoje"></div>
@@ -127,6 +132,7 @@
             <h1 class="t-titulo">O que o Cérebro leu</h1>
             <p class="t-corpo">As páginas do Notion e os documentos do Drive, e o que virou item. Nada daqui entra na base sem passar pela Fila.</p>
           </header>
+          <p class="aviso-celular">Abra no computador para ver as fontes e sincronizar.</p>
           <div id="fontes-conteudo"></div>
         </div>
       </section>
@@ -137,9 +143,13 @@
     <div class="cerebro-topo">
       <span class="mascote p" data-mascote="simbolo"></span>
       <h2 class="t-secao">Cérebro</h2>
-      <button class="btn fantasma acao" id="nova-conversa" type="button">Nova conversa</button>
+      <span class="selo modo-celular" id="modo-celular" aria-hidden="true"></span>
+      <button class="btn fantasma acao" id="nova-conversa" type="button" aria-label="Nova conversa"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="txt">Nova conversa</span></button>
+      <button class="btn-icone fechar-cerebro" id="fechar-cerebro" type="button" aria-label="Fechar o Cérebro"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     </div>
     <div class="conversa" id="mensagens" aria-live="polite"></div>
+    <div class="cerebro-base">
+    <button class="nav-mascote" id="nav-mascote" type="button" aria-label="Abrir a navegação" aria-controls="nav-celular" aria-expanded="false"><span class="mascote" data-mascote="simbolo"></span></button>
     <form class="compor" id="form-chat">
       <label class="t-rotulo" for="campo-chat">Pergunta</label>
       <textarea class="campo-msg" id="campo-chat" rows="2" maxlength="4000" placeholder="Pergunte ou conte o que aconteceu"></textarea>
@@ -147,8 +157,19 @@
         <button class="btn primario enviar" id="enviar-chat" type="submit" aria-label="Perguntar"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
       </div>
     </form>
+    </div>
   </aside>
 </div>
+<div class="fundo-gaveta" id="fundo-cerebro" hidden></div>
+
+<!-- Celular: o botão do mascote, no canto de baixo, abre esta coluna de navegação. -->
+<nav class="nav-celular" id="nav-celular" aria-label="Navegação" hidden>
+  <a class="no" href="#cerebro"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8 8 0 0 1-11.8 7L3.5 20.5 5 15.6A8 8 0 1 1 20.5 12z"/></svg><span class="txt">Cérebro</span></a>
+  <a class="no" href="#base"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span class="txt">Base</span></a>
+  <a class="no" href="#preparar"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/><path d="m9 15 2 2 4-4"/></svg><span class="txt">Preparar reunião</span></a>
+  <a class="no" href="#fila"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg><span class="txt">Fila</span><b class="selo-cont" id="contador-fila-celular" hidden>0</b></a>
+  <a class="no" href="#hoje"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span class="txt">Hoje</span></a>
+</nav>
 
 <!-- Entrada (T5): cobre o app enquanto ninguém entrou com a conta Google do CITi. -->
 <div class="entrada-login" id="entrada-login" hidden>
