@@ -55,6 +55,10 @@ Se o projeto não estiver dentro da organização (tipo **Externo**, em modo de 
    baixa o arquivo. É uma senha: não vai para o Git (o `.gitignore` já barra `service-account*.json`).
 3. No Drive, **compartilhe a pasta "Conhecimento Comercial"** com o e-mail da conta de serviço
    (`...@...iam.gserviceaccount.com`) como **Leitor**. De preferência a pasta fica num drive compartilhado do CITi.
+   **Mais pastas (ex.: a de negócios, mais antiga):** compartilhe cada uma do mesmo jeito (ou o drive compartilhado
+   inteiro) e ponha os ids no `DRIVE_PASTA_ID` separados por vírgula. Não aponte para a RAIZ de um drive: entraria
+   tudo (gestões anteriores, listas de prospecção, vídeos…). Pasta extra que a conta não enxerga só avisa que a lista
+   veio incompleta; a primeira, se falhar, derruba a rodada.
 4. No computador: `GOOGLE_APPLICATION_CREDENTIALS=<caminho do JSON>` e `DRIVE_PASTA_ID=<id da pasta>` no `.env`.
    Na Railway: `GOOGLE_SERVICE_ACCOUNT_JSON` com o conteúdo do arquivo.
 5. Conferir sem gastar: `python -m scripts.sincronizar_drive --dry-run` e `pytest -m live tests/live`.

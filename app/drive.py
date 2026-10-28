@@ -10,6 +10,7 @@ são HTTP simples (google-auth + requests): sem o cliente gigante do Google. Os 
 """
 import json
 import logging
+import re
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -45,6 +46,17 @@ class ErroDrive(Exception):
     def __init__(self, mensagem: str, status: int | None = None):
         super().__init__(mensagem)
         self.status = status
+
+
+def ids_das_pastas(texto: str) -> list[str]:
+    """Os ids de pasta de um valor do .env: um ou vários, separados por vírgula, ponto e vírgula, espaço ou quebra de
+    linha. Cada um pode ser o id puro ou o endereço inteiro da pasta (".../folders/<id>?usp=sharing"). Sem repetir."""
+    ids: list[str] = []
+    for pedaco in re.split(r"[,;\s]+", texto.strip()):
+        pedaco = pedaco.split("/folders/")[-1].split("?")[0].strip("/") if pedaco else ""
+        if pedaco and pedaco not in ids:
+            ids.append(pedaco)
+    return ids
 
 
 def _dormir(segundos: float) -> None:
@@ -105,10 +117,11 @@ class LeitorDrive:
 
     def __init__(self, pasta_id: str | None = None, *, credenciais_json: str | None = None,
                  caminho_credenciais: str | None = None, sessao=None):
-        self.pasta_id = (pasta_id if pasta_id is not None else settings.drive_pasta_id).strip()
-        if not self.pasta_id:
+        self.pastas = ids_das_pastas(pasta_id if pasta_id is not None else settings.drive_pasta_id)
+        if not self.pastas:
             raise ErroDrive("Falta DRIVE_PASTA_ID no .env: é o id da pasta \"Conhecimento Comercial\" (o final do "
-                            "endereço dela no Drive).")
+                            "endereço dela no Drive). Para várias pastas, separe os ids por vírgula.")
+        self.pasta_id = self.pastas[0]  # a principal: as outras entram com o nome delas no começo da categoria
         if sessao is None:
             json_da_chave = (credenciais_json if credenciais_json is not None
                              else settings.google_service_account_json).strip()
@@ -163,19 +176,37 @@ class LeitorDrive:
             if not pagina:
                 return
 
+    def _nome_da_pasta(self, pasta_id: str) -> str:
+        dados = self._get(f"{API}/{pasta_id}", {"fields": "name", "supportsAllDrives": "true"}).json()
+        return str(dados.get("name") or pasta_id)
+
     def arquivos(self, limite: int | None = None) -> BuscaDrive:
-        """Todos os arquivos da pasta e das subpastas (atalhos e a lixeira ficam de fora), do mais antigo ao mais novo
-        por pasta. Com `limite`, só os N primeiros (e a busca sai `completa=False`: não dá para saber o que sumiu)."""
+        """Todos os arquivos das pastas e das subpastas (atalhos e a lixeira ficam de fora), do mais antigo ao mais novo
+        por pasta. Com `limite`, só os N primeiros (e a busca sai `completa=False`: não dá para saber o que sumiu).
+
+        A primeira pasta é a principal: se ela falhar, a execução toda falha. Uma das outras que não puder ser lida
+        (ex.: ainda não foi compartilhada com a conta de serviço) só deixa a busca incompleta. As categorias das
+        outras pastas começam pelo nome delas ("Conhecimento / Consultoria"); as da principal não mudam."""
         busca = BuscaDrive()
-        fila: list[tuple[str, tuple[str, ...]]] = [(self.pasta_id, ())]
-        vistas = {self.pasta_id}
+        fila: list[tuple[str, tuple[str, ...]]] = []
+        for i, raiz in enumerate(self.pastas):
+            if i == 0:
+                fila.append((raiz, ()))
+                continue
+            try:
+                fila.append((raiz, (self._nome_da_pasta(raiz),)))
+            except ErroDrive as e:
+                logger.warning("pasta extra do Drive não pôde ser lida (status %s)", e.status)
+                busca.completa = False
+        vistas = {raiz for raiz, _ in fila}
+        arquivos_vistos: set[str] = set()
         while fila:
             pasta_id, caminho = fila.pop(0)
             try:
                 filhos = list(self._filhos(pasta_id))
             except ErroDrive as e:
                 if pasta_id == self.pasta_id:
-                    raise  # a raiz é o que importa: sem ela, a execução toda falha com o motivo certo
+                    raise  # a pasta principal é o que importa: sem ela, a execução toda falha com o motivo certo
                 logger.warning("subpasta do Drive não pôde ser lida (status %s)", e.status)
                 busca.completa = False
                 continue
@@ -185,11 +216,12 @@ class LeitorDrive:
                         vistas.add(f["id"])
                         fila.append((f["id"], (*caminho, f["name"])))
                     continue
-                if f["mimeType"] == MIME_ATALHO:
-                    continue
+                if f["mimeType"] == MIME_ATALHO or f["id"] in arquivos_vistos:
+                    continue  # o mesmo arquivo alcançado por duas pastas entra uma vez só
                 if limite is not None and len(busca.arquivos) >= limite:
                     busca.completa = False
                     return busca
+                arquivos_vistos.add(f["id"])
                 busca.arquivos.append(ArquivoDrive(
                     id=f["id"], nome=f["name"], mime=f["mimeType"], modificado_em=_data(f["modifiedTime"]),
                     tamanho=int(f["size"]) if f.get("size") else None, caminho=caminho, md5=f.get("md5Checksum"),
