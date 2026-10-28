@@ -886,6 +886,36 @@ body.sem-login .app { visibility: hidden; }
   .nav-celular .abrir-busca { margin: 0 0 6px; width: 100%; min-height: var(--alvo-toque); border-radius: var(--raio-pilula); }
 }
 
+/* ---------- a nota numerada, a prévia e o próximo passo (pranchas 2a e 1b) ---------- */
+.nota {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; flex: none;
+  border-radius: 5px; background: var(--marca); color: var(--sobre-marca);
+  font: 500 12px/18px var(--f-mono);
+}
+.nota.doc { background: transparent; color: var(--texto-suave); border: 1px dashed var(--linha-campo); }
+.cita:has(.nota) { padding-left: 3px; line-height: 22px; }
+.previa-cita {
+  position: fixed; z-index: 90; width: min(300px, calc(100vw - 16px)); pointer-events: none;
+  display: flex; flex-direction: column; gap: 8px; padding: 14px;
+  border-radius: var(--raio-g); border: 1px solid var(--linha-forte); background: var(--superficie-2);
+  box-shadow: var(--sombra-sobreposta); color: var(--texto-forte); font-size: 13px; line-height: 20px;
+}
+.previa-cita strong { font-weight: 500; }
+.proximo {
+  display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px;
+  border-radius: var(--raio-g); border: 1px solid var(--marca-linha); background: var(--marca-tinta);
+}
+.proximo .ic { color: var(--marca-forte); margin-top: 3px; }
+.proximo p { margin: 0; font-size: 14px; line-height: 22px; color: var(--texto-forte); }
+.resposta .proximo { margin-top: 4px; }
+.fala-ele.erro .quem .mascote-erro { width: 44px; height: 44px; }
+.fala-ele.erro .quem .t-rotulo { color: var(--risco); }
+.compor.com-erro { border-color: var(--risco); }
+.aviso-compor { margin: 0; padding: 8px 12px; border-radius: var(--raio-m); border: 1px solid var(--risco); background: var(--risco-tinta); color: var(--texto-forte); }
+.pensando-linha .btn { margin-left: auto; }
+.docs-citados li { list-style: none; margin-left: -1.1em; }
+.docs-citados li .nota { vertical-align: 1px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

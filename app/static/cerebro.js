@@ -74,6 +74,7 @@
     focoAntes: null,
     pessoa: null,  // quem entrou (GET /auth/eu): {email, nome, dev, dominio}; null enquanto não entrou
     erroCarga: null,  // a mensagem, quando a base não carregou
+    ultimaResposta: null,  // os códigos citados na última resposta do Cérebro, na ordem das notas (o mapa usa)
     telaHash: null,  // o endereço da tela aberta no centro ("#fila", "#item/INS-12")
     abas: [],  // as abas abertas além do Hoje (os endereços), lembradas no localStorage
     pastas: new Set(),  // as pastas da árvore que a pessoa abriu
@@ -160,15 +161,17 @@
     if (status === 404) return "Não achei isso no servidor. Recarregue a página.";
     return "Algo deu errado do lado do servidor. Tente de novo em instantes.";
   }
-  async function chamar(metodo, url, corpo) {
+  async function chamar(metodo, url, corpo, sinal) {
     let r;
     try {
       r = await fetch(url, {
         method: metodo,
         headers: corpo ? { "Content-Type": "application/json" } : {},
         body: corpo ? JSON.stringify(corpo) : undefined,
+        signal: sinal,
       });
-    } catch {
+    } catch (e) {
+      if (e && e.name === "AbortError") throw new ErroApi("Parei de esperar a resposta.", -1);  // o "Parar" do chat
       throw new ErroApi("Sem conexão com o servidor. Confira a internet e tente de novo.", 0);
     }
     let dados = null;
@@ -378,87 +381,168 @@
     t.style.height = `${Math.min(t.scrollHeight, 150)}px`;
   }
 
-  // Texto do modelo -> parágrafos, listas, negrito e citações clicáveis (sem HTML do modelo).
-  function inline(txt, docs) {
+  // Texto do modelo -> parágrafos, listas, negrito, a linha do próximo passo e as fontes como notas numeradas (sem HTML
+  // do modelo). A nota é o número da fonte na resposta (1, 2, 3, na ordem em que aparecem), e o mesmo número vai ao
+  // cartão do mapa. `notas` é o Map código -> número da resposta; sem ele (a fala da própria pessoa), a citação não
+  // ganha número.
+  const RE_PROXIMO = /^\s*(?:\*\*)?\s*Pr[óo]ximo passo(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+)$/i;
+  function inline(txt, docs, notas) {
     const partes = [];
     const re = /\[((?:EX|INS)-\d+)\]|\[(DOC-\d+)\]|\*\*([^*]+)\*\*/g;
     let i = 0, m;
     while ((m = re.exec(txt))) {
       if (m.index > i) partes.push(document.createTextNode(txt.slice(i, m.index)));
-      if (m[1]) partes.push(chipCitacao(m[1]));
-      else if (m[2]) partes.push(chipDocumento(m[2], docs));
+      if (m[1]) partes.push(chipCitacao(m[1], notas));
+      else if (m[2]) partes.push(chipDocumento(m[2], docs, notas));
       else partes.push(el("strong", { text: m[3] }));
       i = re.lastIndex;
     }
     if (i < txt.length) partes.push(document.createTextNode(txt.slice(i)));
     return partes;
   }
-  function formatar(texto, docs) {
+  function blocoProximo(texto, docs, notas) {
+    return el("div", { class: "proximo" }, icone("seta-dir", "ic"),
+      el("p", {}, el("b", { text: "Próximo passo:" }), " ", ...inline(texto, docs, notas)));
+  }
+  function formatar(texto, docs, notas = null) {
     const frag = document.createDocumentFragment();
     for (const bloco of String(texto).trim().split(/\n{2,}/)) {
       const linhas = bloco.split("\n").filter((l) => l.trim());
       if (!linhas.length) continue;
       if (linhas.every((l) => /^\s*[-*•]\s+/.test(l))) {
-        frag.append(el("ul", {}, linhas.map((l) => el("li", {}, inline(l.replace(/^\s*[-*•]\s+/, ""), docs)))));
+        frag.append(el("ul", {}, linhas.map((l) => el("li", {}, inline(l.replace(/^\s*[-*•]\s+/, ""), docs, notas)))));
       } else if (linhas.every((l) => /^\s*\d+[.)]\s+/.test(l))) {
-        frag.append(el("ol", {}, linhas.map((l) => el("li", {}, inline(l.replace(/^\s*\d+[.)]\s+/, ""), docs)))));
+        frag.append(el("ol", {}, linhas.map((l) => el("li", {}, inline(l.replace(/^\s*\d+[.)]\s+/, ""), docs, notas)))));
       } else {
-        const p = el("p");
-        linhas.forEach((l, i) => { if (i) p.append(el("br")); p.append(...inline(l, docs)); });
-        frag.append(p);
+        let p = null;
+        for (const l of linhas) {
+          const m = RE_PROXIMO.exec(l);
+          if (m) { p = null; frag.append(blocoProximo(m[1], docs, notas)); continue; }  // sem a linha, nada aparece
+          if (!p) { p = el("p"); frag.append(p); } else p.append(el("br"));
+          p.append(...inline(l, docs, notas));
+        }
       }
     }
     return frag;
   }
-  function chipCitacao(codigo) {
-    const item = acharItem(codigo);
-    return el("button", { type: "button", class: "cita", title: item ? item.titulo : "Abrir item", onclick: () => abrirItem(codigo) }, codigo);
+
+  // A nota: um quadrado com o número da fonte. A do documento do Drive (ou do anexo) é tracejada, sem preenchimento.
+  function nota(numero, doc = false) {
+    return el("span", { class: `nota${doc ? " doc" : ""}`, "aria-hidden": "true", text: String(numero) });
+  }
+  function numeroDaNota(notas, codigo) {
+    if (!notas) return null;
+    if (!notas.has(codigo)) notas.set(codigo, notas.size + 1);
+    return notas.get(codigo);
   }
 
-  // [DOC-n]: um documento do Drive que o consultor leu mas o time ainda não revisou. Abre o documento no Drive.
-  // Só vira link se o servidor mandou esse documento junto com a resposta (o modelo não inventa um destino).
-  function chipDocumento(codigo, docs) {
+  // A prévia ao passar o mouse (ou focar) numa nota. É um balão só, fora do painel, para o painel não cortá-lo.
+  const previa = { no: null, dono: null };
+  function mostrarPrevia(dono, conteudo) {
+    if (!previa.no) {
+      previa.no = el("div", { class: "previa-cita", id: "previa-cita", role: "tooltip", hidden: true });
+      document.body.append(previa.no);
+    }
+    previa.dono = dono;
+    previa.no.replaceChildren(...conteudo);
+    previa.no.hidden = false;
+    dono.setAttribute("aria-describedby", "previa-cita");
+    const r = dono.getBoundingClientRect();
+    const x = Math.min(Math.max(8, r.left), Math.max(8, innerWidth - previa.no.offsetWidth - 8));
+    let y = r.top - previa.no.offsetHeight - 8;
+    if (y < 8) y = r.bottom + 8;  // sem espaço em cima: abre embaixo
+    previa.no.style.left = `${x}px`;
+    previa.no.style.top = `${y}px`;
+  }
+  function esconderPrevia(dono) {
+    if (!previa.no || (dono && previa.dono !== dono)) return;
+    previa.no.hidden = true;
+    if (previa.dono) previa.dono.removeAttribute("aria-describedby");
+    previa.dono = null;
+  }
+  function ligarPrevia(no, montar) {
+    no.addEventListener("mouseenter", () => mostrarPrevia(no, montar()));
+    no.addEventListener("focus", () => mostrarPrevia(no, montar()));
+    no.addEventListener("mouseleave", () => esconderPrevia(no));
+    no.addEventListener("blur", () => esconderPrevia(no));
+  }
+  function chipCitacao(codigo, notas) {
+    const item = acharItem(codigo);
+    if (!item) return document.createTextNode(`[${codigo}]`);  // fora da base carregada: texto simples, sem destino inventado
+    const n = numeroDaNota(notas, codigo);
+    const chip = el("button", { type: "button", class: "cita", "aria-label": `${n ? `Fonte ${n}: ` : ""}${codigo}, ${item.titulo}`,
+      onclick: () => abrirItem(codigo) }, n ? nota(n) : null, codigo);
+    ligarPrevia(chip, () => [
+      el("span", { class: "t-rotulo", text: `${codigo} · ${TIPOS[item.tipo] || item.tipo} · ${NOME_SECAO[item.secao] || item.secao}` }),
+      el("strong", { text: item.titulo }),
+      el("span", { class: "evid" }, trilha(item.evidencia), EVIDENCIA[item.evidencia]),
+      el("span", { class: "t-legenda", text: `${item.segmento ? capital(item.segmento) : "Todos os segmentos"} · clique para abrir` }),
+    ]);
+    return chip;
+  }
+
+  // [DOC-n]: um documento do Drive (ou o texto de um anexo) que o consultor leu mas o time ainda não revisou. Abre o
+  // documento fora da página. Só vira link se o servidor mandou esse documento junto com a resposta (o modelo não inventa
+  // um destino).
+  function chipDocumento(codigo, docs, notas) {
     const doc = (docs || []).find((d) => `DOC-${d.id}` === codigo);
     const url = doc ? linkSeguro(doc.url) : null;
     if (!url) return document.createTextNode(`[${codigo}]`);
-    return el("a", {
+    const n = numeroDaNota(notas, codigo);
+    const chip = el("a", {
       class: "cita doc", href: url, target: "_blank", rel: "noopener noreferrer",
-      title: `Documento do Drive ainda não revisado: ${doc.titulo}${doc.categoria ? ` (${doc.categoria})` : ""}`,
-    }, codigo);
+      "aria-label": `${n ? `Fonte ${n}: ` : ""}${codigo}, documento ainda não revisado: ${doc.titulo}`,
+    }, n ? nota(n, true) : null, codigo);
+    ligarPrevia(chip, () => [
+      el("span", { class: "t-rotulo", text: `${codigo} · Documento` }),
+      el("strong", { text: doc.titulo }),
+      el("span", {}, el("span", { class: "selo alerta", text: "Não revisado" })),
+      el("span", { class: "t-legenda", text: `${doc.categoria ? `pasta ${doc.categoria} · ` : ""}${url.startsWith("/") ? "Abre o texto" : "Abre no Drive"}` }),
+    ]);
+    return chip;
   }
   // Rodapé da resposta com os documentos que ela cita: o aviso de que não passaram pela revisão do time.
-  function rodapeDocumentos(texto, docs) {
+  function rodapeDocumentos(texto, docs, notas) {
     const citados = (docs || []).filter((d) => texto.includes(`[DOC-${d.id}]`) && linkSeguro(d.url));
     if (!citados.length) return null;
     return el("div", { class: "docs-citados" },
-      el("p", { class: "nota-msg", text: "Documentos do Drive, ainda não revisados pelo time:" }),
+      el("p", { class: "nota-msg", text: "Documentos ainda não revisados pelo time:" }),
       el("ul", {}, citados.map((d) => el("li", {},
-        el("a", { href: d.url, target: "_blank", rel: "noopener noreferrer", text: d.titulo }),
+        notas && notas.has(`DOC-${d.id}`) ? nota(notas.get(`DOC-${d.id}`), true) : null,
+        notas && notas.has(`DOC-${d.id}`) ? " " : null,
+        el("a", { href: linkSeguro(d.url), target: "_blank", rel: "noopener noreferrer", text: d.titulo }),
         d.categoria ? el("span", { class: "pasta-doc", text: ` · ${d.categoria}` }) : null))));
   }
 
-  function adicionarMsg(caixa, { papel, texto, quem, nota, extra, docs }) {
+  // Uma fala no painel. A da pessoa é um balão; a do Cérebro (ou o erro) leva o mascote, o texto com as notas numeradas
+  // e, abaixo, o que a acompanha. A última resposta com notas fica guardada: o mapa (PR 3) a usa.
+  function adicionarMsg(caixa, { papel, texto, quem, nota: avisoFinal, extra, docs }) {
     const vazia = caixa.querySelector(".conversa-vazia");
     if (vazia) vazia.remove();
     let linha;
     if (papel === "eu") {
-      linha = el("div", { class: "fala-eu" }, formatar(texto, docs));
+      linha = el("div", { class: "fala-eu" }, formatar(texto, docs, null));
     } else {
+      const notas = new Map();
       linha = el("div", { class: `fala-ele${papel === "erro" ? " erro" : ""}` },
-        el("div", { class: "quem" }, mascoteEm("p", { forma: "simbolo" }), el("span", { class: "t-rotulo", text: quem })),
-        el("div", { class: "resposta" }, formatar(texto, docs)));
+        el("div", { class: "quem" },
+          papel === "erro" ? mascoteEm("m mascote-erro", { humor: "sem-resposta" }) : mascoteEm("p", { forma: "simbolo" }),
+          el("span", { class: "t-rotulo", text: quem })),
+        el("div", { class: "resposta" }, formatar(texto, docs, notas)));
       if (extra) linha.append(extra);
-      const citados = rodapeDocumentos(texto, docs);
+      const citados = rodapeDocumentos(texto, docs, notas);
       if (citados) linha.append(citados);
-      if (nota) linha.append(el("p", { class: "nota-msg", text: nota }));
+      if (avisoFinal) linha.append(el("p", { class: "nota-msg", text: avisoFinal }));
+      if (papel === "cerebro" && notas.size) estado.ultimaResposta = { notas: [...notas.keys()], docs: docs || [] };
     }
     caixa.append(linha);
     caixa.scrollTop = caixa.scrollHeight;
     return linha;
   }
-  function digitando(caixa) {
+  function digitando(caixa, aoParar) {
     const linha = el("div", { class: "fala-ele pensando-linha", role: "status" },
-      mascoteEm("m", { humor: "pensando" }), el("span", { class: "t-rotulo", text: "Lendo a base" }));
+      mascoteEm("m", { humor: "pensando" }), el("span", { class: "t-rotulo", text: "Lendo a base" }),
+      aoParar ? el("button", { type: "button", class: "btn fantasma", onclick: aoParar }, "Parar") : null);
     caixa.append(linha);
     caixa.scrollTop = caixa.scrollHeight;
     return linha;
@@ -489,6 +573,7 @@
   }
   function rotear() {
     const rota = lerRota();
+    esconderPrevia();  // a prévia de uma nota não fica presa quando a tela muda e a nota some
     fecharNavCelular();
     if (rota.tela !== "cerebro") fecharGavetaCerebro();  // abrir um item pela gaveta mostra o item, não a gaveta
     document.body.classList.toggle("ver-centro", rota.tela !== "cerebro");  // no celular, uma coluna por vez
@@ -790,17 +875,21 @@
     "O cliente disse que está caro. Como respondemos?",
     "Como apresentar o Discovery?",
   ];
-  async function perguntar(texto) {
+  async function perguntar(texto, { semFala = false } = {}) {
     texto = texto.trim();
     if (!texto || estado.ocupado) return;
     const caixa = $("#mensagens");
     const campo = $("#campo-chat");
-    adicionarMsg(caixa, { papel: "eu", texto, quem: nomeDoUsuario() });
+    const compor = $("#form-chat");
+    compor.classList.remove("com-erro");
+    $("#aviso-chat").hidden = true;
+    const falaEu = semFala ? null : adicionarMsg(caixa, { papel: "eu", texto, quem: nomeDoUsuario() });
     campo.value = ""; autoAltura(campo);
     estado.ocupado = true; $("#enviar-chat").disabled = true;
-    const indicador = digitando(caixa);
+    const parar = new AbortController();
+    const indicador = digitando(caixa, () => parar.abort());
     try {
-      const r = await chamar("POST", "/chat", { mensagem: texto, historico: estado.conversa.slice(-30) });
+      const r = await chamar("POST", "/chat", { mensagem: texto, historico: estado.conversa.slice(-30) }, parar.signal);
       const resposta = r.resposta;
       indicador.remove();
       adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", docs: r.documentos || [] });
@@ -808,8 +897,30 @@
       pulsarMascote();
     } catch (e) {
       indicador.remove();
-      adicionarMsg(caixa, { papel: "erro", texto: e.message, quem: "Não deu certo" });
       if (!campo.value.trim()) { campo.value = texto; autoAltura(campo); }  // a pergunta volta ao campo, para tentar de novo
+      if (e.status === -1) {  // parou de esperar: nada foi respondido
+        if (falaEu) falaEu.remove();
+      } else if (e.status === 422) {  // dado pessoal (ou texto inválido): nada foi ao modelo, e a mensagem não repete o dado
+        if (falaEu) falaEu.remove();
+        const aviso422 = $("#aviso-chat");  // a frase fica junto ao campo até a pessoa mexer no texto (a torrada some em 5 s)
+        aviso422.textContent = /dado pessoal/i.test(e.message)
+          ? "Essa mensagem tem um dado pessoal (e-mail, CPF, CNPJ ou telefone) e não foi enviada ao modelo. Tire o dado e envie de novo."
+          : e.message;
+        aviso422.hidden = false;
+        compor.classList.add("com-erro");
+        campo.addEventListener("input", () => { compor.classList.remove("com-erro"); aviso422.hidden = true; }, { once: true });
+      } else {
+        let linhaErro = null;
+        const extra = e.status === 502
+          ? el("div", { class: "botoes" }, el("button", { type: "button", class: "btn", onclick: () => {
+            linhaErro.remove();
+            if (campo.value.trim() === texto) { campo.value = ""; autoAltura(campo); }
+            perguntar(texto, { semFala: true });
+          } }, "Tentar de novo"))
+          : null;
+        linhaErro = adicionarMsg(caixa, { papel: "erro", texto: e.message, extra,
+          quem: e.status === 502 ? "Não consegui responder agora" : "Não deu certo" });
+      }
     } finally {
       estado.ocupado = false; $("#enviar-chat").disabled = false;
       campo.focus();
@@ -1167,7 +1278,8 @@
   const PULADAS = ["vazia", "pulada_dado_pessoal", "pulada_longa", "pulada_duplicata"];
   const ROTULO_ITEM = { historico_a_validar: "na Fila", proposto: "na Fila", validado: "aprovado", consolidado: "consolidado", obsoleto: "obsoleto" };
 
-  function linkSeguro(url) { return typeof url === "string" && /^https:\/\//.test(url) ? url : null; }
+  // Só https, ou o texto de um anexo (/fontes/<id>/texto), que o próprio servidor entrega: nunca um endereço qualquer.
+  function linkSeguro(url) { return typeof url === "string" && /^(https:\/\/|\/fontes\/\d+\/texto$)/.test(url) ? url : null; }
   function dataHora(iso) {
     if (!iso) return "";
     const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`);  // o servidor manda em UTC, sem o "Z"
@@ -1899,6 +2011,7 @@
         mostrarCerebro();
         return;
       }
+      if (e.key === "Escape") esconderPrevia();
       if (e.key === "Escape" && (fecharNavCelular() || fecharGavetaCerebro())) e.preventDefault();
     });
     ESTREITO.addEventListener?.("change", () => { if (!ehGaveta()) fecharGavetaCerebro(); });

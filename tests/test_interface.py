@@ -280,3 +280,37 @@ def test_tela_sem_texto_de_desenvolvedor():
         assert termo not in sem_comentarios and termo not in html, termo
     assert "Sem conexão com o servidor. Nada aparece nem vai para a base até ele responder." in js
     assert 'id="faixa-servidor"' in html and "Tentar conectar" in js
+
+
+def test_chat_numera_as_notas_e_destaca_o_proximo_passo():
+    """A citação é uma nota numerada na ordem das fontes (o mesmo número vai ao mapa); a linha "Próximo passo:" ganha
+    destaque, e sem a linha nada aparece. O [INS-n] fora da base carregada vira texto simples."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        css = client.get("/static/cerebro.css").text
+    assert "function numeroDaNota(" in js and "notas.set(codigo, notas.size + 1)" in js
+    assert "Pr[óo]ximo passo" in js and "function blocoProximo(" in js
+    assert 'role: "tooltip"' in js and "function ligarPrevia(" in js
+    assert "if (!item) return document.createTextNode(" in js
+    assert ".nota.doc" in css and ".previa-cita" in css and ".proximo" in css
+
+
+def test_chat_trata_o_erro_do_modelo_e_o_dado_pessoal_sem_repetir_o_dado():
+    """502: o mascote sem resposta e "Tentar de novo"; 422: a pergunta volta ao campo e a mensagem do servidor
+    (que diz o tipo e o campo, nunca o dado) aparece num aviso."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert 'humor: "sem-resposta"' in js and '"Tentar de novo"' in js and '"Parar"' in js
+    assert "e.status === 422" in js and "com-erro" in js
+    # a frase do 422 fica junto ao campo (a torrada some em segundos)
+    assert "não foi enviada ao modelo" in js and 'id="aviso-chat"' in html and 'role="alert"' in html
+    assert "AbortController" in js
+
+
+def test_documento_do_anexo_abre_o_texto_no_proprio_servidor():
+    """O anexo guarda a url /fontes/<id>/texto (relativa): o linkSeguro aceita esse caminho e https, e mais nada."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert r"\/fontes\/\d+\/texto$" in js
+    assert "linkSeguro(doc.url)" in js
