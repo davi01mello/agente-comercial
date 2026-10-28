@@ -437,7 +437,7 @@ a.cita.doc:hover { border-color: var(--alerta); color: var(--texto-forte); }
 
 .campo { display: grid; gap: 6px; min-width: 0; }
 .campo.inteiro { grid-column: 1 / -1; }
-.campo input, .campo select, .campo textarea, .motivo textarea, .briefing-form select, .briefing-form textarea {
+.campo input, .campo select, .campo textarea, .motivo textarea {
   width: 100%; padding: 9px 12px;
   border-radius: var(--raio-m); border: 1px solid var(--linha-campo); background: var(--superficie-2);
   color: var(--texto-forte); font-size: 14px; line-height: 21px;
@@ -586,21 +586,30 @@ button.item:hover { border-color: var(--marca-linha); background: var(--superfic
 .barra-lote { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--raio-g); border: 1px solid var(--linha-forte); background: var(--superficie-2); }
 .barra-lote .lote-info { flex: 1 1 180px; color: var(--texto-suave); font-size: 13px; }
 
-/* ---------- Preparar reunião (vira POST /briefing no PR 2) ---------- */
-.briefing-form { display: grid; grid-template-columns: repeat(2, minmax(0, 0.7fr)) minmax(0, 1.6fr) auto; gap: 12px; align-items: end; }
-.briefing-form .campo textarea { min-height: 66px; }
-.cab-briefing { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; }
-.cab-briefing h2 { margin: 0; font: 300 italic 24px/30px var(--f-titulo); letter-spacing: var(--espaco-titulo); color: var(--texto-forte); }
-#briefing-saida { display: grid; gap: 14px; }
-.briefing-saida { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
-.contexto-briefing { margin: 0; color: var(--texto-suave); font-size: 14px; max-width: 80ch; }
-.bloco { display: grid; gap: 12px; align-content: start; padding: 18px 20px; border-radius: var(--raio-g); border: 1px solid var(--linha-forte); background: var(--superficie); }
-.bloco.largo { grid-column: 1 / -1; }
+/* ---------- Preparar reunião (prancha 1b) ---------- */
+#preparar-conteudo { display: grid; gap: 16px; }
+.briefing-form { display: grid; gap: 16px; max-width: 760px; }
+.briefing-form .campo textarea { min-height: 96px; }
+.briefing-form .contador-msg { justify-self: end; margin: 0; }
+.briefings-salvos { display: grid; gap: 6px; max-width: 760px; }
+.cartao.pedido { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.cartao.pedido .pedido-contexto { flex: 1 1 240px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cartao.pedido .btn { margin-left: auto; }
+.documento-briefing { display: grid; gap: 12px; padding: 26px 30px; border-radius: 16px; border: 1px solid var(--marca-linha); background: var(--superficie); }
+.cab-briefing { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; }
+.documento-briefing .t-titulo { font-size: 30px; line-height: 36px; }
+.documento-briefing .t-corpo { color: var(--texto); max-width: 72ch; }
+.documento-briefing .t-legenda { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.bloco { display: grid; gap: 12px; align-content: start; padding: 18px 22px; border-radius: var(--raio-g); border: 1px solid var(--linha-forte); background: var(--superficie); }
 .bloco h3 { margin: 0; font: 400 16px/24px var(--f-titulo); color: var(--texto-forte); }
-.bloco ul, .bloco ol { margin: 0; padding-left: 1.2em; display: grid; gap: 9px; }
+.bloco ul, .bloco ol { margin: 0; padding-left: 1.2em; display: grid; gap: 14px; }
 .bloco .sem-base { margin: 0; color: var(--texto-suave); font-style: italic; }
 .bloco.lacuna { border: 1.5px dashed var(--alerta); background: transparent; }
-.marca-evid { margin-left: 6px; font: 500 11px/1 var(--f-mono); color: var(--alerta); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.bloco.lacuna li { display: list-item; }
+.ponto { display: grid; gap: 6px; padding-left: 2px; }
+.ponto-texto { color: var(--texto-forte); font-size: 14px; line-height: 22px; }
+.ponto-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.ponto-meta .evid { font-size: 12px; color: var(--texto-suave); }
 
 /* ---------- Fontes ---------- */
 .fontes-resumo { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
@@ -828,8 +837,10 @@ body.sem-login .app { visibility: hidden; }
   /* os alvos de toque e os campos (16px: o iOS não dá zoom) */
   .btn, .chip, .etapa-filtro, .no, .atalho, .btn-icone, .evidencia-op { min-height: var(--alvo-toque); }
   .btn-icone { min-width: var(--alvo-toque); }
-  .busca, .campo input, .campo select, .campo textarea, .motivo textarea, .briefing-form select, .briefing-form textarea, .sync-teto input { font-size: 16px; }
-  .briefing-form, .briefing-saida { grid-template-columns: minmax(0, 1fr); }
+  .busca, .campo input, .campo select, .campo textarea, .motivo textarea, .sync-teto input { font-size: 16px; }
+  .documento-briefing { padding: 18px 16px; }
+  .documento-briefing .t-titulo { font-size: 24px; line-height: 30px; }
+  .cartao.pedido .btn { margin-left: 0; }
   .fila-grade { grid-template-columns: minmax(0, 1fr); }
   .fila-detalhe, .teclas-fila { display: none; }
   .evidencia-op { flex-basis: 100%; }

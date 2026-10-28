@@ -418,3 +418,18 @@ def test_lacunas_listam_e_resolvem_pela_api():
     assert "O Cérebro respondeu tudo o que perguntaram." in js
     assert "por ${textoPessoas(foco)}" in js and "quem perguntou" not in js.lower()
     assert 'data-tela="lacunas"' in html and 'href="#lacunas"' in html
+
+
+def test_briefing_vem_da_api_e_nao_inventa_roteiro():
+    """Preparar reunião chama POST /briefing: nada é montado no navegador. Com a base vazia (usou_modelo falso) a tela
+    diz que não monta roteiro; o dado pessoal no contexto marca o campo; os últimos ficam só neste navegador."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert 'chamar("POST", "/briefing"' in js and "tipo_reuniao: d.tipo" in js
+    assert "function montarBriefing" not in js and "function baseUtil" not in js  # o roteiro do navegador saiu
+    assert "r.usou_modelo" in js and "Sem itens validados eu não monto roteiro: prefiro não inventar." in js
+    assert "Prévia da T9" not in js and "Prévia da T9" not in html
+    assert "cerebro.briefings:" in js and "Só neste computador" in js
+    assert "camposComDadoPessoal(e.message)" in js and "Diga o segmento da reunião." in js
+    assert 'id="preparar-conteudo"' in html

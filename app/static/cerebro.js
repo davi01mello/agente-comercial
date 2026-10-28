@@ -68,6 +68,7 @@
     ocupado: false,
     reg: novoReg(),  // o rascunho do curador em andamento
     lacunas: novoEstadoLacunas(),  // GET /lacunas: as abertas e as resolvidas
+    briefing: novoBriefing(),  // o pedido e o resultado de Preparar reunião
     filtro: { secao: null, segmento: null, busca: "", historico: false, origem: null, mostrar: {} },
     fontes: null,  // o resumo de GET /fontes/resumo
     filtroFontes: { status: null, busca: "", origem: null },
@@ -627,7 +628,7 @@
       pintarRegistrar();
     }
     if (rota.tela === "fontes") pintarFontes();
-    if (rota.tela === "preparar") montarBriefing();
+    if (rota.tela === "preparar") pintarPreparar();
     const tela = $(`.tela[data-tela="${rota.tela}"]`);
     if (tela) tela.scrollTop = 0;
   }
@@ -2429,72 +2430,206 @@
     pintarAbas();  // o título da aba pode ter chegado agora
   }
 
-  // ---------------------------------------------------------------- briefing (POST /briefing)
-  // O servidor escolhe os itens aprovados e confere as fontes de cada ponto; aqui só se mostra o que ele devolveu.
-  const SECOES_BRIEFING = {
-    cases: ["var(--ambar)", "A base não tem case para esta reunião."],
-    perfil: ["#93a6ff", "A base não tem o perfil deste segmento."],
-    roteiro: ["var(--ciano)", "A base não tem material para conduzir esta reunião."],
-    objecoes: ["var(--risco)", "A base não tem objeções registradas para este segmento."],
-    proposta: ["var(--ok)", "A base não tem estrutura de proposta testada para este segmento."],
-  };
-  function pintarSegmentosBriefing() {
-    const s = $("#b-segmento");
-    if (s.options.length) return;
-    for (const seg of SEGMENTOS) s.append(el("option", { value: seg, text: capital(seg) }));
+  // ---------------------------------------------------------------- preparar reunião (o briefing, prancha 1b)
+  // O briefing vem do servidor (POST /briefing): só com a base aprovada, cada ponto com as fontes que o sustentam, a menor
+  // evidência entre elas e o selo "Não revisado" quando cita documento. Não grava nada. Com a base vazia (usou_modelo
+  // falso) não existe roteiro: o texto diz isso e leva a alimentar a base. Os 5 últimos ficam só neste navegador.
+  const TIPOS_REUNIAO = [["diagnostico", "Diagnóstico"], ["proposta", "Proposta"], ["negociacao", "Negociação"]];
+  const NOME_REUNIAO = { diagnostico: "diagnóstico", proposta: "proposta", negociacao: "negociação" };
+  function novoBriefing() {
+    return { rascunho: { segmento: "", tipo: "diagnostico", contexto: "" }, pedido: null, resultado: null, gerando: false, erro: null };
   }
-  function itemLista(ponto, docs) {
-    const fontes = ponto.fontes.map((f) => `[${f.codigo}]`).join(" ");
-    const li = el("li", {}, inline(`${ponto.texto} ${fontes}`, docs));
-    if (ponto.evidencia_minima != null && ponto.evidencia_minima <= 2) {
-      li.append(el("span", { class: "marca-evid", text: ponto.evidencia_minima === 1 ? "opinião" : "caso único" }));
-    }
-    if (ponto.nao_revisado) li.append(el("span", { class: "marca-evid", text: "documento não revisado" }));
-    return li;
-  }
-  function bloco(titulo, cor, conteudo, classes = "") {
-    return el("article", { class: `bloco ${classes}`, style: `--c:${cor}` }, el("h3", { text: titulo }), conteudo);
-  }
-  const semBase = (t) => el("p", { class: "sem-base", text: t });
-
-  async function montarBriefing(ev) {
-    if (ev) ev.preventDefault();
-    pintarSegmentosBriefing();
-    const seg = $("#b-segmento").value;
-    const tipo = $("#b-tipo").value;
-    const contexto = $("#b-contexto").value.trim();
-    const botao = $("#form-briefing button[type=submit]");
-    const saida = $("#briefing-saida");
-    if (botao.disabled) return;
-    botao.disabled = true;
-    saida.replaceChildren(el("p", { class: "contexto-briefing", role: "status", text: "Montando o briefing com o que a base tem…" }));
-    let b;
+  const chaveBriefings = () => `cerebro.briefings:${estado.pessoa ? estado.pessoa.email : "dev"}`;
+  function lerBriefingsSalvos() {
     try {
-      b = await chamar("POST", "/briefing", { segmento: seg, tipo_reuniao: tipo, contexto: contexto || null });
-    } catch (e) {
-      saida.replaceChildren(el("p", { class: "contexto-briefing", role: "alert", text: e.message }));
+      const lidos = JSON.parse(guardar.ler(chaveBriefings()) || "[]");
+      return Array.isArray(lidos) ? lidos.filter((b) => b && b.pedido && b.resultado && Array.isArray(b.resultado.secoes)).slice(0, 5) : [];
+    } catch {
+      return [];
+    }
+  }
+  function guardarBriefing(pedido, resultado) {
+    const antes = lerBriefingsSalvos();
+    guardar.escrever(chaveBriefings(), JSON.stringify([{ quando: new Date().toISOString(), pedido, resultado }, ...antes].slice(0, 5)));
+  }
+
+  function pintarPreparar() {
+    const B = estado.briefing;
+    const caixa = $("#preparar-conteudo");
+    if (B.gerando) {
+      const n = itensDaBase().length;
+      caixa.replaceChildren(el("div", { class: "carregando", role: "status" }, mascoteEm("m", { humor: "pensando" }),
+        el("p", { class: "t-rotulo", text: `Montando a partir de ${n} ${n === 1 ? "item" : "itens"} da base` }),
+        el("span", { class: "esqueleto" }), el("span", { class: "esqueleto" }), el("span", { class: "esqueleto curto" })));
       return;
+    }
+    if (B.resultado) { caixa.replaceChildren(...documentoDoBriefing(B.resultado, B.pedido)); return; }
+    const salvos = lerBriefingsSalvos();
+    caixa.replaceChildren(...[
+      B.erro && !B.erro.campo ? el("div", { class: "aviso-registro", role: "alert" }, icone("alerta", "ic p"), el("span", { class: "t-p", text: B.erro.msg })) : null,
+      formularioDoBriefing(),
+      salvos.length ? el("section", { class: "briefings-salvos" },
+        el("h2", { class: "t-secao", text: "Os últimos briefings" }),
+        el("p", { class: "t-legenda", text: "Só neste computador: não ficam guardados no servidor." }),
+        ...salvos.map((b) => el("div", { class: "linha-lista" },
+          el("span", { class: "selo marca", text: capital(b.pedido.segmento) }),
+          el("span", { class: "txt", text: `Reunião de ${NOME_REUNIAO[b.pedido.tipo] || b.pedido.tipo}` }),
+          el("span", { class: "t-legenda", text: dataRelativa(b.quando) }),
+          el("button", { type: "button", class: "btn fantasma", onclick: () => { B.pedido = b.pedido; B.resultado = b.resultado; pintarPreparar(); } }, "Abrir")))) : null,
+    ].filter(Boolean));
+    if (B.erro && B.erro.campo) marcarErroCampo(B.erro.campo, B.erro.msg, true);
+  }
+  function formularioDoBriefing() {
+    const B = estado.briefing;
+    const d = B.rascunho;
+    const segmento = el("input", { id: "b-segmento", list: "lista-segmentos-b", maxlength: "100", autocomplete: "off", value: d.segmento,
+      placeholder: "Ex.: hotelaria" });
+    const contexto = el("textarea", { id: "b-contexto", rows: "4", maxlength: "1500", placeholder: "O que você já sabe da reunião (opcional)" });
+    contexto.value = d.contexto;
+    const contador = el("span", { class: "t-dado contador-msg", "aria-live": "polite", hidden: true });
+    const contar = () => { const n = contexto.value.length; contador.hidden = n < 1300; contador.textContent = `${n.toLocaleString("pt-BR")} / 1.500`; };
+    contexto.addEventListener("input", contar);
+    contar();
+    const tipos = el("div", { class: "pilulas-abas", role: "group", "aria-label": "Tipo de reunião" });
+    const pintarTipos = () => tipos.replaceChildren(...TIPOS_REUNIAO.map(([v, nome]) => chip(nome, d.tipo === v, () => { d.tipo = v; pintarTipos(); })));
+    pintarTipos();
+    const form = el("form", { class: "painel briefing-form", novalidate: true },
+      el("div", { class: "campo" }, el("label", { for: "b-segmento", text: "Segmento" }), segmento,
+        el("datalist", { id: "lista-segmentos-b" }, SEGMENTOS.map((s) => el("option", { value: s })))),
+      el("div", { class: "campo" }, el("p", { class: "t-rotulo", text: "Tipo de reunião" }), tipos),
+      el("div", { class: "campo inteiro" }, el("label", { for: "b-contexto", text: "Contexto" }), contexto, contador),
+      el("p", { class: "t-legenda", text: "Sem dado pessoal de cliente (e-mail, telefone, CPF ou CNPJ): ele não vai ao modelo." }),
+      el("div", { class: "botoes" }, el("button", { type: "submit", class: "btn primario", id: "montar-briefing" }, "Montar briefing")));
+    form.addEventListener("submit", (e) => { e.preventDefault(); gerarBriefing(); });
+    return form;
+  }
+  async function gerarBriefing() {
+    const B = estado.briefing;
+    const d = B.rascunho;
+    d.segmento = $("#b-segmento").value.trim();
+    d.contexto = $("#b-contexto").value.trim();
+    limparErroCampo("b-segmento");
+    limparErroCampo("b-contexto");
+    if (!d.segmento) { marcarErroCampo("b-segmento", "Diga o segmento da reunião."); $("#b-segmento").focus(); return; }
+    B.gerando = true; B.erro = null; B.pedido = { ...d };
+    pintarPreparar();
+    try {
+      const r = await chamar("POST", "/briefing", { segmento: d.segmento, tipo_reuniao: d.tipo, ...(d.contexto ? { contexto: d.contexto } : {}) });
+      B.resultado = r;
+      guardarBriefing(B.pedido, r);
+    } catch (e) {
+      B.pedido = null;
+      const achados = e.status === 422 ? camposComDadoPessoal(e.message) : [];
+      B.erro = achados.length
+        ? { campo: "b-contexto", msg: `Possível ${achados[0][0]} neste campo. Troque por algo genérico (“o cliente”) e monte de novo. Nada foi ao modelo.` }
+        : { msg: e.message };
     } finally {
-      botao.disabled = false;
+      B.gerando = false;
+      pintarPreparar();
     }
+  }
 
-    saida.replaceChildren();
-    const nomeTipo = { diagnostico: "diagnóstico", proposta: "proposta", negociacao: "negociação" }[b.tipo_reuniao];
-    saida.append(el("div", { class: "cab-briefing" }, el("h2", { text: `Reunião de ${nomeTipo} · ${capital(b.segmento)}` })));
-    if (b.resumo) saida.append(el("p", { class: "contexto-briefing", text: b.resumo }));
-    if (b.avisos.length) saida.append(listaAvisos(b.avisos));
-
-    const grade = el("div", { class: "briefing-saida" });
-    for (const secao of b.secoes) {
-      const [cor, vazioTxt] = SECOES_BRIEFING[secao.chave];
-      grade.append(bloco(secao.titulo, cor, secao.pontos.length
-        ? el(secao.chave === "roteiro" ? "ol" : "ul", {}, secao.pontos.map((p) => itemLista(p, b.documentos)))
-        : semBase(vazioTxt), secao.chave === "roteiro" ? "largo" : ""));
+  // A fonte de um ponto: o código com o ponto de evidência (no documento do briefing não há nota numerada). O [DOC-n]
+  // é tracejado e abre fora; o item abre numa aba.
+  function chipFonteBriefing(f, porCodigo) {
+    const meta = porCodigo.get(f.codigo);
+    if (f.tipo === "documento") {
+      const url = linkSeguro(f.url);
+      const chip = el(url ? "a" : "span", { class: "cita doc", href: url, target: url ? "_blank" : null, rel: url ? "noopener noreferrer" : null }, f.codigo);
+      ligarPrevia(chip, () => [
+        el("span", { class: "t-rotulo", text: `${f.codigo} · Documento` }), el("strong", { text: f.titulo }),
+        el("span", {}, el("span", { class: "selo alerta", text: "Não revisado" })),
+        el("span", { class: "t-legenda", text: url ? (url.startsWith("/") ? "Abre o texto" : "Abre no Drive") : "Sem endereço" })]);
+      return chip;
     }
-    if (b.lacunas.length) {
-      grade.append(bloco("O que a base não cobre", "var(--ambar)", el("ul", {}, b.lacunas.map((l) => el("li", { text: l }))), "lacuna largo"));
+    const chip = el("button", { type: "button", class: "cita", "aria-label": `${f.codigo}, ${f.titulo}`, onclick: () => abrirItem(f.codigo) },
+      meta ? pontoEv(meta.evidencia) : null, f.codigo);
+    ligarPrevia(chip, () => [
+      el("span", { class: "t-rotulo", text: meta ? `${f.codigo} · ${TIPOS[meta.tipo] || meta.tipo} · ${NOME_SECAO[meta.secao] || meta.secao}` : f.codigo }),
+      el("strong", { text: f.titulo }),
+      meta ? el("span", { class: "evid" }, trilha(meta.evidencia), EVIDENCIA[meta.evidencia]) : null,
+      el("span", { class: "t-legenda", text: "clique para abrir" })].filter(Boolean));
+    return chip;
+  }
+  function pontoDoBriefing(p, porCodigo) {
+    const outro = p.fontes.map((f) => porCodigo.get(f.codigo)).find((i) => i && i.de_outro_segmento);
+    const doOutro = outro ? estado.itens.find((i) => i.id === outro.id) : null;
+    return el("li", { class: "ponto" },
+      el("span", { class: "ponto-texto", text: p.texto }),
+      el("span", { class: "ponto-meta" },
+        ...p.fontes.map((f) => chipFonteBriefing(f, porCodigo)),
+        p.evidencia_minima ? el("span", { class: "evid" }, trilha(p.evidencia_minima), EVIDENCIA[p.evidencia_minima]) : el("span", { class: "t-legenda", text: "só documento: sem evidência da base" }),
+        outro ? el("span", { class: "selo", text: `De outro segmento${doOutro && doOutro.segmento ? `: ${doOutro.segmento}` : ""}` }) : null,
+        p.nao_revisado ? el("span", { class: "selo alerta", text: "Não revisado" }) : null));
+  }
+  function textoDoBriefing(r, pedido) {
+    const linhas = [`Briefing · reunião de ${NOME_REUNIAO[pedido.tipo] || pedido.tipo} · ${capital(r.segmento)}`, "", r.resumo, ""];
+    for (const s of r.secoes) {
+      linhas.push(s.titulo.toUpperCase());
+      for (const p of s.pontos) linhas.push(`- ${p.texto} [${p.fontes.map((f) => f.codigo).join(", ")}]`);
+      linhas.push("");
     }
-    saida.append(grade);
+    if (r.lacunas.length) linhas.push("O QUE A BASE NÃO COBRE", ...r.lacunas.map((l) => `- ${l}`));
+    return linhas.join("\n");
+  }
+  function abrirRelatoSobre(frase) {  // "Registrar o que sabemos" de uma lacuna do briefing: não há lacuna_id, só a frase
+    estado.reg = novoReg();
+    estado.reg.lacunaPergunta = frase;
+    if (location.hash === "#registrar") pintarRegistrar(); else location.hash = "#registrar";
+  }
+  function documentoDoBriefing(r, pedido) {
+    const B = estado.briefing;
+    const porCodigo = new Map(r.itens.map((i) => [i.codigo, i]));
+    const naoRevisados = r.secoes.reduce((t, s) => t + s.pontos.filter((p) => p.nao_revisado).length, 0);
+    const cartaoPedido = el("div", { class: "cartao pedido" },
+      el("span", { class: "t-rotulo", text: "Pedido" }),
+      el("span", { class: "selo marca", text: capital(r.segmento) }),
+      el("span", { class: "selo", text: capital(NOME_REUNIAO[pedido.tipo] || pedido.tipo) }),
+      pedido.contexto ? el("span", { class: "pedido-contexto t-p suave", text: pedido.contexto }) : null,
+      el("button", { type: "button", class: "btn", onclick: () => { B.resultado = null; pintarPreparar(); } }, icone("refazer", "ic p"), "Refazer"));
+    const lacunas = r.lacunas.length ? el("section", { class: "bloco lacuna" },
+      el("h3", { text: "O que a base não cobre para esta reunião" }),
+      el("ul", {}, r.lacunas.map((l) => el("li", {}, el("span", { text: l }), " ",
+        el("button", { type: "button", class: "btn fantasma", onclick: () => abrirRelatoSobre(l) }, "Registrar o que sabemos"))))) : null;
+    const avisos = r.avisos.length ? listaAvisos(r.avisos) : null;
+    if (!r.usou_modelo) {  // a base vazia: nenhum roteiro inventado
+      const aviso0 = vazio("A base ainda está vazia", "Sem itens validados eu não monto roteiro: prefiro não inventar.",
+          el("div", { class: "botoes" },
+            el("a", { class: "btn primario", href: "#fontes", text: "Sincronizar o Notion" }),
+            el("a", { class: "btn", href: "#registrar", text: "Registrar o primeiro" })));
+      $(".mascote", aviso0).replaceWith(mascoteEm("m mascote-vazio", { humor: "nota-em-branco" }));  // a nota em branco: nada a citar
+      return [cartaoPedido, aviso0, avisos, lacunas].filter(Boolean);
+    }
+    const docs = r.documentos.length ? el("section", { class: "bloco" }, el("h3", { text: "Documentos usados" }),
+      el("ul", {}, r.documentos.map((d) => el("li", {}, linkSeguro(d.url) ? el("a", { href: d.url, target: "_blank", rel: "noopener noreferrer", text: d.titulo }) : d.titulo,
+        d.categoria ? el("span", { class: "pasta-doc", text: ` · ${d.categoria}` }) : null)))) : null;
+    return [
+      cartaoPedido,
+      el("article", { class: "documento-briefing" },
+        el("header", { class: "cab-briefing" },
+          el("p", { class: "t-rotulo marca", text: `Briefing · reunião de ${NOME_REUNIAO[pedido.tipo] || pedido.tipo}` }),
+          el("button", { type: "button", class: "btn fantasma", onclick: () => {
+            const copiar = navigator.clipboard ? navigator.clipboard.writeText(textoDoBriefing(r, pedido)) : Promise.reject(new Error("sem área de transferência"));
+            copiar.then(() => aviso("Briefing copiado.", "ok"), () => aviso("Não consegui copiar. Selecione o texto na tela.", "erro"));
+          } }, icone("copiar", "ic p"), "Copiar")),
+        el("h1", { class: "t-titulo", text: `${capital(NOME_REUNIAO[pedido.tipo] || pedido.tipo)} · ${capital(r.segmento)}` }),
+        el("p", { class: "t-corpo", text: r.resumo }),
+        el("p", { class: "t-legenda" }, `Montado a partir de ${r.itens.length} ${r.itens.length === 1 ? "item aprovado" : "itens aprovados"} e ${r.documentos.length} ${r.documentos.length === 1 ? "documento" : "documentos"} `,
+          naoRevisados ? el("span", { class: "selo alerta", text: `${naoRevisados} não ${naoRevisados === 1 ? "revisado" : "revisados"}` }) : null)),
+      ...r.secoes.map((s) => el("section", { class: "bloco secao-briefing", "data-chave": s.chave },
+        el("h3", { text: s.titulo }),
+        s.pontos.length
+          ? el(s.chave === "roteiro" ? "ol" : "ul", {}, s.pontos.map((p) => pontoDoBriefing(p, porCodigo)))
+          : el("p", { class: "sem-base", text: "A base não tem pontos para esta parte." }))),
+      lacunas,
+      r.itens.length ? el("section", { class: "bloco" }, el("h3", { text: "Itens usados" }),
+        ...r.itens.map((i) => {
+          const completo = estado.itens.find((x) => x.id === i.id);
+          return el("a", { class: "linha-lista", href: `#item/${i.codigo}` }, pontoEv(i.evidencia), el("span", { class: "t-dado suave", text: i.codigo }),
+            el("span", { class: "txt", text: i.titulo }),
+            i.de_outro_segmento ? el("span", { class: "selo", text: `De outro segmento${completo && completo.segmento ? `: ${completo.segmento}` : ""}` }) : null);
+        })) : null,
+      docs, avisos].filter(Boolean);
   }
 
   // ---------------------------------------------------------------- paleta Cmd+K: buscar ou agir
@@ -2630,10 +2765,10 @@
     perguntar(texto);
   }
   function prepararDaPaleta(seg) {
-    pintarSegmentosBriefing();
-    if (seg) $("#b-segmento").value = seg;
-    if (location.hash === "#preparar") montarBriefing();
-    else location.hash = "#preparar";
+    const B = estado.briefing;
+    B.resultado = null;  // volta ao formulário, com o segmento já escolhido
+    if (seg) B.rascunho.segmento = seg;
+    if (location.hash === "#preparar") { pintarPreparar(); $("#b-contexto").focus(); } else location.hash = "#preparar";
   }
   function buscarFontesDaPaleta() {
     clearTimeout(paleta.espera);
@@ -2738,7 +2873,6 @@
     formChat.addEventListener("submit", (e) => { e.preventDefault(); perguntar($("#campo-chat").value); });
 
 
-    $("#form-briefing").addEventListener("submit", montarBriefing);
     $("#nova-conversa").addEventListener("click", () => {
       if (!estado.ocupado) iniciarConversa();  // "Nova conversa" limpa também o que ficou guardado neste navegador
       $("#campo-chat").focus();
