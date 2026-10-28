@@ -1,6 +1,10 @@
 """A interface é servida pelo próprio FastAPI: página em app/templates, CSS e JS em app/static."""
 import re
+import shutil
+import subprocess
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -24,12 +28,12 @@ def test_arquivos_estaticos():
 
 
 def test_js_nao_usa_innerhtml_com_texto_de_fora():
-    """O único innerHTML permitido é o do SVG do orbe, gerado pelo próprio script (proteção contra XSS)."""
+    """O único innerHTML permitido é o do SVG do mascote, gerado pelo próprio script (proteção contra XSS)."""
     with TestClient(app) as client:
         js = client.get("/static/cerebro.js").text
     codigo = re.sub(r"/\*.*?\*/", "", js, flags=re.S)  # tira os comentários de bloco
     usos = [linha.strip() for linha in codigo.splitlines() if "innerHTML" in linha]
-    assert all("orbe(" in u for u in usos), usos
+    assert all("mascote(" in u for u in usos), usos
 
 
 def test_tela_de_fontes_esta_no_menu_e_na_pagina():
@@ -183,3 +187,24 @@ def test_css_tem_os_tokens_do_observatorio():
     assert "--fundo: #080a11;" in css and "--marca: #a9a6dd;" in css and "--ev-4: #e6e5f4;" in css
     assert "family=Sora" in html and "family=Inter" in html and "family=JetBrains+Mono" in html
     assert "Bricolage" not in html
+
+
+def test_fundo_nao_derruba_o_inicio():
+    """A tela em branco de 27/10: o fundo em canvas quebrava com a janela em 0 px e levava o iniciar() junto.
+    O chão agora é só CSS, e o que é enfeite roda dentro de seguro()."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert "drawImage" not in js
+    assert "function seguro(" in js
+    inicio = js.split("async function iniciar()")[1]
+    assert "seguro(" in inicio.split("detectarModo()")[0]
+
+
+JS = Path(__file__).resolve().parents[1] / "app" / "static" / "cerebro.js"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="sem o Node para conferir a sintaxe")
+def test_js_tem_sintaxe_valida():
+    """Os outros testes da tela conferem texto: um erro de sintaxe passaria por eles e deixaria a página parada."""
+    r = subprocess.run(["node", "--check", str(JS)], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr

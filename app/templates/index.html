@@ -11,13 +11,12 @@
 </head>
 <body>
 <!-- corpo:inicio -->
-<canvas id="cena" aria-hidden="true"></canvas>
-<div class="veu" aria-hidden="true"></div>
+<div id="cena" class="chao" aria-hidden="true"></div>
 
 <div class="app">
   <nav class="trilho" aria-label="Seções">
     <a class="marca" href="#conversar" aria-label="Cérebro Comercial, voltar para a conversa">
-      <span class="marca-orbe" data-orbe="mini"></span>
+      <span class="mascote p marca-orbe marca-viva" data-mascote="simbolo"></span>
       <b>CITi</b>
     </a>
     <div class="nav">
@@ -77,7 +76,7 @@
           </form>
         </div>
         <aside class="palco" aria-label="O que o Cérebro sabe hoje">
-          <div class="orbe-grande" data-orbe="grande"></div>
+          <div class="mascote g orbe-grande" data-mascote=""></div>
           <div class="ficha vidro">
             <h2>O que eu sei hoje</h2>
             <div class="numeros">
@@ -94,7 +93,7 @@
       <section class="tela tela-registrar" data-tela="registrar" aria-label="Registrar um insight" hidden>
         <div class="painel vidro registrar-chat">
           <div class="cab">
-            <span class="av" data-orbe="mini"></span>
+            <span class="mascote p av" data-mascote="simbolo"></span>
             <div><h2>Curador</h2><p>Organiza o seu relato e pergunta o que faltou</p></div>
           </div>
           <div class="mensagens" id="mensagens-reg" aria-live="polite"></div>
@@ -161,7 +160,7 @@
 <!-- Entrada (T5): cobre o app enquanto ninguém entrou com a conta Google do CITi. -->
 <div class="entrada-login" id="entrada-login" hidden>
   <section class="vidro cartao-login" role="dialog" aria-modal="true" aria-labelledby="entrada-titulo">
-    <span class="marca-orbe grande" data-orbe="grande" aria-hidden="true"></span>
+    <span class="mascote g marca-orbe grande" data-mascote="" aria-hidden="true"></span>
     <h1 id="entrada-titulo">Cérebro Comercial CITi</h1>
     <p class="entrada-texto">Entre com a sua conta Google do CITi (<b id="entrada-dominio">@citi.org.br</b>) para conversar, registrar e consultar o que o comercial já aprendeu.</p>
     <p class="entrada-aviso" id="entrada-aviso" role="alert" hidden></p>

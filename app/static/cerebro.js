@@ -3,7 +3,7 @@
    Fala sempre com a API de verdade (FastAPI). Não há base de exemplo nem modo de demonstração: sem servidor, a tela
    avisa e não mostra nada inventado.
    Regra de segurança: todo texto que vem do usuário ou do modelo entra na página como texto (textContent),
-   nunca como HTML. O único innerHTML é o SVG do orbe, que é gerado aqui mesmo. */
+   nunca como HTML. O único innerHTML é o SVG do mascote, que é gerado aqui mesmo. */
 "use strict";
 
 (() => {
@@ -25,16 +25,6 @@
       n.append(f instanceof Node ? f : document.createTextNode(String(f)));
     }
     return n;
-  }
-
-  function rng(semente) {
-    let s = semente | 0;
-    return () => {
-      s = (s + 0x6d2b79f5) | 0;
-      let t = Math.imul(s ^ (s >>> 15), 1 | s);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
   }
 
   const normalizar = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -87,241 +77,72 @@
   };
   const aoVivo = () => estado.modo === "vivo";
 
-  // ---------------------------------------------------------------- orbe (o mascote)
-  let seqOrbe = 0;
-  function orbe(classe = "") {
-    const id = `orb${++seqOrbe}`;
-    const r = rng(42);
-    const pts = [];
-    while (pts.length < 11) {
-      const x = 60 + (r() * 2 - 1) * 30;
-      const y = 60 + (r() * 2 - 1) * 30;
-      if (Math.hypot(x - 60, y - 60) < 30) pts.push([x, y]);
+  // ---------------------------------------------------------------- mascote (a marca)
+  // Um cerebrozinho em traço que levanta uma nota (a prova), com o anel do orbe do CITi na cintura. O desenho é o do
+  // Design System (Cerebro.mascote) e só usa classes: as cores vêm dos tokens no CSS. O "símbolo" é a versão pequena
+  // (barra lateral, avatar da resposta e botão do celular). Os humores trocam a boca, os olhos e a nota: "pensando"
+  // (esperando o modelo), "sem-resposta" (o modelo falhou) e "nota-em-branco" (base vazia). Erro nunca vai no rosto
+  // dele: fica no texto.
+  const CONTORNO = "M37 92C29 92 25 84 29 78C23 74 23 63 31 61C29 52 37 46 45 49C47 41 57 39 61 45C64 39 75 39 78 47C86 45 93 52 90 60C96 63 96 74 90 78C93 86 86 93 79 91C74 96 65 96 61 92C56 96 43 96 37 92Z";
+  const SULCOS = "M61 45C59 50 62 53 60 57M38 56q5-4 10 0M72 53q5-4 10 0M32 86q4-3.5 8-1M80 85q4-2.5 8 1";
+  const HUMORES = {
+    padrao: { olhoY: 62, olhoA: 10, boca: "M54 77q6 4.5 12 0", nota: "acena" },
+    pensando: { olhoY: 58, olhoA: 9, boca: "M57 78h6", nota: "parada" },
+    "sem-resposta": { olhoY: 62, olhoA: 10, boca: "M55 80q5-3.6 10 0", nota: "apagada" },
+    "nota-em-branco": { olhoY: 62, olhoA: 10, boca: "M54 77q6 4.5 12 0", nota: "branca" },
+  };
+  let seqMascote = 0;
+  function mascote({ forma = "", humor = "padrao" } = {}) {
+    if (forma === "simbolo") {
+      return `<svg viewBox="20 24 88 76" aria-hidden="true" focusable="false"><path class="mc-corpo grosso" d="${CONTORNO}"/><path class="mc-sulco grosso" d="M61 45C59 50 62 53 60 57"/><rect class="mc-olho" x="46.5" y="61" width="8" height="12" rx="4"/><rect class="mc-olho" x="65.5" y="61" width="8" height="12" rx="4"/><path class="mc-boca grosso" d="M53 78q7 5 14 0"/><g transform="rotate(9 96 38)"><rect class="mc-nota" x="85" y="26" width="22" height="24" rx="6"/><path class="mc-nota-linha" d="M90.5 34h11M90.5 39.5h11M90.5 45h6"/></g></svg>`;
     }
-    let linhas = "";
-    pts.forEach((p, i) => {
-      pts.map((q, j) => [j, Math.hypot(q[0] - p[0], q[1] - p[1])])
-        .filter(([j]) => j > i).sort((a, b) => a[1] - b[1]).slice(0, 2)
-        .forEach(([j]) => { linhas += `<line x1="${p[0].toFixed(1)}" y1="${p[1].toFixed(1)}" x2="${pts[j][0].toFixed(1)}" y2="${pts[j][1].toFixed(1)}"/>`; });
-    });
-    const nos = pts.map((p, i) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${(1.5 + r() * 1.5).toFixed(1)}" style="--d:${(i * 0.37).toFixed(2)}s"/>`).join("");
-    return `<svg class="orbe ${classe}" viewBox="0 0 120 120" aria-hidden="true" focusable="false">
-      <defs>
-        <radialGradient id="${id}v" cx="38%" cy="32%" r="75%">
-          <stop offset="0" stop-color="#dcd5ff" stop-opacity=".95"/><stop offset=".36" stop-color="#7f74ff" stop-opacity=".78"/>
-          <stop offset=".8" stop-color="#2a1f8f" stop-opacity=".94"/><stop offset="1" stop-color="#160f4e"/>
-        </radialGradient>
-        <radialGradient id="${id}n" cx="64%" cy="68%" r="52%">
-          <stop offset="0" stop-color="#ff7ad9" stop-opacity=".55"/><stop offset="1" stop-color="#ff7ad9" stop-opacity="0"/>
-        </radialGradient>
-        <linearGradient id="${id}a" x1="0" x2="1">
-          <stop offset="0" stop-color="#7fd7ff" stop-opacity=".08"/><stop offset=".5" stop-color="#cdb8ff"/><stop offset="1" stop-color="#7fd7ff" stop-opacity=".08"/>
-        </linearGradient>
-        <clipPath id="${id}c"><circle cx="60" cy="60" r="37"/></clipPath>
-      </defs>
-      <g transform="rotate(-16 60 60)"><path d="M5 62 A55 15 0 0 1 115 62" fill="none" stroke="url(#${id}a)" stroke-width="3" opacity=".5"/></g>
-      <circle cx="60" cy="60" r="38" fill="url(#${id}v)"/>
-      <circle cx="60" cy="60" r="38" fill="url(#${id}n)"/>
-      <g clip-path="url(#${id}c)">
-        <g class="rede" stroke="#ebe6ff" stroke-opacity=".45" stroke-width=".7">${linhas}</g>
-        <g class="nos" fill="#f6f3ff">${nos}</g>
-      </g>
-      <ellipse cx="46" cy="40" rx="13" ry="7.5" fill="#fff" opacity=".3" transform="rotate(-30 46 40)"/>
-      <circle cx="60" cy="60" r="38" fill="none" stroke="#d3cbff" stroke-opacity=".55" stroke-width="1"/>
-      <g transform="rotate(-16 60 60)"><path d="M115 62 A55 15 0 0 1 5 62" fill="none" stroke="url(#${id}a)" stroke-width="3.2"/></g>
-    </svg>`;
+    const h = HUMORES[humor] || HUMORES.padrao;
+    const id = `masc${++seqMascote}`;  // o gradiente do anel precisa de um id por desenho
+    const linhas = h.nota === "branca" ? "" : '<path class="mc-nota-linha" d="M97 34h12M97 39h12M97 44h7"/>';
+    const pensa = humor === "pensando"
+      ? '<g class="mc-pensa"><circle cx="50" cy="31" r="2.2"/><circle cx="60" cy="28" r="2.2"/><circle cx="70" cy="31" r="2.2"/></g>'
+      : "";
+    return `<svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+      <defs><linearGradient id="${id}" x1="0" x2="1"><stop offset="0" class="mc-anel-ponta"/><stop offset=".5" class="mc-anel-meio"/><stop offset="1" class="mc-anel-ponta"/></linearGradient></defs>
+      <path class="mc-chao" d="M14 104H106"/><path class="mc-chao cruz" d="M60 99v10M55 104h10"/>
+      <g transform="rotate(-12 60 76)"><path class="mc-anel tras" d="M10 76A50 12 0 0 1 110 76" stroke="url(#${id})"/></g>
+      <path class="mc-pe" d="M50 94.5v9.5M70 94.5v9.5"/>
+      <g class="mc-respira"><path class="mc-corpo" d="${CONTORNO}"/><path class="mc-sulco" d="${SULCOS}"/>
+        <rect class="mc-olho piscar" x="48" y="${h.olhoY}" width="6" height="${h.olhoA}" rx="3"/><rect class="mc-olho piscar" x="66" y="${h.olhoY}" width="6" height="${h.olhoA}" rx="3"/>
+        <ellipse class="mc-bochecha" cx="42.5" cy="76" rx="4" ry="2.4"/><ellipse class="mc-bochecha" cx="77.5" cy="76" rx="4" ry="2.4"/>
+        <path class="mc-boca" d="${h.boca}"/></g>
+      <g transform="rotate(-12 60 76)"><path class="mc-anel" d="M110 76A50 12 0 0 1 10 76" stroke="url(#${id})"/></g>
+      <g class="mc-mao ${h.nota}"><path class="mc-pe braco" d="M90 66 99 51"/><g transform="rotate(9 103 38)"><rect class="mc-nota" x="92" y="26" width="22" height="24" rx="5"/>${linhas}</g></g>
+      ${pensa}</svg>`;
   }
-  function pintarOrbes(raiz = document) {
-    for (const alvo of $$("[data-orbe]", raiz)) alvo.innerHTML = orbe(alvo.dataset.orbe);
+  // Pinta o mascote em todo [data-mascote] da página (o valor é a forma; o data-humor, o humor).
+  function pintarMascotes(raiz = document) {
+    for (const alvo of $$("[data-mascote]", raiz)) alvo.innerHTML = mascote({ forma: alvo.dataset.mascote, humor: alvo.dataset.humor });
   }
-  const orbeEm = (classe) => { const s = el("span", { class: classe }); s.innerHTML = orbe(); return s; };
-
-  // ---------------------------------------------------------------- cena: a cidade à noite
-  const cena = (() => {
-    const cv = $("#cena");
-    const ctx = cv.getContext("2d");
-    const calmo = matchMedia("(prefers-reduced-motion: reduce)");
-    let W = 0, H = 0, dpr = 1, ceu = null, cidade = null;
-    let estrelas = [], nos = [], arestas = [], faiscas = [], luzes = [];
-    let rodando = false, ultimo = 0;
-
-    const tela = (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
-
-    function predios(c, r, o) {
-      let x = -20;
-      while (x < W + 20) {
-        const w = o.larg[0] + r() * (o.larg[1] - o.larg[0]);
-        const h = H * (o.alt[0] + r() * (o.alt[1] - o.alt[0]));
-        const topo = o.base - h;
-        c.fillStyle = o.cor;
-        c.fillRect(x, topo, w - 2, H - topo);
-        if (r() < 0.35) c.fillRect(x + w * 0.28, topo - h * 0.07, w * 0.44, h * 0.07);
-        if (r() < 0.22) {
-          c.fillRect(x + w * 0.48, topo - h * 0.2, 2, h * 0.2);
-          luzes.push({ x: x + w * 0.48 + 1, y: topo - h * 0.2, antena: true, f: r() * 6.28 });
-        }
-        c.fillStyle = o.aresta;
-        c.fillRect(x, topo, 1.5, H - topo);
-        if (o.janelas) {
-          const cols = Math.floor((w - 10) / 9), linhas = Math.floor((H - topo - 14) / 12);
-          for (let i = 0; i < cols; i++) {
-            for (let j = 0; j < linhas; j++) {
-              if (r() >= o.acesas) continue;
-              const tom = o.tons[Math.floor(r() * o.tons.length)];
-              const wx = x + 6 + i * 9, wy = topo + 10 + j * 12;
-              c.fillStyle = `${tom}${(0.3 + r() * 0.55).toFixed(2)})`;
-              c.fillRect(wx, wy, 4, 6);
-              if (r() < 0.035) luzes.push({ x: wx, y: wy, tom, f: r() * 6.28 });
-            }
-          }
-        }
-        x += w + (r() < 0.3 ? r() * 16 : 0);
-      }
+  function mascoteEm(classe, { forma = "", humor = "padrao" } = {}) {
+    const s = el("span", { class: `mascote ${classe}`, "data-mascote": forma, "data-humor": humor, "aria-hidden": "true" });
+    s.innerHTML = mascote({ forma, humor });
+    return s;
+  }
+  // Quando o Cérebro responde ou um item é aprovado, o mascote da barra acena uma vez (no lugar da rajada da cena).
+  function pulsarMascote() {
+    for (const m of $$(".mascote.marca-viva")) {
+      m.classList.remove("acenou");
+      void m.offsetWidth;  // reinicia a animação
+      m.classList.add("acenou");
     }
+  }
 
-    function montar() {
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
-      W = window.innerWidth; H = window.innerHeight;
-      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-      const r = rng(7);
-      luzes = [];
-
-      // céu, névoa do horizonte e lua
-      ceu = tela(cv.width, cv.height);
-      const f = ceu.getContext("2d");
-      f.scale(dpr, dpr);
-      const g = f.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, "#04051a"); g.addColorStop(0.42, "#121048"); g.addColorStop(0.68, "#36217e");
-      g.addColorStop(0.84, "#78398e"); g.addColorStop(1, "#1a0f33");
-      f.fillStyle = g; f.fillRect(0, 0, W, H);
-      const nevoa = f.createRadialGradient(W * 0.64, H * 0.84, 0, W * 0.64, H * 0.84, W * 0.7);
-      nevoa.addColorStop(0, "rgba(255,140,190,.34)"); nevoa.addColorStop(0.42, "rgba(140,80,220,.16)"); nevoa.addColorStop(1, "rgba(0,0,0,0)");
-      f.fillStyle = nevoa; f.fillRect(0, 0, W, H);
-      const lx = W * 0.8, ly = H * (W > 860 ? 0.14 : 0.42), lr = Math.max(34, Math.min(W, H) * 0.07);
-      const halo = f.createRadialGradient(lx, ly, lr * 0.6, lx, ly, lr * 4.2);
-      halo.addColorStop(0, "rgba(205,195,255,.32)"); halo.addColorStop(1, "rgba(205,195,255,0)");
-      f.fillStyle = halo; f.beginPath(); f.arc(lx, ly, lr * 4.2, 0, 7); f.fill();
-      const lua = f.createRadialGradient(lx - lr * 0.35, ly - lr * 0.35, lr * 0.1, lx, ly, lr);
-      lua.addColorStop(0, "#fbf8ff"); lua.addColorStop(0.7, "#d2c8ff"); lua.addColorStop(1, "#9c8df0");
-      f.fillStyle = lua; f.beginPath(); f.arc(lx, ly, lr, 0, 7); f.fill();
-      f.fillStyle = "rgba(118,98,210,.17)";
-      for (let i = 0; i < 6; i++) {
-        const a = r() * 6.28, d = r() * lr * 0.6;
-        f.beginPath(); f.arc(lx + Math.cos(a) * d, ly + Math.sin(a) * d, lr * (0.08 + r() * 0.14), 0, 7); f.fill();
-      }
-
-      // estrelas de fundo
-      estrelas = [];
-      const n = Math.round((W * H) / 5200);
-      for (let i = 0; i < n; i++) estrelas.push({ x: r() * W, y: r() * H * 0.72, t: r() * 1.3 + 0.3, f: r() * 6.28, v: 0.5 + r() * 1.5 });
-
-      // constelação: a base de conhecimento (itens e relações)
-      nos = [];
-      const k = Math.max(9, Math.round(W / 105));
-      for (let i = 0; i < k; i++) nos.push({ x: W * (0.05 + r() * 0.9), y: H * (0.05 + r() * 0.42), f: r() * 6.28 });
-      arestas = [];
-      nos.forEach((a, i) => {
-        nos.map((b, j) => [j, Math.hypot(b.x - a.x, b.y - a.y)]).filter(([j]) => j !== i)
-          .sort((p, q) => p[1] - q[1]).slice(0, 2)
-          .forEach(([j, d]) => { if (d < W * 0.24 && !arestas.some(([p, q]) => (p === j && q === i) || (p === i && q === j))) arestas.push([i, j]); });
-      });
-
-      // cidade em três planos, moldura da janela e luz de mesa
-      cidade = tela(cv.width, cv.height);
-      const c = cidade.getContext("2d");
-      c.scale(dpr, dpr);
-      predios(c, r, { base: H * 0.7, alt: [0.1, 0.26], larg: [28, 70], cor: "#251b58", aresta: "rgba(170,150,255,.07)", janelas: false });
-      predios(c, r, { base: H * 0.8, alt: [0.14, 0.36], larg: [36, 90], cor: "#170f3c", aresta: "rgba(170,150,255,.09)", janelas: true, acesas: 0.24, tons: ["rgba(150,160,255,", "rgba(255,190,120,"] });
-      predios(c, r, { base: H * 0.93, alt: [0.18, 0.44], larg: [48, 120], cor: "#0b0821", aresta: "rgba(170,150,255,.1)", janelas: true, acesas: 0.33, tons: ["rgba(255,196,120,", "rgba(150,170,255,", "rgba(255,120,200,"] });
-      const mesa = c.createLinearGradient(0, H * 0.86, 0, H);
-      mesa.addColorStop(0, "rgba(5,4,15,0)"); mesa.addColorStop(1, "rgba(5,4,15,.92)");
-      c.fillStyle = mesa; c.fillRect(0, H * 0.86, W, H * 0.14);
-      const lampada = c.createRadialGradient(W * 0.02, H * 0.98, 0, W * 0.02, H * 0.98, Math.max(W, H) * 0.42);
-      lampada.addColorStop(0, "rgba(255,170,90,.28)"); lampada.addColorStop(1, "rgba(255,170,90,0)");
-      c.fillStyle = lampada; c.fillRect(0, 0, W, H);
-      const tela2 = c.createRadialGradient(W * 0.74, H, 0, W * 0.74, H, Math.max(W, H) * 0.3);
-      tela2.addColorStop(0, "rgba(110,150,255,.2)"); tela2.addColorStop(1, "rgba(110,150,255,0)");
-      c.fillStyle = tela2; c.fillRect(0, 0, W, H);
+  // O que é enfeite nunca derruba o início da página: um erro aqui vai para o console e a tela segue. Foi assim que a
+  // tela ficou em branco em 27/10 (o fundo em canvas quebrava com a janela em 0 px e levava o iniciar() junto).
+  function seguro(fn, nome) {
+    try {
+      return fn();
+    } catch (e) {
+      console.error(`Cérebro: a peça "${nome}" falhou e foi pulada.`, e);
+      return undefined;
     }
-
-    function quadro(ms) {
-      const s = ms / 1000;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(ceu, 0, 0);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = "#e9e5ff";
-      for (const e of estrelas) {
-        ctx.globalAlpha = 0.3 + 0.7 * Math.abs(Math.sin(e.f + s * e.v * 0.6));
-        ctx.fillRect(e.x, e.y, e.t, e.t);
-      }
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(184,150,255,.2)";
-      ctx.beginPath();
-      for (const [a, b] of arestas) { ctx.moveTo(nos[a].x, nos[a].y); ctx.lineTo(nos[b].x, nos[b].y); }
-      ctx.stroke();
-      if (!calmo.matches && faiscas.length < 3 && Math.random() < 0.015 && arestas.length) {
-        const [a, b] = arestas[Math.floor(Math.random() * arestas.length)];
-        faiscas.push({ a, b, p: 0 });
-      }
-      for (const fz of faiscas) {
-        fz.p += 0.014;
-        const A = nos[fz.a], B = nos[fz.b];
-        const x = A.x + (B.x - A.x) * fz.p, y = A.y + (B.y - A.y) * fz.p;
-        const g = ctx.createRadialGradient(x, y, 0, x, y, 11);
-        g.addColorStop(0, "rgba(170,232,255,.95)"); g.addColorStop(1, "rgba(170,232,255,0)");
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 11, 0, 7); ctx.fill();
-      }
-      faiscas = faiscas.filter((fz) => fz.p < 1);
-      for (const n of nos) {
-        const p = 0.6 + 0.4 * Math.sin(n.f + s * 1.3);
-        const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, 10);
-        g.addColorStop(0, `rgba(236,230,255,${(0.92 * p).toFixed(3)})`);
-        g.addColorStop(0.35, `rgba(184,150,255,${(0.34 * p).toFixed(3)})`);
-        g.addColorStop(1, "rgba(184,150,255,0)");
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, 10, 0, 7); ctx.fill();
-      }
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(cidade, 0, 0);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      for (const l of luzes) {
-        if (l.antena) {
-          ctx.fillStyle = `rgba(255,90,120,${Math.sin(l.f + s * 2.2) > 0.6 ? 1 : 0.15})`;
-          ctx.beginPath(); ctx.arc(l.x, l.y, 1.8, 0, 7); ctx.fill();
-        } else {
-          ctx.fillStyle = `${l.tom}${(0.2 + 0.65 * (0.5 + 0.5 * Math.sin(l.f + s * 0.4))).toFixed(2)})`;
-          ctx.fillRect(l.x, l.y, 4, 6);
-        }
-      }
-    }
-
-    function laco(ms) {
-      if (!rodando) return;
-      if (!document.hidden && ms - ultimo > 32) { quadro(ms); ultimo = ms; }
-      requestAnimationFrame(laco);
-    }
-    function ligar() { if (!rodando && !calmo.matches) { rodando = true; requestAnimationFrame(laco); } }
-
-    let espera = 0;
-    function iniciar() {
-      montar(); quadro(performance.now()); ligar();
-      window.addEventListener("resize", () => {
-        clearTimeout(espera);
-        espera = setTimeout(() => { montar(); quadro(performance.now()); }, 150);
-      });
-      calmo.addEventListener?.("change", () => { if (calmo.matches) rodando = false; else ligar(); });
-    }
-    // Quando o Cérebro responde ou um item é aprovado, uma rajada de sinapses atravessa a constelação.
-    function pulsar() {
-      if (!arestas.length) return;
-      for (let i = 0; i < 6; i++) {
-        const [a, b] = arestas[Math.floor(Math.random() * arestas.length)];
-        faiscas.push({ a, b, p: Math.random() * 0.25 });
-      }
-      if (calmo.matches) quadro(performance.now());
-    }
-    return { iniciar, pulsar };
-  })();
+  }
 
   // ---------------------------------------------------------------- API
   class ErroApi extends Error {
@@ -494,7 +315,7 @@
     return chip;
   }
   function vazio(titulo, texto, ...extra) {
-    return el("div", { class: "vazio" }, orbeEm("orbe-vazio"), el("h3", { text: titulo }), el("p", { text: texto }), ...extra);
+    return el("div", { class: "vazio" }, mascoteEm("m mascote-vazio"), el("h3", { text: titulo }), el("p", { text: texto }), ...extra);
   }
   function autoAltura(t) {
     t.style.height = "auto";
@@ -562,7 +383,7 @@
 
   function adicionarMsg(caixa, { papel, texto, quem, nota, extra, docs }) {
     const linha = el("div", { class: `linha${papel === "eu" ? " eu" : ""}` });
-    if (papel !== "eu") linha.append(orbeEm("av"));
+    if (papel !== "eu") linha.append(mascoteEm("p av", { forma: "simbolo" }));
     const bolha = el("div", { class: `msg ${papel}` }, el("span", { class: "quem", text: quem }), formatar(texto, docs));
     if (extra) bolha.append(extra);
     const citados = rodapeDocumentos(texto, docs);
@@ -575,7 +396,7 @@
     return linha;
   }
   function digitando(caixa) {
-    const linha = el("div", { class: "linha" }, orbeEm("av"),
+    const linha = el("div", { class: "linha" }, mascoteEm("p av", { forma: "simbolo" }),
       el("div", { class: "msg cerebro digitando", role: "status", "aria-label": "Pensando" }, el("i"), el("i"), el("i")));
     caixa.append(linha);
     caixa.scrollTop = caixa.scrollHeight;
@@ -595,7 +416,7 @@
     const box = $("#ident");
     box.replaceChildren();
     if (tela === "conversar") {
-      box.append(orbeEm("av-topo"), el("div", {},
+      box.append(mascoteEm("m av-topo", { forma: "simbolo" }), el("div", {},
         el("h1", { text: "Cérebro" }),
         el("p", {}, el("span", { class: "online", text: "Online" }), " · consultor comercial do CITi")));
     } else {
@@ -663,7 +484,7 @@
       indicador.remove();
       adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", docs: r.documentos || [] });
       estado.conversa.push({ role: "user", text: texto }, { role: "model", text: resposta });
-      cena.pulsar();
+      pulsarMascote();
     } catch (e) {
       indicador.remove();
       adicionarMsg(caixa, { papel: "erro", texto: e.message, quem: "Não deu certo" });
@@ -718,7 +539,7 @@
       estado.reg.conversa.push({ role: "user", text: texto }, { role: "model", text: perguntas.length ? perguntas.join("\n") : resumo });
       estado.reg.proposta = proposta;
       pintarRascunho();
-      cena.pulsar();
+      pulsarMascote();
     } catch (e) {
       indicador.remove();
       adicionarMsg(caixa, { papel: "erro", texto: e.message, quem: "Não deu certo" });
@@ -823,7 +644,7 @@
       const criado = await chamar("POST", "/insights", { ...dados, fonte: "chat" });
       await carregarItens();
       aviso(`Enviado para a Fila como proposto (INS-${criado.id}).`, "ok");
-      cena.pulsar();
+      pulsarMascote();
       descartarRascunho();
       atualizarNumeros();
     } catch (e) {
@@ -931,7 +752,7 @@
     }
     f.aprovando = null;
     await carregarItens();
-    if (aprovados) { cena.pulsar(); }
+    if (aprovados) { pulsarMascote(); }
     const restantes = semServidor ? ids.length - aprovados : falhas.length;
     aviso(restantes
       ? `${aprovados} aprovados. ${restantes} não foram aprovados${semServidor ? " (o servidor parou de responder)" : `: ${falhas.slice(0, 5).join(", ")}${falhas.length > 5 ? "…" : ""}`}. Continuam marcados.`
@@ -985,7 +806,7 @@
       await chamar("POST", `/insights/${it.id}/${acao}`, acao === "aprovar" ? undefined : { motivo: motivo.trim() });
       await carregarItens();
       aviso(acao === "aprovar" ? `${it.codigo} aprovado. Já aparece no Playbook.` : `${it.codigo} rejeitado e marcado como obsoleto.`, "ok");
-      cena.pulsar();
+      pulsarMascote();
       atualizarNumeros();
       pintarFila();
     } catch (e) {
@@ -1504,10 +1325,9 @@
   }
 
   async function iniciar() {
-    pintarOrbes();
-    cena.iniciar();
+    seguro(pintarMascotes, "mascote");
     ligarEventos();
-    pintarTopo("conversar");
+    seguro(() => pintarTopo("conversar"), "topo");
     estado.modo = await detectarModo();
     pintarModo();
     if (!aoVivo()) {  // nada de dado inventado: sem servidor a tela só avisa

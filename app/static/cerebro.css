@@ -1,8 +1,6 @@
 /* Cérebro Comercial CITi: interface
-   Layout: a cidade à noite é pintada num canvas fixo ao fundo, e as estrelas ligadas no céu são a base de
-   conhecimento (cada estrela um item, cada linha uma relação). Por cima, um trilho de vidro à esquerda e uma
-   tela por vez. No Conversar, as bolhas flutuam sobre a cidade e o orbe do Cérebro fica no palco à direita.
-   Visual único e escuro, escolhido de propósito: não há tema claro. */
+   Direção "Observatório": o chão de azul-tinta com pontos, superfícies de borda fina e títulos em Sora leve e
+   itálica. Um tema só, escuro. Os tokens seguem os nomes do Design System (tokens.json). */
 /* Tokens do Observatório (o tema único escolhido em 28/10): os mesmos nomes do tokens.json do Design System. */
 :root {
   /* chão e superfícies */
@@ -117,13 +115,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-#cena { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; }
-.veu {
-  position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  background:
-    radial-gradient(110% 95% at 8% 55%, rgba(6, 7, 22, 0.78) 0%, rgba(6, 7, 22, 0.42) 48%, rgba(6, 7, 22, 0) 72%),
-    linear-gradient(to top, rgba(6, 7, 22, 0.7), rgba(6, 7, 22, 0) 32%);
-}
+/* O chão: pontos de 1px a cada 24px (o "sólido" do conceito). É só CSS: nada aqui pode quebrar o início da página. */
+#cena { position: fixed; inset: 0; z-index: 0; pointer-events: none; background: var(--fundo); }
+#cena::before { content: ""; position: absolute; inset: 0; background: var(--grade); }
 
 /* ---------- moldura do app ---------- */
 .app {
@@ -152,7 +146,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   -webkit-backdrop-filter: blur(20px) saturate(150%);
 }
 .marca { display: grid; justify-items: center; gap: 2px; margin-bottom: 14px; color: var(--tinta); text-decoration: none; }
-.marca-orbe { width: 48px; height: 48px; display: block; }
+.marca-orbe { width: 40px; height: 34px; display: block; }
 .marca b { font: 600 10px/1 var(--f-dado); letter-spacing: 0.18em; color: var(--nevoa); }
 .nav { display: flex; flex-direction: column; gap: 4px; width: 100%; }
 .nav a {
@@ -189,7 +183,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ident { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .ident h1 { margin: 0; font: 700 22px/1.1 var(--f-display); letter-spacing: -0.01em; }
 .ident p { margin: 3px 0 0; color: var(--nevoa); font-size: 13.5px; }
-.av-topo { width: 50px; height: 50px; flex: none; position: relative; }
+.av-topo { width: 44px; height: 38px; flex: none; position: relative; }
 .av-topo::after {
   content: ""; position: absolute; right: 3px; bottom: 4px;
   width: 11px; height: 11px; border-radius: 50%;
@@ -219,7 +213,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .entrada-login { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: rgba(6, 6, 28, 0.72); backdrop-filter: blur(6px); }
 .entrada-login[hidden] { display: none; }
 .cartao-login { border-radius: 26px; display: grid; justify-items: center; gap: 14px; width: min(440px, 100%); padding: 34px 30px 26px; text-align: center; }
-.cartao-login .marca-orbe.grande { width: 96px; height: 96px; animation: flutuar 7s ease-in-out infinite; }
+.cartao-login .marca-orbe.grande { width: 112px; height: 112px; }
 .cartao-login h1 { margin: 0; font: 700 26px/1.15 var(--f-display); }
 .entrada-texto { margin: 0; color: var(--nevoa); line-height: 1.5; }
 .entrada-aviso { margin: 0; padding: 10px 14px; border-radius: 14px; border: 1px solid rgba(255, 138, 160, 0.5); background: rgba(255, 138, 160, 0.1); color: #ffd3dc; font-size: 14px; }
@@ -243,7 +237,7 @@ body.sem-login .app { filter: blur(3px); pointer-events: none; user-select: none
 }
 .linha { display: flex; align-items: flex-end; gap: 12px; }
 .linha.eu { justify-content: flex-end; }
-.linha .av { flex: none; width: 42px; height: 42px; }
+.linha .av { flex: none; width: 28px; height: 24px; margin-top: 6px; }
 .msg {
   min-width: 0; max-width: min(600px, 86%);
   padding: 12px 16px 9px;
@@ -358,7 +352,7 @@ a.cita.doc:hover { background: rgba(255, 207, 112, 0.18); border-color: var(--al
 .atalho .ponto { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--lilas)); box-shadow: 0 0 10px var(--c, var(--lilas)); }
 
 .palco { min-height: 0; display: grid; align-content: end; justify-items: center; gap: 18px; padding-bottom: 6px; }
-.orbe-grande { width: min(300px, 82%); aspect-ratio: 1; max-width: 100%; animation: flutuar 7s ease-in-out infinite; filter: drop-shadow(0 30px 60px rgba(84, 87, 255, 0.55)); }
+.orbe-grande { width: min(200px, 60%); height: auto; aspect-ratio: 1; }
 .ficha { width: 100%; max-width: 360px; padding: 16px 18px; border-radius: 20px; }
 .ficha h2 { margin: 0 0 12px; font: 700 15px/1.2 var(--f-display); }
 .numeros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
@@ -372,7 +366,7 @@ a.cita.doc:hover { background: rgba(255, 207, 112, 0.18); border-color: var(--al
 .tela-registrar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); grid-template-rows: minmax(0, 1fr); gap: 18px; }
 .registrar-chat { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding: 16px; }
 .cab { display: flex; align-items: center; gap: 12px; }
-.cab .av { width: 42px; height: 42px; flex: none; }
+.cab .av { width: 28px; height: 24px; flex: none; }
 .cab h2 { margin: 0; font: 700 17px/1.2 var(--f-display); }
 .cab p { margin: 2px 0 0; color: var(--nevoa); font-size: 13px; }
 
@@ -472,7 +466,7 @@ select option { background: #15163c; color: var(--tinta); }
 .vazio { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 40px 20px; color: var(--nevoa); }
 .vazio h3 { margin: 0; font: 700 19px/1.2 var(--f-display); color: var(--tinta); }
 .vazio p { margin: 0; max-width: 46ch; }
-.orbe-vazio { width: 120px; height: 120px; display: block; animation: flutuar 7s ease-in-out infinite; }
+.mascote-vazio { display: block; margin: 0 auto; }
 
 /* ---------- listas (fila, playbook, briefing) ---------- */
 .tela-lista { overflow-y: auto; display: grid; gap: 14px; align-content: start; grid-auto-rows: max-content; padding: 0 4px 28px 0; scrollbar-width: thin; scrollbar-color: rgba(184, 150, 255, 0.3) transparent; }
@@ -585,13 +579,49 @@ select option { background: #15163c; color: var(--tinta); }
 .torrada.ok { border-color: rgba(99, 230, 181, 0.55); }
 .torrada.erro { border-color: rgba(255, 138, 160, 0.65); }
 
-/* ---------- orbe ---------- */
-.orbe { width: 100%; height: 100%; display: block; overflow: visible; }
-.orbe .rede, .orbe .nos { transform-origin: 60px 60px; animation: girar 46s linear infinite; }
-.orbe .nos circle { animation: piscar 2.8s ease-in-out infinite; animation-delay: var(--d, 0s); }
-.pensando .orbe .nos circle { animation-duration: 0.7s; }
-.pensando .orbe .rede, .pensando .orbe .nos { animation-duration: 8s; }
-.pensando .orbe-grande { filter: drop-shadow(0 30px 70px rgba(127, 215, 255, 0.6)); }
+/* ---------- mascote ---------- */
+.mascote { display: inline-block; flex: none; }
+.mascote svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.mascote.p { width: 28px; height: 24px; }
+.mascote.m { width: 64px; height: 64px; }
+.mascote.g { width: 120px; height: 120px; }
+.mc-corpo { fill: var(--superficie-2); stroke: var(--texto-forte); stroke-width: 1.8; stroke-linejoin: round; }
+.mc-corpo.grosso { stroke-width: 3.4; }
+.mc-sulco { fill: none; stroke: var(--texto-forte); stroke-width: 1.5; stroke-linecap: round; opacity: 0.5; }
+.mc-sulco.grosso { stroke-width: 2.6; opacity: 0.6; }
+.mc-olho { fill: var(--texto-forte); }
+.mc-olho.piscar { transform-box: fill-box; transform-origin: center; animation: mc-pisca 5.2s infinite; }
+.mc-boca { fill: none; stroke: var(--texto-forte); stroke-width: 1.7; stroke-linecap: round; }
+.mc-boca.grosso { stroke-width: 2.8; }
+.mc-bochecha { fill: var(--marca); opacity: 0.45; }
+.mc-pe { fill: none; stroke: var(--texto-forte); stroke-width: 2; stroke-linecap: round; }
+.mc-pe.braco { stroke-width: 1.8; }
+.mc-chao { fill: none; stroke: var(--texto-fraco); stroke-width: 1; opacity: 0.45; }
+.mc-chao.cruz { opacity: 0.7; }
+.mc-anel { fill: none; stroke-width: 2.4; }
+.mc-anel.tras { stroke-width: 2; opacity: 0.55; }
+.mc-anel-ponta { stop-color: var(--marca); stop-opacity: 0.15; }
+.mc-anel-meio { stop-color: var(--marca-forte); }
+.mc-nota { fill: var(--marca); }
+.mc-nota-linha { fill: none; stroke: var(--sobre-marca); stroke-width: 1.6; stroke-linecap: round; }
+.mc-mao.apagada .mc-nota { fill: var(--superficie-3); }
+.mc-mao.apagada .mc-nota-linha { stroke: var(--texto-fraco); }
+.mc-mao.branca .mc-nota { fill: var(--superficie); stroke: var(--marca); stroke-width: 1.6; stroke-dasharray: 3 3; }
+.mc-mao.acena { transform-box: fill-box; transform-origin: 0% 100%; animation: mc-acena 3.6s ease-in-out infinite; }
+.mc-respira { animation: mc-respira 3.6s ease-in-out infinite; }
+.mc-pensa circle { fill: var(--marca-forte); animation: mc-pensa 1.4s ease-in-out infinite; }
+.mc-pensa circle:nth-child(2) { animation-delay: 0.2s; }
+.mc-pensa circle:nth-child(3) { animation-delay: 0.4s; }
+.mascote[data-humor="pensando"] .mc-respira { animation-duration: 1.2s; }
+.mascote.acenou .mc-mao { transform-box: fill-box; transform-origin: 0% 100%; animation: mc-acena 0.45s ease-in-out 3; }
+.mascote.parado .mc-mao, .mascote.parado .mc-respira, .mascote.parado .mc-olho { animation: none; }
+@keyframes mc-pisca { 0%, 90%, 96%, 100% { transform: scaleY(1); } 93% { transform: scaleY(0.12); } }
+@keyframes mc-acena { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(5deg); } }
+@keyframes mc-respira { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+@keyframes mc-pensa { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .mc-mao, .mc-respira, .mc-olho, .mc-pensa circle, .mascote.acenou .mc-mao { animation: none !important; }
+}
 
 @keyframes surgir { from { opacity: 0.35; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes pulo { 0%, 100% { transform: translateY(0); opacity: 0.55; } 50% { transform: translateY(-4px); opacity: 1; } }
@@ -630,7 +660,6 @@ select option { background: #15163c; color: var(--tinta); }
   .escala { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .briefing-form, .briefing-saida { grid-template-columns: minmax(0, 1fr); }
   .msg { max-width: 92%; }
-  .linha .av { width: 34px; height: 34px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
