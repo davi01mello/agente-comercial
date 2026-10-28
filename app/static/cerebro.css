@@ -1203,6 +1203,32 @@ body.sem-login .app { visibility: hidden; }
 .amostra-fila, .amostra-fora { width: 16px; height: 12px; border-radius: 3px; border: 1px dashed var(--alerta); }
 .amostra-fora { border-color: var(--linha-campo); }
 
+/* ---------- Mapa no celular (prancha 7b) ---------- */
+.cv-pilha { display: grid; gap: 0; justify-items: stretch; }
+.cv-pilha .cv-cartao { position: static; width: 100%; height: auto; min-height: 88px; animation-delay: 0s; margin: 0; }
+.cv-pilha > .t-legenda { margin-top: 10px; }
+.mf-liga { display: flex; align-items: center; gap: 8px; min-height: 36px; padding-left: 28px; }
+.mf-liga svg { flex: none; }
+.mf-liga path { fill: none; stroke: var(--texto-suave); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.mf-liga.contradiz path { stroke: var(--risco); }
+.mf-liga.substitui path { stroke: var(--marca-forte); stroke-dasharray: 2 4; }
+.mf-rot { font: 500 11px/16px var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--texto-suave); }
+.mf-liga.contradiz .mf-rot { color: var(--risco); }
+.etapas-lista { display: grid; gap: 10px; }
+.etapa-cartao { display: grid; gap: 6px; padding: 12px 14px; }
+.etapa-cabeca { display: flex; align-items: center; gap: 12px; min-height: var(--alvo-toque); color: var(--texto-forte); text-decoration: none; }
+.etapa-cabeca .cx {
+  width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 14px;
+  border: 1.5px solid var(--marca-linha); background: var(--superficie-2); font: 300 20px/1 var(--f-titulo);
+}
+.etapa-cabeca .cx.pouca { border-style: dashed; }
+.etapa-nome { display: grid; flex: 1; min-width: 0; }
+.etapa-nome b { font-weight: 500; font-size: 14px; line-height: 20px; }
+.etapa-cartao > * { min-width: 0; }
+.etapa-cartao .linha-lista { min-height: var(--alvo-toque); }
+.etapa-cartao .linha-lista .txt { white-space: normal; font-size: 14px; line-height: 20px; }
+.pilulas-abas .chip { text-decoration: none; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

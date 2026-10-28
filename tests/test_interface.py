@@ -481,3 +481,17 @@ def test_etapa_inteira_limita_os_nos():
     assert 'e.key.toLowerCase() === "f"' in js  # F volta ao foco
     # o leitor de tela ouve "INS-12 reforça INS-7", e não a chave interna da ligação
     assert "leituras.push(" in js and "leituras.map((t)" in js and "[...vistas].map" not in js
+
+
+def test_mapa_no_celular_vira_pilha():
+    """Até 860 px o canvas não cabe: o foco vira uma pilha de cartões com a seta e a etiqueta entre os que se ligam, o
+    nível 0 vira a lista das etapas, "Etapa inteira" abre a lista da Base, e deslizar para os lados troca de etapa."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        css = client.get("/static/cerebro.css").text
+    assert "if (CELULAR.matches) { mapaNoCelular(" in js  # no celular não há canvas
+    assert "function pilhaDaResposta(" in js and "function listaPorEtapa(" in js
+    assert "as que reforçam a nota 1 ficam acima dela" in js and "Citado na resposta, sem ligação com os itens." in js
+    assert "`#base/${etapa}`" in js and "Deslize para os lados para trocar de etapa." in js
+    assert "Math.abs(dx) < 60 || Math.abs(dy) > 40" in js  # o limiar do deslize
+    assert ".cv-pilha .cv-cartao { position: static;" in css and ".mf-liga" in css

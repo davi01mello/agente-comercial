@@ -2734,6 +2734,7 @@
       el("h1", { class: "t-titulo", text: etapa ? NOME_SECAO[etapa] : "A base em 7 etapas" }),
       el("div", { class: "mapa-controles" }, passosDoMapa(etapa), seletorDeSegmento()),
       trilhaDoMapa(etapa));
+    if (CELULAR.matches) { mapaNoCelular(etapa, cab, aprovados, naEtapa.length); return; }  // no celular não há canvas
     if (etapa) {
       const temNotas = notasDaResposta().length > 0;
       const vista = M.vista || (temNotas ? "foco" : "inteira");  // sem resposta aberta, o mapa abre na etapa inteira
@@ -3158,6 +3159,94 @@
       painel, legendaDoMapa());
   }
 
+  // ---------------------------------------------------------------- o mapa no celular (prancha 7b)
+  // Até 860 px o canvas não cabe: o foco na resposta vira uma pilha de cartões, com a seta e a etiqueta entre os que se ligam;
+  // o nível 0 vira a lista das etapas; e "Etapa inteira" abre a lista da etapa na Base. Deslizar para os lados troca de etapa.
+  function relacaoEntre(a, b) {  // a relação entre dois itens, e se a seta desce (a -> b) ou sobe (b -> a)
+    const ab = (a.relacoes || []).find((r) => r.relacionado_id === b.id);
+    if (ab) return { tipo: ab.tipo, desce: true };
+    const ba = (b.relacoes || []).find((r) => r.relacionado_id === a.id);
+    return ba ? { tipo: ba.tipo, desce: false } : null;
+  }
+  function conectorDaPilha(a, b) {
+    const r = a.item && b.item ? relacaoEntre(a.item, b.item) : null;
+    if (!r) return null;
+    const seta = svgEl("svg", { width: 12, height: 32, viewBox: "0 0 12 32", "aria-hidden": "true", focusable: "false" },
+      svgEl("path", { d: r.desce ? "M6 0V30M2 26L6 31L10 26" : "M6 32V2M2 6L6 1L10 6" }));
+    return el("div", { class: `mf-liga liga ${r.tipo}` }, seta, el("span", { class: "mf-rot", text: RELACOES[r.tipo] || r.tipo }));
+  }
+  function pilhaDaResposta(etapa) {
+    const todas = notasDaResposta().slice(0, 12);
+    const primeira = todas[0];
+    const outras = todas.slice(1).filter((c) => c.item);
+    const ligadaA = (c, tipo) => primeira && primeira.item && c.item && relacaoEntre(c.item, primeira.item) && relacaoEntre(c.item, primeira.item).tipo === tipo;
+    const reforcam = outras.filter((c) => ligadaA(c, "reforca"));  // as que reforçam a nota 1 ficam acima dela
+    const contradizem = outras.filter((c) => ligadaA(c, "contradiz"));  // as que a contradizem, abaixo
+    const resto = outras.filter((c) => !reforcam.includes(c) && !contradizem.includes(c));
+    const itens = [...reforcam, ...(primeira && primeira.item ? [primeira] : []), ...contradizem, ...resto];
+    const docs = todas.filter((c) => c.doc);
+    const cartoes = [];
+    itens.forEach((c, i) => {
+      if (i) { const conector = conectorDaPilha(itens[i - 1], c); if (conector) cartoes.push(conector); }
+      cartoes.push(cartaoDoCanvas(c, 0, 0, i, etapa));
+    });
+    return el("div", { class: "cv-pilha" }, ...cartoes, ...docs.map((c, i) => cartaoDoCanvas(c, 0, 0, itens.length + i, etapa)),
+      docs.length ? el("p", { class: "t-legenda", text: "Citado na resposta, sem ligação com os itens." }) : null);
+  }
+  function listaPorEtapa(aprovados) {  // o nível 0 no celular: uma linha por etapa, com a contagem e a evidência média
+    return el("div", { class: "etapas-lista" }, SECOES.map(([chave, nome]) => {
+      const da = aprovados.filter((i) => i.secao === chave);
+      const media = da.length ? da.reduce((t, i) => t + i.evidencia, 0) / da.length : 0;
+      const pouca = !da.some((i) => i.evidencia >= 3);
+      return el("article", { class: "cartao etapa-cartao" },
+        el("a", { class: "etapa-cabeca", href: `#mapa/${chave}`, onclick: () => { estado.mapa.vista = null; } },
+          el("span", { class: `cx${pouca ? " pouca" : ""}`, "aria-hidden": "true", text: String(da.length) }),
+          el("span", { class: "etapa-nome" }, el("b", { text: `${numeroDaEtapa(chave)} · ${nome}` }),
+            el("span", { class: "t-legenda", text: da.length ? `evid. ${media.toFixed(1).replace(".", ",")}${pouca ? " · pouca base" : ""}` : "sem itens" })),
+          icone("seta-dir", "ic p")),
+        da.length ? el("div", {}, maisFortes(da).slice(0, 3).map((i) => el("a", { class: "linha-lista", href: `#item/${i.codigo}` },
+          pontoEv(i.evidencia), el("span", { class: "txt", text: i.titulo })))) : null);
+    }));
+  }
+  function mapaNoCelular(etapa, cab, aprovados, naEtapa) {
+    const M = estado.mapa;
+    const caixa = $("#mapa-conteudo");
+    if (!etapa) {
+      caixa.replaceChildren(cab, aprovados.length ? listaPorEtapa(aprovados)
+        : vazio("A base ainda não tem itens aprovados", "Registre um relato ou aprove o que está na Fila: cada item aprovado vira um ponto neste mapa.",
+          el("a", { class: "btn primario", href: "#registrar", text: "Registrar um relato" })));
+      return;
+    }
+    const temNotas = notasDaResposta().length > 0;
+    estado.mapaVista = "foco";
+    caixa.replaceChildren(cab,
+      el("div", { class: "pilulas-abas", role: "group", "aria-label": "Vista" },
+        chip("Foco na resposta", true, () => {}),
+        el("a", { class: "chip", href: `#base/${etapa}` }, `Etapa inteira ${naEtapa}`)),
+      temNotas ? pilhaDaResposta(etapa)
+        : vazio("Nenhuma resposta aberta", "Pergunte ao Cérebro e toque em “Ver no mapa” na resposta: as notas dela aparecem aqui.",
+          el("a", { class: "btn", href: `#base/${etapa}`, text: "Ver a lista da etapa" })),
+      el("p", { class: "t-legenda", text: "Toque numa nota para abrir. Deslize para os lados para trocar de etapa." }),
+      el("a", { class: "btn primario", href: "#cerebro" }, icone("chat", "ic p"), "Conversa"));
+  }
+  // Deslizar para os lados troca de etapa (no celular): o movimento precisa passar de 60 px e ser mais lateral que vertical.
+  function ligarDeslizeDoMapa() {
+    const caixa = $("#mapa-conteudo");
+    let inicio = null;
+    caixa.addEventListener("pointerdown", (e) => { inicio = { x: e.clientX, y: e.clientY }; });
+    caixa.addEventListener("pointercancel", () => { inicio = null; });
+    caixa.addEventListener("pointerup", (e) => {
+      const ini = inicio;
+      inicio = null;
+      if (!ini || !CELULAR.matches || !estado.mapaEtapa) return;
+      const dx = e.clientX - ini.x, dy = e.clientY - ini.y;
+      if (Math.abs(dx) < 60 || Math.abs(dy) > 40) return;
+      const i = SECOES.findIndex(([c]) => c === estado.mapaEtapa);
+      const novo = SECOES[Math.min(SECOES.length - 1, Math.max(0, i + (dx < 0 ? 1 : -1)))][0];
+      if (novo !== estado.mapaEtapa) location.hash = `#mapa/${novo}`;
+    });
+  }
+
   // ---------------------------------------------------------------- paleta Cmd+K: buscar ou agir
   // Busca nos itens já carregados (a API não tem busca própria de itens) e, ao vivo, nas fontes (GET /fontes?q=).
   // Teclado: setas movem, Enter abre, Cmd+Enter pergunta ao Cérebro, Tab troca o filtro e Esc fecha.
@@ -3406,6 +3495,8 @@
     $("#campo-chat").addEventListener("input", atualizarContadorMsg);
     document.addEventListener("keydown", teclasDaFila);
     document.addEventListener("keydown", teclasDoMapa);
+    ligarDeslizeDoMapa();
+    CELULAR.addEventListener?.("change", () => { if (estado.tela === "mapa") pintarMapa(estado.mapaEtapa); });  // gira o aparelho ou muda a janela
     const anexar = $("#anexar");
     const arquivo = $("#arquivo-anexo");
     anexar.addEventListener("click", () => arquivo.click());
