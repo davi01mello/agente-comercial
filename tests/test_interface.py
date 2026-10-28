@@ -244,3 +244,14 @@ def test_celular_tem_a_navegacao_do_mascote_e_alvos_de_toque():
     assert "min-height: var(--alvo-toque)" in celular and "font-size: 16px" in celular
     assert "@media (max-width: 1279px)" in css
     assert 'matchMedia("(max-width: 860px)")' in js
+
+
+def test_paleta_busca_nos_itens_carregados_e_nas_fontes():
+    """Cmd+K: a API não tem busca de itens, então a paleta busca nos itens já carregados; as fontes vêm de
+    GET /fontes?q=, só ao vivo e só o último pedido vale."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert "Perguntar ao Cérebro" in js and "metaKey" in js and "aria-activedescendant" in js
+    busca = js.split("function buscarFontesDaPaleta()")[1].split("function ")[0]
+    assert busca.index("if (!aoVivo()") < busca.index('chamar("GET", `/fontes?')
+    assert "pedido !== paleta.pedido" in busca

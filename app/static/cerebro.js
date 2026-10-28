@@ -1598,6 +1598,227 @@
     saida.append(grade);
   }
 
+  // ---------------------------------------------------------------- paleta Cmd+K: buscar ou agir
+  // Busca nos itens já carregados (a API não tem busca própria de itens) e, ao vivo, nas fontes (GET /fontes?q=).
+  // Teclado: setas movem, Enter abre, Cmd+Enter pergunta ao Cérebro, Tab troca o filtro e Esc fecha.
+  const paleta = { aberta: false, termo: "", filtro: "tudo", sel: 0, opcoes: [], fontes: [], pedido: 0, espera: null, focoAntes: null };
+  const FILTROS_PALETA = [["tudo", "Tudo"], ["itens", "Itens"], ["fontes", "Fontes"], ["acoes", "Ações"]];
+  const TELAS_PALETA = [["#hoje", "hoje", "Hoje"], ["#fila", "fila", "Fila"], ["#preparar", "preparar", "Preparar reunião"], ["#fontes", "fontes", "Fontes"]];
+  const MAX_ITENS_PALETA = 8;
+
+  // O trecho que bate com o termo vai num <mark> (a comparação ignora acento e maiúscula).
+  function marcarTermo(texto, termo) {
+    const n = normalizar(termo);
+    const plano = [...texto].map((c) => normalizar(c) || c).join("");
+    const i = n ? plano.indexOf(n) : -1;
+    if (i < 0) return [texto];
+    const letras = [...texto];
+    return [letras.slice(0, i).join(""), el("mark", { text: letras.slice(i, i + n.length).join("") }), letras.slice(i + n.length).join("")];
+  }
+  function tecla(t) { return el("span", { class: "tecla", text: t }); }
+  function segmentoDoTermo(termo) {
+    const n = normalizar(termo.trim());
+    return n.length >= 3 ? SEGMENTOS.find((s) => normalizar(s).startsWith(n) || n.includes(normalizar(s))) || null : null;
+  }
+  function itensDaPaleta(termo) {
+    const n = normalizar(termo.trim());
+    if (!n) return [];
+    const achados = estado.itens.filter((i) => normalizar(`${i.codigo} ${i.titulo}`).includes(n) && i.status !== "obsoleto");
+    const comeca = (i) => Number(normalizar(i.titulo).startsWith(n) || normalizar(i.codigo) === n);
+    return achados.sort((a, b) => comeca(b) - comeca(a) || (b.evidencia - a.evidencia)).slice(0, MAX_ITENS_PALETA);
+  }
+  function opcoesDaPaleta() {
+    const termo = paleta.termo.trim();
+    const grupos = { perguntar: [], itens: [], fontes: [], acoes: [], telas: [] };
+    if (termo) {
+      grupos.perguntar.push({ mascote: true, titulo: `Perguntar ao Cérebro: “${termo}”`, sub: "Responde com notas da base e dos documentos",
+        dir: [tecla("↵")], agir: () => perguntarDaPaleta(termo) });
+    }
+    for (const it of itensDaPaleta(termo)) {
+      grupos.itens.push({ icone: "camadas", titulo: it.titulo, marcar: true,
+        sub: `${TIPOS[it.tipo] || it.tipo} · ${NOME_SECAO[it.secao] || it.secao}`,
+        dir: [estaNaFila(it) ? el("span", { class: "selo alerta", text: "na Fila" }) : trilha(it.evidencia), el("span", { class: "t-dado suave", text: it.codigo })],
+        agir: () => { location.hash = `#item/${it.codigo}`; } });
+    }
+    for (const f of paleta.fontes) {
+      const [rotulo, cor] = STATUS_FONTE[f.status] || [f.status, "mudo"];
+      const quando = f.importado_em ? ` · lida em ${dataHora(f.importado_em).split(" ")[0]}` : "";
+      grupos.fontes.push({ icone: "doc", titulo: f.titulo, marcar: true,
+        sub: `${ORIGEM[f.origem] || f.origem}${f.categoria ? ` · pasta ${f.categoria}` : ""}${quando}`,
+        dir: [el("span", { class: `selo ${{ ok: "ok", alerta: "alerta", risco: "risco" }[cor] || ""}`, text: rotulo })],
+        agir: () => { const url = linkSeguro(f.url); if (url) window.open(url, "_blank", "noopener"); else location.hash = "#fontes"; } });
+    }
+    const seg = segmentoDoTermo(termo);
+    grupos.acoes.push({ icone: "preparar", titulo: seg ? `Preparar reunião com ${seg}` : "Preparar reunião",
+      sub: seg ? "Abre o briefing com o segmento já escolhido" : "Um briefing com a prova de cada ponto",
+      agir: () => prepararDaPaleta(seg) });
+    grupos.acoes.push({ icone: "registrar", titulo: "Registrar o que aconteceu", sub: "Conta ao curador; o item entra na Fila antes da base",
+      agir: () => { location.hash = "#registrar"; setTimeout(() => $("#campo-reg").focus(), 0); } });
+    const nTermo = normalizar(termo);
+    for (const [hash, icon, nome] of TELAS_PALETA) {
+      if (hash === "#fontes" && !aoVivo()) continue;
+      if (nTermo && !normalizar(nome).includes(nTermo)) continue;
+      grupos.telas.push({ icone: icon, titulo: nome, sub: "Abrir a tela", agir: () => { location.hash = hash; } });
+    }
+    return grupos;
+  }
+  function pintarPaleta() {
+    const g = opcoesDaPaleta();
+    const conta = { itens: g.itens.length, fontes: g.fontes.length, acoes: g.acoes.length };
+    const blocos = {
+      tudo: [["Perguntar", g.perguntar], [`Itens · ${conta.itens}`, g.itens], [`Fontes · ${conta.fontes}`, g.fontes], ["Ações", g.acoes], ["Telas", g.telas]],
+      itens: [[`Itens · ${conta.itens}`, g.itens]],
+      fontes: [[`Fontes · ${conta.fontes}`, g.fontes]],
+      acoes: [["Ações", g.acoes], ["Telas", g.telas]],
+    }[paleta.filtro].filter(([, lista]) => lista.length);
+    paleta.opcoes = blocos.flatMap(([, lista]) => lista);
+    paleta.sel = Math.min(paleta.sel, Math.max(0, paleta.opcoes.length - 1));
+
+    $("#paleta-filtros").replaceChildren(...FILTROS_PALETA.map(([chave, nome]) => {
+      const n = chave === "tudo" ? g.perguntar.length + conta.itens + conta.fontes + conta.acoes : conta[chave];
+      return el("button", { type: "button", class: "chip", tabindex: "-1", "aria-pressed": String(paleta.filtro === chave),
+        onclick: () => { paleta.filtro = chave; paleta.sel = 0; pintarPaleta(); $("#paleta-campo").focus(); } },
+      nome, el("span", { class: "t-dado", text: String(n) }));
+    }));
+
+    let i = 0;
+    const lista = [];
+    for (const [titulo, opcoes] of blocos) {
+      lista.push(el("p", { class: "t-rotulo ck-grupo", text: titulo, role: "presentation" }));
+      for (const op of opcoes) {
+        const indice = i++;
+        lista.push(el("div", {
+          class: `ck-item${indice === paleta.sel ? " sim" : ""}`, id: `paleta-op-${indice}`, role: "option",
+          "aria-selected": String(indice === paleta.sel),
+          onclick: () => escolherNaPaleta(indice),
+          onmousemove: () => { if (paleta.sel !== indice) { paleta.sel = indice; marcarSelecaoPaleta(); } },
+        },
+        el("span", { class: "caixa" }, op.mascote ? mascoteEm("p", { forma: "simbolo" }) : icone(op.icone, "ic p")),
+        el("span", { class: "txt" }, el("b", {}, ...(op.marcar ? marcarTermo(op.titulo, paleta.termo) : [op.titulo])), el("span", { text: op.sub })),
+        op.dir ? el("span", { class: "dir" }, ...op.dir) : null));
+      }
+    }
+    const termo = paleta.termo.trim();
+    if (termo && !g.itens.length && !g.fontes.length && paleta.filtro !== "acoes") {
+      lista.push(el("p", { class: "ck-nada", text: `Nada com «${termo}». Perguntar ao Cérebro?` }));
+    }
+    $("#paleta-lista").replaceChildren(...lista);
+    marcarSelecaoPaleta();
+  }
+  function marcarSelecaoPaleta() {
+    $$("#paleta-lista .ck-item").forEach((o, i) => {
+      o.classList.toggle("sim", i === paleta.sel);
+      o.setAttribute("aria-selected", String(i === paleta.sel));
+    });
+    const campo = $("#paleta-campo");
+    if (paleta.opcoes.length) {
+      campo.setAttribute("aria-activedescendant", `paleta-op-${paleta.sel}`);
+      $(`#paleta-op-${paleta.sel}`).scrollIntoView({ block: "nearest" });
+    } else {
+      campo.removeAttribute("aria-activedescendant");
+    }
+  }
+  function escolherNaPaleta(indice) {
+    const op = paleta.opcoes[indice];
+    if (!op) return;
+    fecharPaleta(false);
+    op.agir();
+  }
+  function perguntarDaPaleta(texto) {
+    fecharPaleta(false);
+    if (CELULAR.matches) location.hash = "#cerebro";
+    else mostrarCerebro();
+    perguntar(texto);
+  }
+  function prepararDaPaleta(seg) {
+    pintarSegmentosBriefing();
+    if (seg) $("#b-segmento").value = seg;
+    if (location.hash === "#preparar") montarBriefing();
+    else location.hash = "#preparar";
+  }
+  function buscarFontesDaPaleta() {
+    clearTimeout(paleta.espera);
+    paleta.fontes = [];
+    const termo = paleta.termo.trim();
+    if (!aoVivo() || termo.length < 2) return;  // as fontes só existem com o servidor
+    const pedido = ++paleta.pedido;
+    paleta.espera = setTimeout(async () => {
+      try {
+        const r = await chamar("GET", `/fontes?${new URLSearchParams({ q: termo, limit: "5" })}`);
+        if (pedido !== paleta.pedido || !paleta.aberta) return;  // só o último pedido vale
+        paleta.fontes = r.itens;
+        pintarPaleta();
+      } catch { /* sem as fontes, a paleta segue com os itens */ }
+    }, 250);
+  }
+  function montarPaleta() {
+    const campo = el("input", { id: "paleta-campo", type: "text", autocomplete: "off", spellcheck: "false",
+      placeholder: "Buscar um item, uma fonte ou o que fazer", role: "combobox", "aria-expanded": "true",
+      "aria-controls": "paleta-lista", "aria-autocomplete": "list", "aria-label": "Buscar ou agir" });
+    campo.addEventListener("input", () => {
+      paleta.termo = campo.value;
+      paleta.sel = 0;
+      buscarFontesDaPaleta();
+      pintarPaleta();
+    });
+    campo.addEventListener("keydown", (e) => {
+      const n = paleta.opcoes.length;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        if (n) { paleta.sel = (paleta.sel + (e.key === "ArrowDown" ? 1 : -1) + n) % n; marcarSelecaoPaleta(); }
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if ((e.metaKey || e.ctrlKey) && paleta.termo.trim()) perguntarDaPaleta(paleta.termo.trim());
+        else escolherNaPaleta(paleta.sel);
+      } else if (e.key === "Tab") {  // Tab troca o filtro: o foco fica no campo
+        e.preventDefault();
+        const i = FILTROS_PALETA.findIndex(([c]) => c === paleta.filtro);
+        paleta.filtro = FILTROS_PALETA[(i + (e.shiftKey ? -1 : 1) + FILTROS_PALETA.length) % FILTROS_PALETA.length][0];
+        paleta.sel = 0;
+        pintarPaleta();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();  // o Esc fecha só a paleta (não a gaveta nem a navegação que estiverem atrás)
+        fecharPaleta();
+      }
+    });
+    const fundo = el("div", { class: "ck-fundo", id: "paleta", hidden: true },
+      el("div", { class: "ck", role: "dialog", "aria-modal": "true", "aria-label": "Buscar ou agir" },
+        el("div", { class: "ck-entrada" }, icone("busca"), campo, tecla("Esc")),
+        el("div", { class: "ck-filtros", id: "paleta-filtros", role: "group", "aria-label": "Filtro" }),
+        el("div", { class: "ck-lista", id: "paleta-lista", role: "listbox", "aria-label": "Resultados" }),
+        el("div", { class: "ck-pe" },
+          el("span", { class: "t-legenda" }, tecla("↑"), tecla("↓"), "navegar"),
+          el("span", { class: "t-legenda" }, tecla("↵"), "abrir"),
+          el("span", { class: "t-legenda" }, tecla("⌘↵"), "perguntar ao Cérebro"),
+          el("span", { class: "t-legenda" }, tecla("Tab"), "filtro"),
+          el("span", { class: "t-legenda ck-alcance", id: "paleta-alcance" }))));
+    fundo.addEventListener("mousedown", (e) => { if (e.target === fundo) fecharPaleta(); });
+    document.body.append(fundo);
+  }
+  function abrirPaleta(termo = "") {
+    if (!$("#paleta")) montarPaleta();
+    paleta.focoAntes = paleta.aberta ? paleta.focoAntes : document.activeElement;
+    Object.assign(paleta, { aberta: true, termo, filtro: "tudo", sel: 0, fontes: [] });
+    fecharNavCelular();
+    $("#paleta").hidden = false;
+    const campo = $("#paleta-campo");
+    campo.value = termo;
+    $("#paleta-alcance").textContent = aoVivo()
+      ? `Busca nos ${estado.itens.length} itens carregados e nas fontes`
+      : "Sem servidor: só as telas e as ações";
+    pintarPaleta();
+    campo.focus();
+  }
+  function fecharPaleta(devolverFoco = true) {
+    if (!paleta.aberta) return false;
+    paleta.aberta = false;
+    clearTimeout(paleta.espera);
+    $("#paleta").hidden = true;
+    if (devolverFoco && paleta.focoAntes && document.contains(paleta.focoAntes)) paleta.focoAntes.focus();
+    return true;
+  }
+
   // ---------------------------------------------------------------- eventos e início
   function ligarCampo(campoMsg, formulario) {
     campoMsg.addEventListener("input", () => autoAltura(campoMsg));
@@ -1643,7 +1864,15 @@
     document.addEventListener("click", (e) => {
       if (!$("#nav-celular").hidden && !e.target.closest("#nav-celular, #nav-mascote")) fecharNavCelular();
     });
+    $("#abrir-busca").addEventListener("click", () => abrirPaleta());
+    $("#abrir-busca-celular").addEventListener("click", () => abrirPaleta());
     document.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {  // a paleta: buscar ou agir
+        e.preventDefault();
+        if (!fecharPaleta()) abrirPaleta();
+        return;
+      }
+      if (paleta.aberta) return;  // com a paleta aberta, o teclado é dela
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
         e.preventDefault();
         if (ehGaveta() && fecharGavetaCerebro()) return;

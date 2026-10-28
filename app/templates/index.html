@@ -22,6 +22,7 @@
       <span class="selo" id="modo" data-modo="conectando">Conectando…</span>
       <button class="btn-icone" id="recolher-barra" type="button" aria-label="Recolher a barra lateral" aria-expanded="true" title="Recolher a barra lateral"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9.5 4.5v15"/></svg></button>
     </div>
+    <button class="abrir-busca" id="abrir-busca" type="button" aria-label="Buscar ou agir (Cmd+K)"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span class="txt">Buscar ou agir</span><span class="tecla">⌘K</span></button>
     <a class="no" href="#hoje"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span class="txt">Hoje</span></a>
     <p class="t-rotulo grupo-barra">Base</p>
     <div class="arvore" id="arvore" aria-label="As etapas do funil"></div>
@@ -164,6 +165,7 @@
 
 <!-- Celular: o botão do mascote, no canto de baixo, abre esta coluna de navegação. -->
 <nav class="nav-celular" id="nav-celular" aria-label="Navegação" hidden>
+  <button class="abrir-busca" id="abrir-busca-celular" type="button"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span class="txt">Buscar ou agir</span></button>
   <a class="no" href="#cerebro"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8 8 0 0 1-11.8 7L3.5 20.5 5 15.6A8 8 0 1 1 20.5 12z"/></svg><span class="txt">Cérebro</span></a>
   <a class="no" href="#base"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span class="txt">Base</span></a>
   <a class="no" href="#preparar"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/><path d="m9 15 2 2 4-4"/></svg><span class="txt">Preparar reunião</span></a>
