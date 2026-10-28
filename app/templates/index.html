@@ -173,16 +173,48 @@
   <a class="no" href="#hoje"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span class="txt">Hoje</span></a>
 </nav>
 
-<!-- Entrada (T5): cobre o app enquanto ninguém entrou com a conta Google do CITi. -->
-<div class="entrada-login" id="entrada-login" hidden>
-  <section class="cartao-login" role="dialog" aria-modal="true" aria-labelledby="entrada-titulo">
-    <span class="mascote g marca-orbe grande" data-mascote="" aria-hidden="true"></span>
-    <h1 id="entrada-titulo">Cérebro Comercial CITi</h1>
-    <p class="entrada-texto">Entre com a sua conta Google do CITi (<b id="entrada-dominio">@citi.org.br</b>) para conversar, registrar e consultar o que o comercial já aprendeu.</p>
-    <p class="entrada-aviso" id="entrada-aviso" role="alert" hidden></p>
-    <a class="btn primario entrada-botao" id="entrada-botao" href="/auth/login">Entrar com o Google</a>
-    <p class="entrada-nota">Só contas do CITi entram. O que você registra fica com o seu nome.</p>
+<!-- Entrada (T5): cobre o app enquanto ninguém entrou com a conta Google do CITi (prancha 6a). -->
+<div class="entrada-login" id="entrada-login" role="dialog" aria-modal="true" aria-labelledby="entrada-titulo" hidden>
+  <div class="ent-grade" aria-hidden="true"></div>
+  <header class="ent-topo">
+    <p class="t-rotulo">Cérebro · CITi Comercial</p>
+    <p class="t-rotulo">Base de conhecimento</p>
+  </header>
+  <main class="ent-meio">
+    <div class="ent-quadro"><i></i><i></i><i></i><i></i>
+      <span class="mascote ent-mascote ent-sobe" data-mascote="" aria-hidden="true"></span>
+      <h1 class="ent-frase ent-sobe" id="entrada-titulo">O que o CITi já sabe,<span class="ent-nota" aria-hidden="true">1</span> com a prova de onde veio.</h1>
+      <p class="entrada-aviso" id="entrada-aviso" role="alert" hidden></p>
+      <a class="ent-pilula ent-sobe" id="entrada-botao" href="/auth/login">
+        <b>Entrar com o Google</b>
+        <span class="dom" id="entrada-dominio">@citi.org.br</span>
+        <span class="ir"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+      </a>
+      <p class="ent-sub ent-sobe">Pergunte antes da reunião. Registre depois. O time aprova o que entra na base.</p>
+    </div>
+    <p class="ent-rodape-nota ent-sobe"><span class="ent-nota-p" aria-hidden="true">1</span>Cada resposta cita o item da base ou o documento de onde veio.</p>
+  </main>
+  <section class="ent-funil" aria-label="As 7 etapas do funil">
+    <div class="ent-cota" aria-hidden="true"><b class="esq"></b><span>O funil do CITi · 7 etapas</span><b class="dir"></b></div>
+    <div class="ent-base">
+      <span class="ent-cursor" aria-hidden="true"></span>
+        <div class="ent-etapa"><span class="ent-no">01</span><span>Fundamentos</span></div>
+        <div class="ent-etapa"><span class="ent-no">02</span><span>Prospecção</span></div>
+        <div class="ent-etapa"><span class="ent-no">03</span><span>Qualificação</span></div>
+        <div class="ent-etapa"><span class="ent-no">04</span><span>Reunião e diagnóstico</span></div>
+        <div class="ent-etapa"><span class="ent-no">05</span><span>Proposta</span></div>
+        <div class="ent-etapa"><span class="ent-no">06</span><span>Negociação e fechamento</span></div>
+        <div class="ent-etapa"><span class="ent-no">07</span><span>Pós-venda</span></div>
+    </div>
   </section>
+  <footer class="ent-pe">
+    <p class="t-rotulo">Evidência</p>
+    <span class="evid"><span class="trilha n1" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Opinião</span>
+    <span class="evid"><span class="trilha n2" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Observação única</span>
+    <span class="evid"><span class="trilha n3" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Padrão repetido</span>
+    <span class="evid"><span class="trilha n4" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Resultado medido</span>
+    <span class="t-legenda ent-pe-nota">Nada entra na base sem a aprovação de alguém do time. Só contas do CITi entram.</span>
+  </footer>
 </div>
 <div class="torradas" id="torradas" aria-live="polite"></div>
 <!-- corpo:fim -->

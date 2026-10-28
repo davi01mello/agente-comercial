@@ -255,3 +255,13 @@ def test_paleta_busca_nos_itens_carregados_e_nas_fontes():
     busca = js.split("function buscarFontesDaPaleta()")[1].split("function ")[0]
     assert busca.index("if (!aoVivo()") < busca.index('chamar("GET", `/fontes?')
     assert "pedido !== paleta.pedido" in busca
+
+
+def test_entrada_mostra_a_promessa_e_o_dominio():
+    """A Entrada (prancha 6a): a promessa do produto, o botão do Google com o domínio e o aviso do motivo do erro."""
+    with TestClient(app) as client:
+        html = client.get("/").text
+    entrada = html.split('id="entrada-login"')[1]
+    assert "com a prova de onde veio." in entrada
+    assert 'id="entrada-dominio"' in entrada and 'id="entrada-aviso"' in entrada
+    assert entrada.index('id="entrada-aviso"') < entrada.index('href="/auth/login"')  # o motivo aparece acima do botão
