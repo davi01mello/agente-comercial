@@ -1070,6 +1070,31 @@ body.sem-login .app { visibility: hidden; }
   .fila-detalhe { position: static; }
 }
 
+/* ---------- Lacunas (prancha 5) ---------- */
+#lacunas-conteudo { display: grid; gap: 16px; }
+.pilulas-abas { display: flex; flex-wrap: wrap; gap: 8px; }
+.painel.lacuna-foco { display: grid; gap: 16px; border-color: var(--alerta); }
+.lacuna-cab { display: flex; gap: 14px; align-items: flex-start; }
+.lacuna-cab .icone-bola { width: 44px; height: 44px; }
+.lacuna-cab .t-secao { font-size: 20px; line-height: 28px; }
+.lacuna-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 4px; }
+.lacuna-meta .ic { margin-right: -8px; }
+.barras-vezes { display: inline-flex; align-items: flex-end; gap: 3px; margin-right: -6px; }
+.barras-vezes i { width: 6px; height: 14px; border-radius: 2px; background: var(--ev-trilho); }
+.barras-vezes i.on { background: var(--alerta); }
+.lacuna-linha.resolvida { opacity: 0.8; }
+.lacuna-linha .selo { text-decoration: none; }
+.icone-bola { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 11px; border: 1px solid var(--marca-linha); background: var(--marca-tinta); color: var(--marca-forte); }
+.icone-bola.alerta { color: var(--alerta); border-color: var(--alerta); background: var(--alerta-tinta); }
+.icone-bola.ok { color: var(--ok); border-color: var(--ok); background: var(--ok-tinta); }
+.linha-lista .icone-bola { width: 28px; height: 28px; border-radius: 9px; }
+.faixa-ok { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border-color: var(--ok); background: var(--ok-tinta); }
+.faixa-ok .t-p { flex: 1 1 240px; }
+@media (max-width: 860px) {
+  .lacuna-linha { flex-wrap: wrap; }
+  .lacuna-linha .txt { flex-basis: 100%; white-space: normal; order: -1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

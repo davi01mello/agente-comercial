@@ -67,6 +67,7 @@
     conversa: [],
     ocupado: false,
     reg: novoReg(),  // o rascunho do curador em andamento
+    lacunas: novoEstadoLacunas(),  // GET /lacunas: as abertas e as resolvidas
     filtro: { secao: null, segmento: null, busca: "", historico: false, origem: null, mostrar: {} },
     fontes: null,  // o resumo de GET /fontes/resumo
     filtroFontes: { status: null, busca: "", origem: null },
@@ -566,9 +567,9 @@
   // A navegação é por hash, para o link funcionar ("#item/INS-12", "#base/proposta"). Os endereços antigos
   // (#conversar, #playbook, #briefing) continuam abrindo a tela certa. As abas abertas ficam no localStorage, que pode
   // falhar: sem ele, a tela abre só com o Hoje.
-  const TELAS = ["hoje", "cerebro", "item", "base", "fila", "registrar", "preparar", "fontes"];
+  const TELAS = ["hoje", "cerebro", "item", "base", "fila", "lacunas", "registrar", "preparar", "fontes"];
   const APELIDOS = { conversar: "cerebro", playbook: "base", briefing: "preparar" };
-  const NOME_TELA = { fila: "Fila", registrar: "Rascunho", preparar: "Preparar reunião", fontes: "Fontes" };
+  const NOME_TELA = { fila: "Fila", lacunas: "Lacunas", registrar: "Rascunho", preparar: "Preparar reunião", fontes: "Fontes" };
   const MAX_ABAS = 8;
 
   function lerRota() {
@@ -616,6 +617,11 @@
     if (rota.tela === "item") pintarItem(rota.arg);
     if (rota.tela === "base") abrirBase(rota.arg);
     if (rota.tela === "fila") pintarFila();
+    if (rota.tela !== "lacunas") estado.lacunas.aviso = null;  // a faixa "Enviado para a Fila" some ao sair da tela
+    if (rota.tela === "lacunas") {
+      pintarLacunas();
+      carregarLacunas().then(() => { if (estado.tela === "lacunas") pintarLacunas(); });  // as perguntas mudam o tempo todo
+    }
     if (rota.tela === "registrar") {
       if (estado.reg.enviado) estado.reg = novoReg();  // depois de enviado, voltar à tela começa um relato novo
       pintarRegistrar();
@@ -870,7 +876,8 @@
           el("b", { class: "forte", text: `${base.length} ${base.length === 1 ? "item aprovado" : "itens aprovados"} na base.` }), resumo)),
       el("div", { class: "metricas" },
         metrica("camadas", "Base", base.length, base.length === 1 ? "item aprovado" : "itens aprovados", "", "#base"),
-        metrica("fila", "Fila", fila.length, "esperando aprovação", "marca", "#fila")),
+        metrica("fila", "Fila", fila.length, "esperando aprovação", "marca", "#fila"),
+        metrica("lacuna", "Lacunas", estado.lacunas.abertas.length, "perguntas sem resposta", "alerta", "#lacunas")),
       el("div", { class: "cab-tela" }, el("p", { class: "t-rotulo", text: "Começar por" }),
         el("div", { class: "comecar" },
           atalhoGrande("#preparar", "preparar", "Preparar reunião", "Um briefing com a prova de cada ponto"),
@@ -889,7 +896,7 @@
           fila.length ? el("a", { class: "btn", href: "#fila", text: "Abrir a Fila" }) : null)));
       filhos[filhos.length - 1].querySelector(".mascote").replaceWith(mascoteEm("m mascote-vazio", { humor: "nota-em-branco" }));
     }
-    filhos.push(el("div", { class: "duas-colunas" }, painelFila(fila)));
+    filhos.push(el("div", { class: "duas-colunas" }, painelFila(fila), painelLacunas(estado.lacunas.abertas)));
     const ultima = aoVivo() && estado.fontes && estado.fontes.ultima_execucao;
     if (ultima) filhos.push(cartaoSync(ultima));
     $("#hoje").replaceChildren(...filhos);
@@ -1143,6 +1150,147 @@
     }
   }
 
+  // ---------------------------------------------------------------- lacunas (prancha 5)
+  // O que o time perguntou e a base não soube responder, as mais repetidas primeiro (GET /lacunas). Mostra quantas vezes
+  // e por quantas pessoas, nunca quem. "Registrar o que sabemos" leva ao rascunho (POST /chat/registrar com o lacuna_id);
+  // salvar o item resolve a lacuna. "Marcar como resolvida" (POST /lacunas/{id}/resolver) resolve o grupo inteiro.
+  function novoEstadoLacunas() {
+    return { abertas: [], resolvidas: [], aba: "abertas", foco: null, aviso: null, confirmando: false, erro: null };
+  }
+  const lerData = (iso) => {
+    if (!iso) return null;
+    const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`);  // o servidor manda em UTC, sem o "Z"
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  function intervaloDeDatas(a, b) {
+    const da = lerData(a), db = lerData(b);
+    if (!da || !db) return "";
+    const mes = (d) => d.toLocaleDateString("pt-BR", { month: "long" });
+    if (da.toDateString() === db.toDateString()) return `em ${da.getDate()} de ${mes(da)}`;
+    if (da.getMonth() === db.getMonth() && da.getFullYear() === db.getFullYear()) return `de ${da.getDate()} a ${db.getDate()} de ${mes(da)}`;
+    return `de ${da.getDate()} de ${mes(da)} a ${db.getDate()} de ${mes(db)}`;
+  }
+  async function carregarLacunas() {
+    const L = estado.lacunas;
+    try {
+      const [abertas, resolvidas] = await Promise.all([chamar("GET", "/lacunas?status=aberta&limit=200"), chamar("GET", "/lacunas?status=resolvida&limit=200")]);
+      L.abertas = abertas.itens;
+      L.resolvidas = resolvidas.itens;
+      L.erro = null;
+    } catch (e) {
+      L.erro = e.message;
+    }
+    const contador = $("#contador-lacunas");
+    contador.textContent = L.abertas.length;
+    contador.hidden = L.abertas.length === 0;
+    if (estado.tela === "hoje") seguro(pintarHoje, "hoje");
+  }
+  // As barras acendem de 1 a 4 conforme a repetição (a cor nunca vai sozinha: o texto diz o número).
+  function barrasDeRepeticao(vezes) {
+    const b = el("span", { class: "barras-vezes", "aria-hidden": "true" });
+    for (let i = 1; i <= 4; i++) b.append(el("i", { class: i <= vezes ? "on" : "" }));
+    return b;
+  }
+  const textoVezes = (l) => `${l.vezes} ${l.vezes === 1 ? "vez" : "vezes"}`;
+  const textoPessoas = (l) => `${l.pessoas} ${l.pessoas === 1 ? "pessoa" : "pessoas"}`;
+
+  function painelLacunas(abertas) {  // a coluna "O que mais perguntam" do Hoje
+    const sec = el("section", { class: "painel raso" }, el("div", { class: "cab-painel" },
+      el("h2", { class: "t-secao", text: "O que mais perguntam" }),
+      abertas.length ? el("a", { class: "btn", href: "#lacunas", text: "Ver lacunas" }) : null));
+    if (!abertas.length) {
+      sec.append(el("p", { class: "t-p suave", text: "O Cérebro respondeu tudo o que perguntaram." }));
+      return sec;
+    }
+    for (const l of abertas.slice(0, 3)) {
+      sec.append(el("a", { class: "linha-lista", href: "#lacunas", onclick: () => { estado.lacunas.foco = l.id; estado.lacunas.aba = "abertas"; } },
+        el("span", { class: "icone-bola alerta" }, icone("lacuna", "ic p")), el("span", { class: "txt", text: l.pergunta }),
+        el("span", { class: "t-dado suave", text: `${l.vezes}× · ${l.pessoas}` })));
+    }
+    sec.append(el("p", { class: "t-legenda", text: "vezes perguntada · pessoas diferentes" }));
+    return sec;
+  }
+  function linhaDeLacuna(l, { foco = false } = {}) {
+    const resolvida = l.status === "resolvida";
+    const item = resolvida && l.resolvida_por_insight_id ? estado.itens.find((i) => i.id === l.resolvida_por_insight_id) : null;
+    return el("div", { class: `linha-lista lacuna-linha${resolvida ? " resolvida" : ""}${foco ? " em-foco" : ""}` },
+      el("span", { class: `icone-bola ${resolvida ? "ok" : "alerta"}` }, icone(resolvida ? "check" : "lacuna", "ic p")),
+      el("span", { class: "txt", text: l.pergunta }),
+      resolvida
+        ? (l.resolvida_por_insight_id
+          ? el(item ? "a" : "span", { class: "selo ok", href: item ? `#item/${item.codigo}` : null, text: `Resolvida por INS-${l.resolvida_por_insight_id}` })
+          : el("span", { class: "selo ok", text: "Resolvida" }))
+        : el("span", { class: "t-dado suave", text: `${l.vezes}× · ${textoPessoas(l)}` }),
+      resolvida ? null : el("button", { type: "button", class: "btn fantasma", onclick: () => {
+        estado.lacunas.foco = l.id; estado.lacunas.confirmando = false; pintarLacunas();
+        const c = $("#lacuna-sabemos"); if (c) { c.focus(); c.scrollIntoView({ block: "center" }); }
+      } }, "Registrar"));
+  }
+  async function resolverLacuna(l) {
+    const L = estado.lacunas;
+    try {
+      await chamar("POST", `/lacunas/${l.id}/resolver`);
+      aviso("Lacuna marcada como resolvida.", "ok");
+    } catch (e) {
+      aviso(e.status === 404 ? "Essa lacuna não existe mais." : e.message, "erro");
+    }
+    L.confirmando = false;
+    await carregarLacunas();
+    pintarLacunas();
+  }
+  function pintarLacunas() {
+    const L = estado.lacunas;
+    const caixa = $("#lacunas-conteudo");
+    const lista = L.aba === "abertas" ? L.abertas : L.resolvidas;
+    if (L.aba === "abertas" && !L.abertas.some((l) => l.id === L.foco)) L.foco = L.abertas.length ? L.abertas[0].id : null;
+    const foco = L.abertas.find((l) => l.id === L.foco) || null;
+    const filhos = [];
+    if (L.aviso) {
+      filhos.push(el("div", { class: "cartao faixa-ok", role: "status" }, el("span", { class: "icone-bola ok" }, icone("check", "ic p")),
+        el("span", { class: "t-p" }, el("b", { class: "forte", text: "Enviado para a Fila. " }), L.aviso.texto),
+        el("a", { class: "btn", href: "#fila", text: "Ver na Fila" })));
+    }
+    if (L.erro) {
+      filhos.push(vazio("Não consegui carregar as lacunas", L.erro,
+        el("button", { type: "button", class: "btn primario", onclick: async () => { await carregarLacunas(); pintarLacunas(); } }, "Tentar de novo")));
+    } else if (L.aba === "abertas" && !L.abertas.length) {
+      filhos.push(vazio("O Cérebro respondeu tudo o que perguntaram.", "Quando ele não souber responder, a pergunta aparece aqui."));
+    } else if (L.aba === "abertas" && foco) {
+      const sabemos = el("textarea", { id: "lacuna-sabemos", rows: "3", maxlength: "8000",
+        placeholder: "Conte o que você sabe, mesmo que seja um caso só. O curador transforma em item e manda para a Fila." });
+      filhos.push(el("section", { class: "painel lacuna-foco" },
+        el("div", { class: "lacuna-cab" }, el("span", { class: "icone-bola alerta" }, icone("lacuna", "ic")),
+          el("div", {}, el("h2", { class: "t-secao", text: foco.pergunta }),
+            el("p", { class: "lacuna-meta t-legenda" },
+              barrasDeRepeticao(foco.vezes), `perguntada ${textoVezes(foco)}`, icone("usuarios", "ic p"), `por ${textoPessoas(foco)}`,
+              icone("relogio", "ic p"), intervaloDeDatas(foco.primeira_em, foco.ultima_em)))),
+        el("div", { class: "campo" }, el("label", { for: "lacuna-sabemos", text: "O que sabemos" }), sabemos),
+        L.confirmando
+          ? el("div", { class: "botoes", role: "group", "aria-label": "Confirmar" },
+            el("span", { class: "t-p", text: "Marcar como resolvida sem registrar nada?" }),
+            el("button", { type: "button", class: "btn primario", onclick: () => resolverLacuna(foco) }, "Sim, marcar"),
+            el("button", { type: "button", class: "btn fantasma", onclick: () => { L.confirmando = false; pintarLacunas(); } }, "Cancelar"))
+          : el("div", { class: "botoes" },
+            el("button", { type: "button", class: "btn primario", onclick: () => {
+              const texto = sabemos.value.trim();
+              if (!texto) { marcarErroCampo("lacuna-sabemos", "Conte o que você sabe, mesmo que seja um caso só."); sabemos.focus(); return; }
+              registrarDoChat({ texto, lacunaId: foco.id, lacunaPergunta: foco.pergunta });
+            } }, "Registrar o que sabemos"),
+            el("button", { type: "button", class: "btn", onclick: () => { L.confirmando = true; pintarLacunas(); } }, "Marcar como resolvida"),
+            el("span", { class: "t-legenda", text: "Marcar sem registrar pede confirmação" }))));
+    }
+    if (!L.erro && lista.length) {
+      const outras = L.aba === "abertas" ? lista.filter((l) => l.id !== L.foco) : lista;
+      if (outras.length) filhos.push(el("section", { class: "painel raso" }, ...outras.map((l) => linhaDeLacuna(l))));
+    } else if (!L.erro && L.aba === "resolvidas") {
+      filhos.push(vazio("Nenhuma lacuna resolvida ainda", "As que forem respondidas com um item da base aparecem aqui."));
+    }
+    const abas = el("div", { class: "pilulas-abas", role: "group", "aria-label": "Lacunas" },
+      chip(`Abertas ${L.abertas.length}`, L.aba === "abertas", () => { L.aba = "abertas"; L.confirmando = false; pintarLacunas(); }),
+      chip(`Resolvidas ${L.resolvidas.length}`, L.aba === "resolvidas", () => { L.aba = "resolvidas"; L.confirmando = false; pintarLacunas(); }));
+    caixa.replaceChildren(abas, ...filhos);
+  }
+
   // ---------------------------------------------------------------- registrar (o rascunho do curador, prancha 3)
   // Três caminhos levam à mesma tela: "Registrar isso" no chat (POST /chat/registrar), "Registrar o que você sabe" de
   // uma lacuna (o mesmo, com o lacuna_id) e "Registrar um relato" (POST /registrar/propor). Nenhum grava nada: quem grava
@@ -1181,11 +1329,14 @@
   }
   // O curador não respondeu (502 ou sem conexão): o formulário em branco continua, para preencher à mão. Dado pessoal
   // no relato (422): sem rascunho, a pessoa tira o dado e tenta de novo; a mensagem do servidor não repete o dado.
-  function tratarErroCurador(e) {
+  function tratarErroCurador(e, relato = "") {
     const r = estado.reg;
     if (e.status === 502 || e.status === 0) {
-      r.erro = { msg: `${e.message} O formulário está em branco: preencha à mão.` };
-      if (!r.proposta) r.proposta = propostaVazia();
+      r.erro = { msg: `${e.message} Preencha o formulário à mão${relato ? ": o seu relato está na descrição" : ""}.` };
+      if (!r.proposta) {
+        r.proposta = propostaVazia();
+        r.proposta.insight.descricao = relato.slice(0, 4000);  // o que a pessoa escreveu não se perde
+      }
     } else {
       r.erro = { msg: e.message };
     }
@@ -1205,7 +1356,7 @@
       aplicarProposta(proposta, relato);
       pulsarMascote();
     } catch (e) {
-      tratarErroCurador(e);
+      tratarErroCurador(e, relato);
     } finally {
       r.ocupado = false;
       if (estado.reg === r) pintarRegistrar();
@@ -1222,7 +1373,7 @@
       aplicarProposta(proposta, texto);
       pulsarMascote();
     } catch (e) {
-      tratarErroCurador(e);
+      tratarErroCurador(e, texto);
     } finally {
       r.ocupado = false;
       if (estado.reg === r) pintarRegistrar();
@@ -1396,6 +1547,7 @@
         el("div", { class: "botoes" },
           el("a", { class: "btn primario", href: "#fila", text: "Ver na Fila" }),
           el("a", { class: "btn", href: `#item/INS-${criado.id}`, text: `Abrir o INS-${criado.id}` }),
+          r.lacunaId ? el("a", { class: "btn", href: "#lacunas", text: "Ver as lacunas" }) : null,
           el("button", { type: "button", class: "btn fantasma", onclick: novoRegistro }, "Registrar outro relato"))));
   }
   function carregandoCurador() {
@@ -1467,6 +1619,10 @@
       const criado = await chamar("POST", "/insights", corpo);
       await carregarItens();
       r.enviado = criado;
+      if (r.lacunaId) {  // o item resolve a lacuna de onde veio: a tela das lacunas mostra a faixa
+        estado.lacunas.aviso = { texto: `O INS-${criado.id} respondeu “${r.lacunaPergunta || "a pergunta"}”, que saiu das abertas.` };
+        carregarLacunas();
+      }
       aviso("Enviado para a Fila.", "ok");
       pulsarMascote();
       atualizarNumeros();
@@ -2346,7 +2502,7 @@
   // Teclado: setas movem, Enter abre, Cmd+Enter pergunta ao Cérebro, Tab troca o filtro e Esc fecha.
   const paleta = { aberta: false, termo: "", filtro: "tudo", sel: 0, opcoes: [], fontes: [], pedido: 0, espera: null, focoAntes: null };
   const FILTROS_PALETA = [["tudo", "Tudo"], ["itens", "Itens"], ["fontes", "Fontes"], ["acoes", "Ações"]];
-  const TELAS_PALETA = [["#hoje", "hoje", "Hoje"], ["#fila", "fila", "Fila"], ["#preparar", "preparar", "Preparar reunião"], ["#fontes", "fontes", "Fontes"]];
+  const TELAS_PALETA = [["#hoje", "hoje", "Hoje"], ["#fila", "fila", "Fila"], ["#lacunas", "lacuna", "Lacunas"], ["#preparar", "preparar", "Preparar reunião"], ["#fontes", "fontes", "Fontes"]];
   const MAX_ITENS_PALETA = 8;
 
   // O trecho que bate com o termo vai num <mark> (a comparação ignora acento e maiúscula).
@@ -2660,6 +2816,7 @@
     const rascunho = guardar.ler("cerebro.rascunho-chat");
     if (rascunho) { $("#campo-chat").value = rascunho; guardar.escrever("cerebro.rascunho-chat", ""); }
     await carregarItens();
+    await carregarLacunas();
     atualizarNumeros();
     iniciarConversa({ restaurar: true });
     atualizarContadorMsg();

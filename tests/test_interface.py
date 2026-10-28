@@ -403,3 +403,18 @@ def test_fila_anda_pelo_teclado():
     # na Fila, de 1280 px em diante, o Cérebro vira um trilho de 64 px que reabre o painel
     assert 'classList.toggle("fila-aberta"' in js and 'id="trilho-cerebro"' in html
     assert "body.fila-aberta { --largura-cerebro: 64px; }" in css and "(min-width: 1280px)" in css
+
+
+def test_lacunas_listam_e_resolvem_pela_api():
+    """A tela das lacunas lê GET /lacunas (abertas e resolvidas), resolve pelo POST /lacunas/{id}/resolver depois de
+    uma confirmação e mostra quantas vezes e por quantas pessoas, nunca quem."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert 'chamar("GET", "/lacunas?status=aberta&limit=200")' in js
+    assert 'chamar("GET", "/lacunas?status=resolvida&limit=200")' in js
+    assert "`/lacunas/${l.id}/resolver`" in js
+    assert "Marcar como resolvida sem registrar nada?" in js and "Essa lacuna não existe mais." in js
+    assert "O Cérebro respondeu tudo o que perguntaram." in js
+    assert "por ${textoPessoas(foco)}" in js and "quem perguntou" not in js.lower()
+    assert 'data-tela="lacunas"' in html and 'href="#lacunas"' in html
