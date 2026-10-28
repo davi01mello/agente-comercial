@@ -407,9 +407,6 @@ select option { background: #15163c; color: var(--tinta); }
 .vazio h3 { margin: 0; font: 700 19px/1.2 var(--f-display); color: var(--tinta); }
 .vazio p { margin: 0; max-width: 46ch; }
 .orbe-vazio { width: 120px; height: 120px; display: block; animation: flutuar 7s ease-in-out infinite; }
-.exemplos { display: grid; gap: 8px; width: 100%; max-width: 460px; margin-top: 8px; }
-.exemplo { text-align: left; padding: 11px 14px; border-radius: 14px; border: 1px dashed var(--borda-forte); background: rgba(255, 255, 255, 0.03); color: var(--tinta); font-size: 13.5px; cursor: pointer; }
-.exemplo:hover { background: rgba(127, 128, 255, 0.12); }
 
 /* ---------- listas (fila, playbook, briefing) ---------- */
 .tela-lista { overflow-y: auto; display: grid; gap: 14px; align-content: start; grid-auto-rows: max-content; padding: 0 4px 28px 0; scrollbar-width: thin; scrollbar-color: rgba(184, 150, 255, 0.3) transparent; }
@@ -480,7 +477,6 @@ select option { background: #15163c; color: var(--tinta); }
 .briefing-form .campo textarea { min-height: 66px; resize: vertical; }
 .cab-briefing { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; }
 .cab-briefing h2 { margin: 0; font: 700 22px/1.2 var(--f-display); text-wrap: balance; }
-.previa { font: 500 10.5px/1 var(--f-dado); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ambar); border: 1px solid rgba(255, 184, 103, 0.45); padding: 6px 9px; border-radius: 6px; }
 .briefing-saida { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
 .contexto-briefing { margin: 0; color: var(--nevoa); font-size: 14px; max-width: 80ch; }
 .bloco { display: grid; gap: 12px; align-content: start; padding: 18px 20px; border-radius: 20px; }

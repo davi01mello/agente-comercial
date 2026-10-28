@@ -96,16 +96,14 @@ def relatorio():
 
 
 def test_tokens_por_item(relatorio):
-    """Mede o formato enxuto contra o formato completo (o do knowledge/exemplos.md, medido no ADR-003 §4)."""
+    """Só registra no relatório quanto custa cada item no formato que o consultor recebe (não há mais o arquivo
+    knowledge/exemplos.md para comparar; ver ADR-004 §1)."""
     enxuto = llm.contar_tokens(BASE) / len(ITENS)
-    exemplos = (PASTA.parent.parent / "knowledge" / "exemplos.md").read_text(encoding="utf-8")
-    completo = llm.contar_tokens(exemplos) / exemplos.count("## [EX-")
 
     relatorio["detalhes"].append(
         f"\n## Tokens por item\n- enxuto ({ARQ_BASE.name}, {len(ITENS)} itens): {enxuto:.0f}\n"
-        f"- completo (knowledge/exemplos.md): {completo:.0f}\n"
     )
-    assert enxuto < completo
+    assert enxuto > 0
 
 
 @pytest.mark.parametrize("caso", PERGUNTAS, ids=lambda c: f"P{c['n']:02d}")

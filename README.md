@@ -42,12 +42,13 @@ Abra http://127.0.0.1:8000 (chat com o consultor) e http://127.0.0.1:8000/docs (
 ### Interface
 
 A página inicial tem cinco telas: **Conversar** (consultor), **Registrar** (curador e rascunho), **Fila** (aprovar ou
-rejeitar), **Playbook** (itens validados na ordem do funil) e **Briefing** (prévia da T9). Fica tudo em
+rejeitar), **Playbook** (itens validados na ordem do funil) e **Briefing** (`POST /briefing`, só com o que a base tem). Fica tudo em
 `app/templates/index.html`, `app/static/cerebro.css` e `app/static/cerebro.js`, sem framework e sem build.
 
 - Com o servidor no ar, a interface usa a API de verdade (selo **Ao vivo** no topo).
-- Sem servidor, ou com `?demo` na URL (`http://127.0.0.1:8000/?demo`), entra no modo **Demonstração**, com a base de
-  exemplo fictícia e respostas simuladas. Serve para mostrar o produto sem chave do Gemini.
+- Não há modo de demonstração nem base de exemplo: a tela só mostra o que existe no banco. Sem servidor, ela avisa
+  ("Sem servidor") e não mostra nada inventado. Para ver a tela com conteúdo, importe o Notion/Drive ou registre e
+  aprove itens de verdade.
 - Aprovar e rejeitar chamam `POST /insights/{id}/aprovar` (sem corpo) e `POST /insights/{id}/rejeitar` (corpo
   `{"motivo"}`). Quem aprova, registra ou rejeita é a **pessoa logada** (T5): o servidor pega o nome da sessão.
 - **Login (T5):** só entra quem tem conta Google `@citi.org.br`. No dev, sem `GOOGLE_CLIENT_ID` no `.env`, o login fica
@@ -177,8 +178,6 @@ app/
   prompts/       prompts em arquivos .md (versionados no Git)
   templates/     página da interface (index.html)
   static/        CSS e JS da interface
-knowledge/       exemplos.md: a base v0 da T2 (FICTÍCIA). O consultor não lê mais; o modo demonstração da tela
-                 tem uma cópia própria
 docs/            ideia, modelo do playbook, arquitetura, perguntas-teste
 scripts/         linha de comando: python -m scripts.importar_notion e python -m scripts.sincronizar_drive
 tests/           testes automáticos
