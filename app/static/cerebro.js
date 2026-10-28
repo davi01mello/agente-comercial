@@ -65,7 +65,7 @@
     itens: [],
     conversa: [],
     ocupado: false,
-    reg: { conversa: [], proposta: null, ocupado: false },
+    reg: novoReg(),  // o rascunho do curador em andamento
     filtro: { secao: null, segmento: null, busca: "", historico: false, origem: null, mostrar: {} },
     fontes: null,  // o resumo de GET /fontes/resumo
     filtroFontes: { status: null, busca: "", origem: null },
@@ -516,7 +516,7 @@
 
   // Uma fala no painel. A da pessoa é um balão; a do Cérebro (ou o erro) leva o mascote, o texto com as notas numeradas
   // e, abaixo, o que a acompanha. A última resposta com notas fica guardada: o mapa (PR 3) a usa.
-  function adicionarMsg(caixa, { papel, texto, quem, nota: avisoFinal, extra, docs }) {
+  function adicionarMsg(caixa, { papel, texto, quem, nota: avisoFinal, extra, docs, registrar = false, lacunaId = null, lacunaPergunta = null }) {
     const vazia = caixa.querySelector(".conversa-vazia");
     if (vazia) vazia.remove();
     let linha;
@@ -533,6 +533,16 @@
       const citados = rodapeDocumentos(texto, docs, notas);
       if (citados) linha.append(citados);
       if (avisoFinal) linha.append(el("p", { class: "nota-msg", text: avisoFinal }));
+      if (papel === "cerebro" && lacunaId) {  // a base não soube responder: a pergunta foi guardada como lacuna
+        linha.append(el("div", { class: "lacuna-selo" },
+          el("span", { class: "t-rotulo", text: "Lacuna guardada" }),
+          el("span", { text: "Guardei como lacuna: a base não cobre isso." }),
+          el("button", { type: "button", class: "btn fantasma", onclick: () => registrarDoChat({ lacunaId, lacunaPergunta }) }, "Registrar o que você sabe")));
+      }
+      if (papel === "cerebro" && registrar) {
+        linha.append(el("button", { type: "button", class: "btn fantasma registrar-isso", onclick: () => registrarDoChat({ lacunaId, lacunaPergunta }) },
+          icone("registrar", "ic p"), "Registrar isso"));
+      }
       if (papel === "cerebro" && notas.size) estado.ultimaResposta = { notas: [...notas.keys()], docs: docs || [] };
     }
     caixa.append(linha);
@@ -600,6 +610,10 @@
     if (rota.tela === "item") pintarItem(rota.arg);
     if (rota.tela === "base") abrirBase(rota.arg);
     if (rota.tela === "fila") pintarFila();
+    if (rota.tela === "registrar") {
+      if (estado.reg.enviado) estado.reg = novoReg();  // depois de enviado, voltar à tela começa um relato novo
+      pintarRegistrar();
+    }
     if (rota.tela === "fontes") pintarFontes();
     if (rota.tela === "preparar") montarBriefing();
     const tela = $(`.tela[data-tela="${rota.tela}"]`);
@@ -891,8 +905,11 @@
     try {
       const r = await chamar("POST", "/chat", { mensagem: texto, historico: estado.conversa.slice(-30) }, parar.signal);
       const resposta = r.resposta;
+      const docs = r.documentos || [];
+      const lacunaId = r.lacuna_id || null;
       indicador.remove();
-      adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", docs: r.documentos || [] });
+      adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", docs,
+        registrar: true, lacunaId, lacunaPergunta: texto });
       estado.conversa.push({ role: "user", text: texto }, { role: "model", text: resposta });
       pulsarMascote();
     } catch (e) {
@@ -942,44 +959,89 @@
     estado.conversa = [];
   }
 
-  // ---------------------------------------------------------------- registrar (curador)
-  function boasVindasRegistro() {
-    const caixa = $("#mensagens-reg");
-    caixa.replaceChildren();
-    adicionarMsg(caixa, {
-      papel: "cerebro", quem: "Curador",
-      texto: "Me conta o que aconteceu, do jeito que você contaria para um colega. Eu organizo em um item, aponto o que faltou e você revisa antes de ir para a Fila.",
-    });
+  // ---------------------------------------------------------------- registrar (o rascunho do curador, prancha 3)
+  // Três caminhos levam à mesma tela: "Registrar isso" no chat (POST /chat/registrar), "Registrar o que você sabe" de
+  // uma lacuna (o mesmo, com o lacuna_id) e "Registrar um relato" (POST /registrar/propor). Nenhum grava nada: quem grava
+  // é o POST /insights, depois que a pessoa revisa o formulário. O item sempre nasce proposto.
+  const ORIGENS_REG = { relato: "Veio de um relato", chat: "Veio da conversa", lacuna: "Veio de uma lacuna" };
+  const FRASE_EVID = { 1: "sem caso que sustente", 2: "um único caso", 3: "vários casos", 4: "exige um número" };
+  // O campo do servidor (nos avisos de dado pessoal) -> o campo do formulário.
+  const CAMPO_PARA_ID = {
+    titulo: "r-titulo", descricao: "r-descricao", o_que_foi_feito: "r-feito", resultado: "r-resultado",
+    contexto_cliente: "r-contexto", segmento: "r-segmento", servico: "r-servico",
+  };
+  function novoReg() {
+    return { conversa: [], proposta: null, ocupado: false, origem: "relato", lacunaId: null, lacunaPergunta: null,
+      evidencia: 1, sugerida: null, perguntas: [], erro: null, enviado: null };
+  }
+  function propostaVazia() {
+    return { insight: { titulo: "", tipo: "aprendizado", secao: "reuniao_diagnostico", segmento: null, evidencia: 1, descricao: "",
+      o_que_foi_feito: null, resultado: null, contexto_cliente: null, data_evento: null, servico: null }, relacoes: [], perguntas: [], avisos: [] };
+  }
+  function novoRegistro() {
+    estado.reg = novoReg();
+    if (estado.tela === "registrar") pintarRegistrar();
+  }
+  // O relato que o servidor monta sozinho quando a pessoa não escreve um texto: as últimas falas dela no chat.
+  const relatoDaConversa = () => estado.conversa.filter((m) => m.role === "user").map((m) => m.text.trim()).filter(Boolean)
+    .slice(-3).join("\n\n").slice(0, 8000);
+  function aplicarProposta(proposta, relato) {
+    const r = estado.reg;
+    proposta.relacoes = proposta.relacoes || [];
+    r.proposta = proposta;
+    r.evidencia = Number(proposta.insight.evidencia) || 1;
+    r.sugerida = r.evidencia;
+    r.perguntas = proposta.perguntas || [];
+    r.conversa.push({ role: "user", text: relato }, { role: "model", text: r.perguntas.length ? r.perguntas.join("\n") : "Rascunho pronto para revisar." });
+    r.erro = null;
+  }
+  // O curador não respondeu (502 ou sem conexão): o formulário em branco continua, para preencher à mão. Dado pessoal
+  // no relato (422): sem rascunho, a pessoa tira o dado e tenta de novo; a mensagem do servidor não repete o dado.
+  function tratarErroCurador(e) {
+    const r = estado.reg;
+    if (e.status === 502 || e.status === 0) {
+      r.erro = { msg: `${e.message} O formulário está em branco: preencha à mão.` };
+      if (!r.proposta) r.proposta = propostaVazia();
+    } else {
+      r.erro = { msg: e.message };
+    }
+  }
+  async function registrarDoChat({ texto = null, lacunaId = null, lacunaPergunta = null } = {}) {
+    if (estado.reg.ocupado) return;
+    estado.reg = novoReg();
+    const r = estado.reg;
+    Object.assign(r, { origem: lacunaId ? "lacuna" : "chat", lacunaId, lacunaPergunta, ocupado: true });
+    if (location.hash === "#registrar") pintarRegistrar(); else location.hash = "#registrar";
+    const relato = (texto || relatoDaConversa()).slice(0, 8000);
+    try {
+      const corpo = { historico: estado.conversa.slice(-30) };
+      if (texto) corpo.texto = texto;
+      if (lacunaId) corpo.lacuna_id = lacunaId;
+      const proposta = await chamar("POST", "/chat/registrar", corpo);
+      aplicarProposta(proposta, relato);
+      pulsarMascote();
+    } catch (e) {
+      tratarErroCurador(e);
+    } finally {
+      r.ocupado = false;
+      if (estado.reg === r) pintarRegistrar();
+    }
   }
   async function relatar(texto) {
     texto = texto.trim();
-    if (!texto || estado.reg.ocupado) return;
-    const autor = exigirAutor();
-    if (!autor) return;
-    const caixa = $("#mensagens-reg");
-    const campo = $("#campo-reg");
-    adicionarMsg(caixa, { papel: "eu", texto, quem: autor });
-    campo.value = ""; autoAltura(campo);
-    estado.reg.ocupado = true; $("#enviar-reg").disabled = true;
-    const indicador = digitando(caixa);
+    const r = estado.reg;
+    if (!texto || r.ocupado) return;
+    r.ocupado = true; r.erro = null;
+    pintarRegistrar();
     try {
-      const proposta = await chamar("POST", "/registrar/propor", { texto, conversa: estado.reg.conversa.slice(-10) });
-      indicador.remove();
-      const perguntas = proposta.perguntas || [];
-      const resumo = perguntas.length
-        ? `Já montei um rascunho ao lado. Antes de fechar, ${perguntas.length === 1 ? "uma pergunta" : "duas perguntas"}:`
-        : "Pronto. O rascunho está ao lado: revise, ajuste o que quiser e envie para a Fila.";
-      const extra = perguntas.length ? el("ol", { class: "lista-perguntas" }, perguntas.map((p) => el("li", { text: p }))) : null;
-      adicionarMsg(caixa, { papel: "cerebro", quem: "Curador", texto: resumo, extra });
-      estado.reg.conversa.push({ role: "user", text: texto }, { role: "model", text: perguntas.length ? perguntas.join("\n") : resumo });
-      estado.reg.proposta = proposta;
-      pintarRascunho();
+      const proposta = await chamar("POST", "/registrar/propor", { texto, conversa: r.conversa.slice(-10) });
+      aplicarProposta(proposta, texto);
       pulsarMascote();
     } catch (e) {
-      indicador.remove();
-      adicionarMsg(caixa, { papel: "erro", texto: e.message, quem: "Não deu certo" });
+      tratarErroCurador(e);
     } finally {
-      estado.reg.ocupado = false; $("#enviar-reg").disabled = false;
+      r.ocupado = false;
+      if (estado.reg === r) pintarRegistrar();
     }
   }
 
@@ -993,98 +1055,251 @@
     s.value = valor;
     return s;
   }
-  function pintarRascunho() {
-    const f = $("#rascunho");
-    f.replaceChildren();
-    const p = estado.reg.proposta;
-    if (!p) {
-      f.append(vazio("O rascunho aparece aqui",
-        "Conte o que aconteceu no campo ao lado. O curador preenche tipo, seção, segmento e evidência, e você ajusta antes de enviar para a Fila."));
-      return;
-    }
-    const it = p.insight;
-    const valor = (v) => (v == null ? "" : v);
-    const titulo = el("input", { class: "titulo-campo", maxlength: "200", value: valor(it.titulo) });
-    const escala = el("div", { class: "escala", role: "radiogroup", "aria-label": "Evidência" });
-    for (const n of [1, 2, 3, 4]) {
-      const id = `r-evid-${n}`;
-      const radio = el("input", { type: "radio", name: "r-evidencia", id, value: String(n) });
-      radio.checked = Number(it.evidencia) === n;
-      escala.append(radio, el("label", { for: id, style: `--n:${n}` }, el("b", { text: String(n) }), EVIDENCIA[n]));
-    }
-    const segmento = el("input", { list: "lista-segmentos", maxlength: "100", value: valor(it.segmento), placeholder: "Todos os segmentos" });
-    const lista = el("datalist", { id: "lista-segmentos" }, SEGMENTOS.map((s) => el("option", { value: s })));
-    const area = (v, linhas = 3, limite = 4000) => { const a = el("textarea", { rows: String(linhas), maxlength: String(limite) }); a.value = valor(v); return a; };
+
+  // O erro no campo, na hora: a mensagem fica embaixo do campo, ligada a ele por aria-describedby.
+  function marcarErroCampo(id, msg, comEscudo = false) {
+    const ctl = $(`#${id}`);
+    if (!ctl) return;
+    const caixa = ctl.closest(".campo");
+    caixa.classList.add("erro");
+    let ajuda = $(`#${id}-ajuda`, caixa);
+    if (!ajuda) { ajuda = el("p", { class: "ajuda", id: `${id}-ajuda` }); caixa.append(ajuda); }
+    ajuda.replaceChildren(...(comEscudo ? [icone("escudo", "ic p")] : []), msg);
+    ctl.setAttribute("aria-invalid", "true");
+    ctl.setAttribute("aria-describedby", ajuda.id);
+    ctl.addEventListener(ctl.matches("div") ? "click" : "input", () => limparErroCampo(id), { once: true });
+  }
+  function limparErroCampo(id) {
+    const ctl = $(`#${id}`);
+    if (!ctl) return;
+    const caixa = ctl.closest(".campo");
+    caixa.classList.remove("erro");
+    const ajuda = $(`#${id}-ajuda`, caixa);
+    if (ajuda) ajuda.remove();
+    ctl.removeAttribute("aria-invalid");
+    ctl.removeAttribute("aria-describedby");
+  }
+  function focarPrimeiroErro() {
+    const ctl = $("#rascunho [aria-invalid='true']");
+    if (!ctl) return;
+    (ctl.matches("div") ? $("button", ctl) : ctl).focus();
+  }
+  // O que a pessoa precisa corrigir antes de enviar (as regras do servidor, avisadas antes do envio).
+  function validarRascunho(d) {
+    const erros = {};
+    if (!d.titulo) erros["r-titulo"] = "Escreva um título.";
+    if (!d.descricao) erros["r-descricao"] = "Escreva a descrição.";
+    if (d.tipo === "regra" && d.evidencia < 3) erros["r-evid-grupo"] = "Para virar regra, a evidência precisa ser 3 ou 4.";
+    if (d.evidencia === 4 && !/\d/.test(d.resultado || "")) erros["r-resultado"] = "Evidência 4 exige um número no campo Resultado.";
+    return erros;
+  }
+  // "Encontrei possível dado pessoal: e-mail em 'contexto_cliente'; telefone em 'resultado'. Por LGPD..." -> o tipo e o
+  // campo de cada achado. O dado em si nunca vem na mensagem, e a tela nunca o repete.
+  function camposComDadoPessoal(msg) {
+    const trecho = (/dado pessoal:\s*(.+?)\.\s*Por LGPD/s.exec(msg) || [])[1];
+    if (!trecho) return [];
+    return trecho.split(";").map((x) => /^\s*(.+?)\s+em\s+'([^']+)'/.exec(x)).filter(Boolean).map((m) => [m[1], m[2]]);
+  }
+  function mostrarAvisoRegistro(erro) {
+    const caixa = $("#registrar-aviso");
+    caixa.hidden = !erro;
+    caixa.replaceChildren(...(erro ? [icone("escudo", "ic p"), el("span", { class: "t-p", text: erro.msg }),
+      erro.fila ? el("a", { class: "btn", href: "#fila", text: "Abrir a Fila" }) : null].filter(Boolean) : []));
+  }
+
+  function chipLigacao(rel, aoTirar) {
+    const alvo = itemPorId(rel.relacionado_id);
+    const codigo = alvo ? alvo.codigo : `INS-${rel.relacionado_id}`;
+    return el("span", { class: "rel", "data-tipo": rel.tipo },
+      icone("ligacao", "ic p"), el("b", { text: RELACOES[rel.tipo] || rel.tipo }), el("span", { class: "t-dado", text: codigo }),
+      alvo ? el("span", { class: "txt-ligacao", text: alvo.titulo }) : null,
+      el("button", { type: "button", "aria-label": `Tirar a ligação com ${codigo}`, onclick: aoTirar }, icone("x", "ic p")));
+  }
+  function cartaoPerguntas() {
+    const r = estado.reg;
+    const entrada = el("input", { id: "resposta-curador", placeholder: "Responda, ou deixe em branco", autocomplete: "off", maxlength: "4000" });
+    const responder = () => {
+      const t = entrada.value.trim();
+      if (t) relatar(t); else { r.perguntas = []; pintarRegistrar(); }
+    };
+    entrada.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); responder(); } });
+    return el("div", { class: "cartao pergunta-curador", role: "group", "aria-label": "Pergunta do curador" },
+      el("span", { class: "bola" }, icone("brilho", "ic p")),
+      el("div", { class: "pergunta-corpo" },
+        el("p", { class: "t-rotulo", text: "O curador perguntou" }),
+        r.perguntas.length === 1
+          ? el("p", { class: "t-corpo forte", text: r.perguntas[0] })
+          : el("ol", { class: "lista-perguntas" }, r.perguntas.map((p) => el("li", { text: p }))),
+        el("div", { class: "linha-resposta" },
+          el("label", { class: "sr", for: "resposta-curador", text: "Resposta ao curador" }), entrada,
+          el("button", { type: "button", class: "btn", onclick: responder }, "Responder"))));
+  }
+  function painelRelato() {
+    const area = el("textarea", { id: "campo-reg", rows: "5", maxlength: "8000", placeholder: "Conte o que aconteceu, do jeito que contaria para um colega…" });
+    const form = el("form", { class: "painel relato", novalidate: true },
+      el("div", { class: "campo" }, el("label", { for: "campo-reg", text: "O que aconteceu" }), area),
+      el("p", { class: "t-legenda", text: "O curador organiza em um item, aponta o que faltou e você revisa antes de ir para a Fila. Sem dado pessoal de cliente." }),
+      el("div", { class: "botoes" }, el("button", { type: "submit", class: "btn primario" }, "Enviar ao curador")));
+    form.addEventListener("submit", (e) => { e.preventDefault(); relatar(area.value); });
+    area.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); form.requestSubmit(); } });
+    return form;
+  }
+  function formularioRascunho() {
+    const r = estado.reg;
+    const it = r.proposta.insight;
+    const v = (x) => (x == null ? "" : x);
+    const area = (x, linhas, limite, dica) => {
+      const a = el("textarea", { rows: String(linhas), maxlength: String(limite), placeholder: dica || null });
+      a.value = v(x);
+      return a;
+    };
+    const opcoes = [1, 2, 3, 4].map((n) => {
+      const t = trilha(n, true);
+      t.removeAttribute("role"); t.removeAttribute("aria-label"); t.setAttribute("aria-hidden", "true");
+      return el("button", { type: "button", class: "cartao evidencia-op", role: "radio", "aria-checked": String(r.evidencia === n),
+        onclick: () => {
+          r.evidencia = n;
+          opcoes.forEach((b, i) => b.setAttribute("aria-checked", String(i === n - 1)));
+          limparErroCampo("r-evid-grupo");
+        } }, t, el("b", { text: EVIDENCIA[n] }), el("span", { class: "t-legenda", text: FRASE_EVID[n] }));
+    });
+    const grupo = el("div", { class: "evidencias", id: "r-evid-grupo", role: "radiogroup", "aria-labelledby": "rotulo-evid" }, ...opcoes);
 
     const relacoes = el("div", { class: "relacoes" });
     const pintarRelacoes = () => {
       relacoes.replaceChildren();
-      if (!p.relacoes.length) relacoes.append(el("span", { class: "evid", text: "Nenhuma relação com itens que já existem." }));
-      p.relacoes.forEach((r, i) => relacoes.append(relacaoChip(r, null, () => { p.relacoes.splice(i, 1); pintarRelacoes(); })));
+      if (!r.proposta.relacoes.length) relacoes.append(el("span", { class: "t-p suave", text: "Nenhuma ligação com itens que já existem." }));
+      r.proposta.relacoes.forEach((rel, i) => relacoes.append(chipLigacao(rel, () => { r.proposta.relacoes.splice(i, 1); pintarRelacoes(); })));
     };
-    p.relacoes = p.relacoes || [];
     pintarRelacoes();
 
-    f.append(
-      el("div", { class: "rascunho-topo" },
-        el("span", { class: "carimbo", text: "Rascunho · nada foi gravado" }),
-        el("span", { class: "evid" }, "Vai para a Fila como ", el("strong", { text: "proposto" }))),
-      el("div", { class: "campos" },
-        campo("Título", "r-titulo", titulo, true),
+    const form = el("form", { class: "painel rascunho", id: "rascunho", novalidate: true, "aria-label": "Rascunho do item" });
+    form.addEventListener("submit", enviarParaFila);
+    form.append(
+      campo("Título", "r-titulo", el("input", { class: "titulo-campo", maxlength: "200", value: v(it.titulo) })),
+      el("div", { class: "linha-campos" },
         campo("Tipo", "r-tipo", selecionar(Object.entries(TIPOS), it.tipo)),
-        campo("Seção", "r-secao", selecionar(SECOES, it.secao)),
-        el("div", { class: "campo inteiro" }, el("span", { class: "rotulo", id: "rotulo-evid", text: "Evidência" }), escala),
-        campo("Segmento", "r-segmento", segmento),
-        campo("Data do acontecido", "r-data", el("input", { type: "date", value: valor(it.data_evento) })),
-        campo("Descrição", "r-descricao", area(it.descricao, 4), true),
-        campo("O que foi feito", "r-feito", area(it.o_que_foi_feito, 2), true),
-        campo("Resultado", "r-resultado", area(it.resultado, 2, 2000), true),
-        campo("Contexto do cliente (sem dado pessoal)", "r-contexto", area(it.contexto_cliente, 2, 2000), true),
-        el("div", { class: "campo inteiro" }, el("span", { class: "rotulo", text: "Relações" }), relacoes)),
-      lista,
-    );
-    if (p.avisos && p.avisos.length) f.append(el("div", { class: "campo" }, el("span", { class: "rotulo", text: "Para o revisor" }), listaAvisos(p.avisos)));
-    f.append(el("div", { class: "botoes" },
-      el("button", { type: "submit", class: "btn primario", id: "enviar-fila" }, "Enviar para a Fila"),
-      el("button", { type: "button", class: "btn fantasma", onclick: descartarRascunho }, "Descartar")));
+        campo("Etapa", "r-secao", selecionar(SECOES, it.secao)),
+        campo("Segmento", "r-segmento", el("input", { list: "lista-segmentos", maxlength: "100", value: v(it.segmento), placeholder: "Todos os segmentos" })),
+        campo("Serviço", "r-servico", el("input", { maxlength: "100", value: v(it.servico), placeholder: "Opcional" })),
+        campo("Data do acontecido", "r-data", el("input", { type: "date", value: v(it.data_evento) }))),
+      campo("Descrição", "r-descricao", area(it.descricao, 4, 4000), true),
+      el("div", { class: "linha-campos" },
+        campo("O que foi feito", "r-feito", area(it.o_que_foi_feito, 2, 4000)),
+        campo("Resultado", "r-resultado", area(it.resultado, 2, 2000, "Um número, se houver: obrigatório na evidência 4"))),
+      el("div", { class: "campo inteiro" },
+        el("p", { class: "t-rotulo", id: "rotulo-evid", text: r.sugerida ? `Evidência · o curador sugeriu ${r.sugerida}` : "Evidência" }), grupo),
+      campo("Contexto do cliente (sem dado pessoal)", "r-contexto", area(it.contexto_cliente, 2, 2000), true),
+      el("div", { class: "campo inteiro" }, el("p", { class: "t-rotulo", text: "Ligações sugeridas" }), relacoes),
+      el("datalist", { id: "lista-segmentos" }, SEGMENTOS.map((s) => el("option", { value: s }))));
+    if (r.proposta.avisos && r.proposta.avisos.length) {
+      form.append(el("div", { class: "campo inteiro" }, el("p", { class: "t-rotulo", text: "Para o revisor" }), listaAvisos(r.proposta.avisos)));
+    }
+    form.append(el("div", { class: "barra-envio" },
+      el("span", { class: "t-p suave" }, "Nada é gravado até você enviar. O item entra como ", el("b", { class: "forte", text: "proposto" }), " e espera alguém do time aprovar."),
+      el("div", { class: "botoes" },
+        el("button", { type: "button", class: "btn", onclick: novoRegistro }, "Descartar"),
+        el("button", { type: "submit", class: "btn primario", id: "enviar-fila" }, icone("check", "ic p"), "Enviar para a Fila"))));
+    return form;
+  }
+  function painelEnviado(criado) {
+    const r = estado.reg;
+    return el("div", { class: "painel enviado", role: "status" },
+      mascoteEm("m", { humor: "padrao" }),
+      el("div", { class: "enviado-corpo" },
+        el("h2", { class: "t-secao", text: "Enviado para a Fila" }),
+        el("p", { class: "t-p suave", text: `O INS-${criado.id} entra como proposto e espera alguém do time aprovar.${r.lacunaId ? " A lacuna foi marcada como resolvida." : ""}` }),
+        el("div", { class: "botoes" },
+          el("a", { class: "btn primario", href: "#fila", text: "Ver na Fila" }),
+          el("a", { class: "btn", href: `#item/INS-${criado.id}`, text: `Abrir o INS-${criado.id}` }),
+          el("button", { type: "button", class: "btn fantasma", onclick: novoRegistro }, "Registrar outro relato"))));
+  }
+  function carregandoCurador() {
+    return el("div", { class: "carregando", role: "status" }, mascoteEm("m", { humor: "pensando" }),
+      el("p", { class: "t-rotulo", text: "O curador está organizando o relato" }),
+      el("span", { class: "esqueleto" }), el("span", { class: "esqueleto" }), el("span", { class: "esqueleto curto" }));
+  }
+  // O que a pessoa já editou no formulário volta para o rascunho antes de qualquer repintura (ao sair da aba e voltar,
+  // por exemplo): senão o formulário recomeçaria da proposta do curador.
+  function guardarEdicoes() {
+    const r = estado.reg;
+    if (!r.proposta || !$("#rascunho")) return;
+    const d = lerRascunho();
+    Object.assign(r.proposta.insight, { titulo: d.titulo || "", tipo: d.tipo, secao: d.secao, segmento: d.segmento, servico: d.servico,
+      data_evento: d.data_evento, descricao: d.descricao || "", o_que_foi_feito: d.o_que_foi_feito, resultado: d.resultado,
+      contexto_cliente: d.contexto_cliente });
+  }
+  function pintarRegistrar() {
+    guardarEdicoes();
+    const r = estado.reg;
+    $("#registrar-titulo").textContent = r.proposta || r.ocupado || r.enviado ? "Revise antes de enviar para a Fila" : "Registrar um relato";
+    const origem = $("#registrar-origem");
+    origem.hidden = !(r.proposta || r.ocupado || r.enviado);
+    origem.textContent = ORIGENS_REG[r.origem];
+    const filhos = [];
+    if (r.lacunaPergunta) {
+      filhos.push(el("p", { class: "t-p suave" }, "Lacuna: ", el("b", { class: "forte", text: `“${r.lacunaPergunta}”` })));
+    }
+    if (r.enviado) filhos.push(painelEnviado(r.enviado));
+    else if (r.ocupado) filhos.push(carregandoCurador());
+    else if (!r.proposta) filhos.push(painelRelato());
+    else {
+      if (r.perguntas.length) filhos.push(cartaoPerguntas());
+      filhos.push(formularioRascunho());
+    }
+    $("#registrar-corpo").replaceChildren(...filhos);
+    mostrarAvisoRegistro(r.erro);
+    const area = $("#campo-reg");
+    if (area && estado.tela === "registrar") area.focus({ preventScroll: true });
   }
   function lerRascunho() {
     const v = (id) => { const x = $(`#${id}`).value.trim(); return x === "" ? null : x; };
-    const marcado = $("input[name='r-evidencia']:checked");
     return {
       titulo: v("r-titulo"), tipo: v("r-tipo"), secao: v("r-secao"),
-      descricao: v("r-descricao"), segmento: v("r-segmento"),
+      descricao: v("r-descricao"), segmento: v("r-segmento"), servico: v("r-servico"),
       o_que_foi_feito: v("r-feito"), resultado: v("r-resultado"), contexto_cliente: v("r-contexto"),
-      data_evento: v("r-data"), evidencia: marcado ? Number(marcado.value) : 1,
-      relacoes: (estado.reg.proposta.relacoes || []).map((r) => ({ relacionado_id: r.relacionado_id, tipo: r.tipo })),
+      data_evento: v("r-data"), evidencia: estado.reg.evidencia,
+      relacoes: (estado.reg.proposta.relacoes || []).map((rel) => ({ relacionado_id: rel.relacionado_id, tipo: rel.tipo })),
     };
-  }
-  function descartarRascunho() {
-    estado.reg = { conversa: [], proposta: null, ocupado: false };
-    boasVindasRegistro();
-    pintarRascunho();
   }
   async function enviarParaFila(ev) {
     ev.preventDefault();
-    if (!estado.reg.proposta) return;
-    const autor = exigirAutor();
-    if (!autor) return;
+    const r = estado.reg;
+    if (!r.proposta) return;
     const dados = lerRascunho();
-    if (!dados.titulo || !dados.descricao) { aviso("Preencha título e descrição antes de enviar.", "erro"); return; }
-    if (dados.tipo === "regra" && dados.evidencia < 3) { aviso("Para virar regra, a evidência precisa ser 3 ou 4.", "erro"); return; }
-    if (dados.evidencia === 4 && !/\d/.test(dados.resultado || "")) { aviso("Evidência 4 exige um número no campo Resultado.", "erro"); return; }
+    for (const id of ["r-titulo", "r-descricao", "r-resultado", "r-evid-grupo", ...Object.values(CAMPO_PARA_ID)]) limparErroCampo(id);
+    mostrarAvisoRegistro(null);
+    const erros = validarRascunho(dados);
+    if (Object.keys(erros).length) {
+      for (const [id, msg] of Object.entries(erros)) marcarErroCampo(id, msg);
+      focarPrimeiroErro();
+      return;
+    }
     const botao = $("#enviar-fila");
     botao.disabled = true;
     try {
-      const criado = await chamar("POST", "/insights", { ...dados, fonte: "chat" });
+      const corpo = { ...dados, fonte: "chat" };
+      if (r.lacunaId) corpo.lacuna_id = r.lacunaId;  // salvar o item resolve a lacuna de onde ele veio
+      const criado = await chamar("POST", "/insights", corpo);
       await carregarItens();
-      aviso(`Enviado para a Fila como proposto (INS-${criado.id}).`, "ok");
+      r.enviado = criado;
+      aviso("Enviado para a Fila.", "ok");
       pulsarMascote();
-      descartarRascunho();
       atualizarNumeros();
+      pintarRegistrar();
     } catch (e) {
-      aviso(e.message, "erro");
       botao.disabled = false;
+      const achados = e.status === 422 ? camposComDadoPessoal(e.message) : [];
+      if (achados.length) {  // o tipo e o campo, nunca o dado
+        for (const [tipo, campoServidor] of achados) {
+          const id = CAMPO_PARA_ID[campoServidor];
+          if (id) marcarErroCampo(id, `Possível ${tipo} neste campo. Troque por algo genérico e envie de novo. Nada foi gravado.`, true);
+        }
+        focarPrimeiroErro();
+        mostrarAvisoRegistro({ msg: "Encontrei dado pessoal no rascunho. Nada foi gravado." });
+        return;
+      }
+      mostrarAvisoRegistro({ msg: e.message, fila: e.status === 409 });  // 409 duplicado, relação que não existe, 502...
     }
   }
 
@@ -1781,7 +1996,7 @@
       sub: seg ? "Abre o briefing com o segmento já escolhido" : "Um briefing com a prova de cada ponto",
       agir: () => prepararDaPaleta(seg) });
     grupos.acoes.push({ icone: "registrar", titulo: "Registrar o que aconteceu", sub: "Conta ao curador; o item entra na Fila antes da base",
-      agir: () => { location.hash = "#registrar"; setTimeout(() => $("#campo-reg").focus(), 0); } });
+      agir: () => { novoRegistro(); location.hash = "#registrar"; } });
     const nTermo = normalizar(termo);
     for (const [hash, icon, nome] of TELAS_PALETA) {
       if (hash === "#fontes" && !aoVivo()) continue;
@@ -1966,10 +2181,6 @@
     ligarCampo($("#campo-chat"), formChat);
     formChat.addEventListener("submit", (e) => { e.preventDefault(); perguntar($("#campo-chat").value); });
 
-    const formReg = $("#form-reg");
-    ligarCampo($("#campo-reg"), formReg);
-    formReg.addEventListener("submit", (e) => { e.preventDefault(); relatar($("#campo-reg").value); });
-    $("#rascunho").addEventListener("submit", enviarParaFila);
 
     $("#form-briefing").addEventListener("submit", montarBriefing);
     $("#nova-conversa").addEventListener("click", () => {
@@ -2040,8 +2251,6 @@
     await carregarItens();
     atualizarNumeros();
     iniciarConversa();
-    boasVindasRegistro();
-    pintarRascunho();
     rotear();
   }
 

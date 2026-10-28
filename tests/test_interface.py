@@ -276,8 +276,10 @@ def test_tela_sem_texto_de_desenvolvedor():
     sem_comentarios = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
     linhas = [linha.split(" // ")[0] for linha in sem_comentarios.splitlines() if not linha.strip().startswith("//")]
     sem_comentarios = "\n".join(linhas)
-    for termo in ("ainda não existe", "uvicorn", "PR 3", "T9", "GOOGLE_CLIENT_ID", "NOTION_TOKEN", "endpoint", ".env"):
+    for termo in ("ainda não existe", "uvicorn", "PR 3", "T9", "GOOGLE_CLIENT_ID", "NOTION_TOKEN", "endpoint"):
         assert termo not in sem_comentarios and termo not in html, termo
+    # o arquivo .env, e não ".enviado" (estado.reg.enviado)
+    assert not re.search(r"\.env\b", sem_comentarios) and not re.search(r"\.env\b", html)
     assert "Sem conexão com o servidor. Nada aparece nem vai para a base até ele responder." in js
     assert 'id="faixa-servidor"' in html and "Tentar conectar" in js
 
@@ -314,3 +316,28 @@ def test_documento_do_anexo_abre_o_texto_no_proprio_servidor():
         js = client.get("/static/cerebro.js").text
     assert r"\/fontes\/\d+\/texto$" in js
     assert "linkSeguro(doc.url)" in js
+
+
+def test_chat_registra_pela_api_e_leva_a_lacuna():
+    """"Registrar isso" usa POST /chat/registrar (que não grava nada); a resposta com lacuna_id mostra o selo e leva o
+    lacuna_id ao rascunho, que o POST /insights usa para resolver a lacuna."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert 'chamar("POST", "/chat/registrar", corpo)' in js
+    assert "corpo.lacuna_id = lacunaId" in js and "r.lacuna_id" in js
+    assert "Registrar isso" in js and "Registrar o que você sabe" in js
+    assert "Guardei como lacuna: a base não cobre isso." in js
+    assert "if (r.lacunaId) corpo.lacuna_id = r.lacunaId" in js  # salvar resolve a lacuna de onde o item veio
+
+
+def test_rascunho_valida_no_campo_antes_de_enviar():
+    """Título e descrição, a regra com evidência baixa e a evidência 4 sem número aparecem no campo, na hora, ligados
+    por aria-describedby. O dado pessoal que o servidor barrar marca o campo (tipo e campo, nunca o dado)."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert 'aria-invalid' in js and "aria-describedby" in js
+    for msg in ("Escreva um título.", "Para virar regra, a evidência precisa ser 3 ou 4.",
+                "Evidência 4 exige um número no campo Resultado."):
+        assert msg in js, msg
+    assert "function camposComDadoPessoal(" in js and "Nada foi gravado." in js
+    assert "Responda, ou deixe em branco" in js

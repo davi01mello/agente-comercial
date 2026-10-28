@@ -82,27 +82,15 @@
         </div>
       </section>
 
-      <section class="tela tela-registrar" data-tela="registrar" aria-label="Registrar um relato" hidden>
+      <section class="tela tela-registrar" data-tela="registrar" aria-label="Rascunho do curador" hidden>
         <div class="miolo">
           <header class="cab-tela">
             <p class="t-rotulo">Rascunho do curador · ainda não gravado</p>
-            <h1 class="t-titulo">Registrar um relato</h1>
+            <h1 class="t-titulo" id="registrar-titulo">Registrar um relato</h1>
+            <span class="selo" id="registrar-origem" hidden></span>
           </header>
-          <div class="painel registrar-chat">
-            <div class="cab">
-              <span class="mascote p av" data-mascote="simbolo"></span>
-              <div><h2>Curador</h2><p>Organiza o seu relato e pergunta o que faltou</p></div>
-            </div>
-            <div class="conversa" id="mensagens-reg" aria-live="polite"></div>
-            <form class="compor" id="form-reg">
-              <label class="t-rotulo" for="campo-reg">O que aconteceu</label>
-              <textarea class="campo-msg" id="campo-reg" rows="2" maxlength="8000" placeholder="Conte o que aconteceu…"></textarea>
-              <div class="compor-base">
-                <button class="btn primario enviar" id="enviar-reg" type="submit" aria-label="Enviar relato"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
-              </div>
-            </form>
-          </div>
-          <form class="painel rascunho" id="rascunho" novalidate aria-label="Rascunho do item"></form>
+          <div class="aviso-registro" id="registrar-aviso" role="alert" hidden></div>
+          <div id="registrar-corpo"></div>
         </div>
       </section>
 

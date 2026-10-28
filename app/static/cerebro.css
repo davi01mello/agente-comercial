@@ -563,30 +563,6 @@ button.item:hover { border-color: var(--marca-linha); background: var(--superfic
 .barra-lote { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--raio-g); border: 1px solid var(--linha-forte); background: var(--superficie-2); }
 .barra-lote .lote-info { flex: 1 1 180px; color: var(--texto-suave); font-size: 13px; }
 
-/* ---------- Registrar (o rascunho completo vem no PR 2) ---------- */
-.tela-registrar .miolo { max-width: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); align-items: start; }
-.tela-registrar .cab-tela { grid-column: 1 / -1; }
-.registrar-chat { display: grid; grid-template-rows: auto minmax(240px, 1fr) auto; gap: 8px; padding: 16px; max-height: calc(100vh - 220px); }
-.registrar-chat .conversa { padding: 8px 4px; }
-.registrar-chat .compor { margin: 0; }
-.cab { display: flex; align-items: center; gap: 12px; }
-.cab h2 { margin: 0; font: 400 17px/24px var(--f-titulo); color: var(--texto-forte); }
-.cab p { margin: 0; color: var(--texto-suave); font-size: 13px; line-height: 20px; }
-.rascunho { display: grid; gap: 18px; align-content: start; }
-.rascunho-topo { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.carimbo { font: 500 11px/16px var(--f-mono); letter-spacing: var(--espaco-rotulo); text-transform: uppercase; color: var(--alerta); border: 1px solid var(--alerta); padding: 3px 8px; border-radius: var(--raio-p); }
-.campos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
-.escala { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.escala input { position: absolute; opacity: 0; pointer-events: none; }
-.escala label {
-  display: grid; gap: 4px; align-content: start; padding: 10px; min-height: 44px;
-  border-radius: var(--raio-m); border: 1px solid var(--linha-forte); background: var(--superficie-2);
-  font-size: 12px; line-height: 16px; color: var(--texto-suave); cursor: pointer;
-}
-.escala label b { font: 300 20px/1 var(--f-titulo); color: var(--texto-forte); }
-.escala input:checked + label { color: var(--marca-forte); border-color: var(--marca); background: var(--marca-tinta); }
-.escala input:focus-visible + label { box-shadow: var(--anel-foco); }
-
 /* ---------- Preparar reunião (vira POST /briefing no PR 2) ---------- */
 .briefing-form { display: grid; grid-template-columns: repeat(2, minmax(0, 0.7fr)) minmax(0, 1.6fr) auto; gap: 12px; align-items: end; }
 .briefing-form .campo textarea { min-height: 66px; }
@@ -810,13 +786,12 @@ body.sem-login .app { visibility: hidden; }
   }
 
   /* os alvos de toque e os campos (16px: o iOS não dá zoom) */
-  .btn, .chip, .etapa-filtro, .no, .atalho, .btn-icone, .exemplo, .escala label { min-height: var(--alvo-toque); }
+  .btn, .chip, .etapa-filtro, .no, .atalho, .btn-icone, .evidencia-op { min-height: var(--alvo-toque); }
   .btn-icone { min-width: var(--alvo-toque); }
   .busca, .campo input, .campo select, .campo textarea, .motivo textarea, .briefing-form select, .briefing-form textarea, .sync-teto input { font-size: 16px; }
-  .campos, .briefing-form, .briefing-saida { grid-template-columns: minmax(0, 1fr); }
-  .tela-registrar .miolo { grid-template-columns: minmax(0, 1fr); }
-  .registrar-chat { max-height: none; }
-  .escala { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .briefing-form, .briefing-saida { grid-template-columns: minmax(0, 1fr); }
+  .evidencia-op { flex-basis: 100%; }
+  .rascunho .linha-campos > .campo { flex-basis: 100%; }
   .fontes-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .item-pagina dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .item-pagina dd { margin-bottom: 10px; }
@@ -915,6 +890,59 @@ body.sem-login .app { visibility: hidden; }
 .pensando-linha .btn { margin-left: auto; }
 .docs-citados li { list-style: none; margin-left: -1.1em; }
 .docs-citados li .nota { vertical-align: 1px; }
+
+/* ---------- Registrar: o rascunho do curador (prancha 3) ---------- */
+.tela-registrar .miolo { max-width: 920px; }
+.cab-tela .selo { align-self: flex-start; }
+.aviso-registro {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px;
+  border-radius: var(--raio-m); border: 1px solid var(--risco); background: var(--risco-tinta); color: var(--texto-forte);
+}
+.aviso-registro .ic { color: var(--risco); }
+.aviso-registro .t-p { flex: 1 1 240px; }
+.painel.relato { display: grid; gap: 14px; }
+.relato textarea { min-height: 120px; }
+.pergunta-curador { display: flex; gap: 14px; align-items: flex-start; border-color: var(--vivo); }
+.pergunta-curador .bola { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 11px; border: 1px solid var(--vivo); color: var(--vivo); }
+.pergunta-corpo { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.pergunta-corpo .t-rotulo { color: var(--vivo); }
+.linha-resposta { display: flex; flex-wrap: wrap; gap: 8px; }
+.linha-resposta input {
+  flex: 1 1 260px; min-width: 0; min-height: 36px; padding: 8px 12px; font-size: 14px;
+  border-radius: var(--raio-m); border: 1px solid var(--linha-campo); background: var(--superficie-2); color: var(--texto-forte);
+}
+.rascunho { display: grid; gap: 18px; align-content: start; }
+.rascunho .linha-campos { display: flex; flex-wrap: wrap; gap: 14px; }
+.rascunho .linha-campos > .campo { flex: 1 1 200px; }
+.evidencias { display: flex; flex-wrap: wrap; gap: 8px; }
+.evidencia-op {
+  flex: 1 1 140px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; text-align: left;
+  font: inherit; color: inherit; cursor: pointer; min-height: var(--alvo-min);
+}
+.evidencia-op b { font-size: 13px; font-weight: 500; color: var(--texto-forte); }
+.evidencia-op:hover { border-color: var(--linha-campo); }
+.evidencia-op[aria-checked="true"] { border-color: var(--marca); background: var(--marca-tinta); }
+.ajuda { margin: 0; font-size: 12px; line-height: 16px; color: var(--texto-suave); }
+.campo.erro input, .campo.erro textarea, .campo.erro select { border-color: var(--risco); }
+.campo.erro .evidencias { outline: 1px solid var(--risco); outline-offset: 4px; border-radius: var(--raio-m); }
+.campo.erro .ajuda { display: flex; gap: 6px; align-items: center; color: var(--risco); }
+.rel .txt-ligacao { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--texto-suave); }
+.rel > .ic { color: var(--marca-forte); }
+.rel button:not(.cita) { width: 24px; height: 24px; display: grid; place-items: center; padding: 0; color: var(--marca-forte); }
+.barra-envio { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px; border-radius: var(--raio-g); border: 1px solid var(--linha-forte); background: var(--superficie-2); }
+.barra-envio .botoes { margin-left: auto; }
+.painel.enviado { display: flex; gap: 20px; align-items: center; border-color: var(--ok); }
+.enviado-corpo { display: grid; gap: 10px; min-width: 0; }
+.lista-perguntas { margin: 0; padding-left: 1.2em; color: var(--texto-forte); display: grid; gap: 4px; }
+
+/* ---------- no chat: "Registrar isso" e o selo de lacuna ---------- */
+.registrar-isso { align-self: flex-start; }
+.lacuna-selo {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 12px;
+  border-radius: var(--raio-g); border: 1.5px dashed var(--alerta);
+}
+.lacuna-selo .t-rotulo { color: var(--alerta); }
+.lacuna-selo > span:not(.t-rotulo) { flex: 1 1 160px; font-size: 13px; line-height: 20px; color: var(--texto-forte); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
