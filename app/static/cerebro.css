@@ -1001,7 +1001,7 @@ body.sem-login .app { visibility: hidden; }
 .lista-perguntas { margin: 0; padding-left: 1.2em; color: var(--texto-forte); display: grid; gap: 4px; }
 
 /* ---------- no chat: "Registrar isso" e o selo de lacuna ---------- */
-.registrar-isso { align-self: flex-start; }
+.acoes-resposta { display: flex; flex-wrap: wrap; gap: 4px 8px; }
 .lacuna-selo {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 12px;
   border-radius: var(--raio-g); border: 1.5px dashed var(--alerta);
@@ -1105,6 +1105,129 @@ body.sem-login .app { visibility: hidden; }
   .lacuna-linha { flex-wrap: wrap; }
   .lacuna-linha .txt { flex-basis: 100%; white-space: normal; order: -1; }
 }
+
+/* ---------- Mapa: o nível 0, os nós das etapas ---------- */
+.mapa-miolo { max-width: none; padding: 24px 24px 48px; }
+.mapa-controles { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.passos-mapa { display: flex; flex-wrap: wrap; gap: 6px; }
+.passos-mapa a {
+  width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--raio-m);
+  border: 1px solid var(--linha-forte); color: var(--texto-suave); text-decoration: none; font: 500 12px/1 var(--f-mono);
+}
+.passos-mapa a:hover { color: var(--texto-forte); border-color: var(--linha-campo); }
+.passos-mapa a[aria-current="step"] { color: var(--marca-forte); border-color: var(--marca); background: var(--marca-tinta); }
+.seletor-segmento {
+  min-height: 32px; padding: 4px 12px; border-radius: var(--raio-pilula); border: 1px solid var(--linha-campo);
+  background: var(--superficie-2); color: var(--texto-forte); font-size: 13px;
+}
+.trilha-mapa { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.trilha-mapa a { color: var(--marca-forte); }
+.trilha-mapa .btn { min-height: 24px; padding: 0 8px; }
+.no-etapa.sel .cx { background: var(--marca-tinta); border-color: var(--marca); box-shadow: 0 0 0 5px var(--fundo), 0 0 0 7px var(--marca-linha); }
+.mesa-etapa { display: grid; gap: 12px; }
+@media (max-width: 860px) { .mapa-miolo { padding: 20px 16px 40px; } }
+
+/* ---------- Mapa: o canvas da resposta (nível 1) ---------- */
+.cv-barra { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.cv-zoom { display: inline-flex; align-items: center; gap: 6px; }
+.cv-zoom .btn { min-height: 28px; min-width: 28px; padding: 0 8px; }
+.cv-bloco { display: grid; gap: 10px; }
+.cv-janela {
+  position: relative; overflow: auto; border-radius: var(--raio-g); border: 1px solid var(--linha-forte);
+  background: radial-gradient(circle at 1px 1px, var(--linha-forte) 1px, transparent 1.6px) 0 0 / 22px 22px, var(--fundo);
+}
+.cv-quadro { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.cv-ligacoes { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.apagado line { stroke: var(--linha-forte); stroke-width: 1; }
+.apagado circle { fill: var(--ev-2); opacity: 0.42; }
+.cv-cartao {
+  position: absolute; z-index: 1; width: 200px; height: 164px; padding: 12px 14px; overflow: hidden;
+  display: flex; flex-direction: column; gap: 8px; border-radius: var(--raio-g); border: 1px solid var(--linha-forte);
+  background: var(--superficie-2); color: var(--texto-forte); text-decoration: none;
+  animation: cv-sobe 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.cv-cartao:hover { border-color: var(--marca-linha); color: var(--texto-forte); }
+.cv-cartao.sim { border: 1.5px solid var(--marca); box-shadow: 0 0 0 5px var(--marca-tinta); }
+.cv-cartao.doc { border-style: dashed; border-color: var(--linha-campo); background: var(--fundo); }
+.cv-topo { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+.cv-topo .cod { font: 400 12px/18px var(--f-mono); color: var(--texto-suave); }
+.cv-topo .selo { margin-left: auto; }
+.cv-cartao b {
+  font-size: 13px; line-height: 18px; font-weight: 500;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.cv-cartao .evid { font-size: 12px; color: var(--texto-suave); white-space: normal; }
+@keyframes cv-sobe { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+.liga path { fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.liga.reforca path { stroke: var(--texto-suave); }
+.liga.contradiz path { stroke: var(--risco); }
+.liga.substitui path { stroke: var(--marca-forte); stroke-dasharray: 2 5; }
+.liga.duplica path { stroke: var(--texto-suave); stroke-dasharray: 6 4; opacity: 0.7; }
+.liga.na-fila path { stroke-dasharray: 6 4; }
+.liga.fraca { opacity: 0; transition: opacity 0.15s; }
+.liga.fraca.on { opacity: 1; }
+.liga-rot rect { fill: var(--fundo); stroke: var(--linha-campo); stroke-width: 1; }
+.liga.contradiz .liga-rot rect { stroke: var(--risco); }
+.liga-rot text { font: 500 11px var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; fill: var(--texto); }
+.liga.contradiz .liga-rot text { fill: var(--risco); }
+.liga.reforca .tracado, .liga.contradiz .tracado { stroke-dasharray: 1; stroke-dashoffset: 0; animation: cv-traca 0.7s ease-out both; animation-delay: var(--d, 0s); }
+.liga .ponta, .liga .liga-rot { animation: cv-surge 0.4s ease-out both; animation-delay: var(--d, 0s); }
+@keyframes cv-traca { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes cv-surge { from { opacity: 0; } to { opacity: 1; } }
+.atalhos-mapa { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+
+/* ---------- Mapa: a etapa inteira (prancha 7a) ---------- */
+.cv-zona { position: absolute; margin: 0; }
+.cv-mini {
+  position: absolute; z-index: 1; width: 146px; height: 80px; padding: 8px 10px; overflow: hidden; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; gap: 4px; border-radius: var(--raio-m); border: 1px solid var(--linha-forte);
+  background: var(--superficie-2); color: var(--texto-forte); font: inherit;
+}
+.cv-mini:hover { border-color: var(--marca-linha); }
+.cv-mini.sim { border-color: var(--marca); box-shadow: 0 0 0 3px var(--marca-tinta); }
+.cv-mini.fila { border-style: dashed; border-color: var(--alerta); }
+.cv-mini.fora { border-style: dashed; border-color: var(--linha-campo); background: var(--fundo); opacity: 0.85; }
+.cv-mini .cv-topo { flex-wrap: nowrap; gap: 6px; }
+.cv-mini .selo { margin-left: auto; padding: 0 6px; }
+.cv-mini .cod { white-space: nowrap; }
+.cv-mini b { font-size: 12px; line-height: 16px; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.cv-painel-item { min-width: 0; }
+.cv-detalhe { display: grid; gap: 10px; padding: 18px 20px; }
+.cv-detalhe .t-secao { font-size: 16px; line-height: 24px; }
+.cv-detalhe-lista { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; }
+.cv-detalhe-lista li { display: inline-flex; align-items: center; gap: 6px; }
+.cv-legenda { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.cv-legenda > span { display: inline-flex; align-items: center; gap: 6px; }
+.cv-legenda .amostra { display: block; }
+.cv-legenda .liga path { stroke-width: 1.6; }
+.amostra-fila, .amostra-fora { width: 16px; height: 12px; border-radius: 3px; border: 1px dashed var(--alerta); }
+.amostra-fora { border-color: var(--linha-campo); }
+
+/* ---------- Mapa no celular (prancha 7b) ---------- */
+.cv-pilha { display: grid; gap: 0; justify-items: stretch; }
+.cv-pilha .cv-cartao { position: static; width: 100%; height: auto; min-height: 88px; animation-delay: 0s; margin: 0; }
+.cv-pilha > .t-legenda { margin-top: 10px; }
+.mf-liga { display: flex; align-items: center; gap: 8px; min-height: 36px; padding-left: 28px; }
+.mf-liga svg { flex: none; }
+.mf-liga path { fill: none; stroke: var(--texto-suave); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.mf-liga.contradiz path { stroke: var(--risco); }
+.mf-liga.substitui path { stroke: var(--marca-forte); stroke-dasharray: 2 4; }
+.mf-rot { font: 500 11px/16px var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--texto-suave); }
+.mf-liga.contradiz .mf-rot { color: var(--risco); }
+.etapas-lista { display: grid; gap: 10px; }
+.etapa-cartao { display: grid; gap: 6px; padding: 12px 14px; }
+.etapa-cabeca { display: flex; align-items: center; gap: 12px; min-height: var(--alvo-toque); color: var(--texto-forte); text-decoration: none; }
+.etapa-cabeca .cx {
+  width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 14px;
+  border: 1.5px solid var(--marca-linha); background: var(--superficie-2); font: 300 20px/1 var(--f-titulo);
+}
+.etapa-cabeca .cx.pouca { border-style: dashed; }
+.etapa-nome { display: grid; flex: 1; min-width: 0; }
+.etapa-nome b { font-weight: 500; font-size: 14px; line-height: 20px; }
+.etapa-cartao > * { min-width: 0; }
+.etapa-cartao .linha-lista { min-height: var(--alvo-toque); }
+.etapa-cartao .linha-lista .txt { white-space: normal; font-size: 14px; line-height: 20px; }
+.pilulas-abas .chip { text-decoration: none; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

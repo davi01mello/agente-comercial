@@ -433,3 +433,65 @@ def test_briefing_vem_da_api_e_nao_inventa_roteiro():
     assert "cerebro.briefings:" in js and "Só neste computador" in js
     assert "camposComDadoPessoal(e.message)" in js and "Diga o segmento da reunião." in js
     assert 'id="preparar-conteudo"' in html
+
+
+def test_mapa_nivel_0_tem_as_7_etapas_e_a_pouca_base():
+    """O nível 0 do mapa são as 7 etapas como nós: a borda é a evidência média, o tracejado marca a "pouca base" (nenhum
+    item com evidência 3 ou mais) e o número e o "evid." vão junto da cor. Tudo sai dos itens já carregados."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert "function nosEtapas(" in js and "const pouca = !da.some((i) => i.evidencia >= 3)" in js
+    assert "pouca base" in js and "href: (c) => `#mapa/${c}`" in js
+    assert "function mesaDaEtapa(" in js and "slice(0, 3)" in js  # a mesa: os 3 itens mais fortes
+    assert 'data-tela="mapa"' in html and 'href="#mapa"' in html and 'id="mapa-conteudo"' in html
+    assert "A base ainda não tem itens aprovados" in js
+    assert "e.key === \"ArrowRight\"" in js and "function teclasDoMapa(" in js
+    assert 'chamar("GET", "/mapa' not in js  # a API não tem rota de mapa
+
+
+def test_mapa_da_resposta_usa_so_as_notas_e_as_relacoes():
+    """O canvas da resposta (nível 1): só as notas da última resposta viram cartões, ligados pelas relações reais entre
+    elas. "contradiz" e "substitui" ficam sempre visíveis; "reforça" e "duplica" só acendem com o mouse ou o foco."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        css = client.get("/static/cerebro.css").text
+    assert "function notasDaResposta(" in js and "estado.ultimaResposta" in js
+    assert "const forte = tipo === \"contradiz\" || tipo === \"substitui\"" in js
+    assert ".liga.fraca { opacity: 0;" in css and ".liga.fraca.on { opacity: 1; }" in css
+    assert "const VAGAS = [" in js and "function vagasDasNotas(" in js and "MAX_NOTAS_CANVAS = VAGAS.length" in js
+    assert "if (!larg) return;" in js  # sem largura, não mede nem desenha
+    # o canvas não encolhe para caber: o texto dele nunca fica abaixo de 12 px (só o zoom escala)
+    assert "PASSOS_ZOOM = [1, 1.2, 1.4]" in js and "Math.min(1, larg / L)" not in js
+    assert "Ver no mapa" in js and "function caminhoEntre(" in js
+    assert "Nenhuma resposta aberta" in js  # sem resposta, o canvas não inventa notas
+
+
+def test_etapa_inteira_limita_os_nos():
+    """A etapa inteira mostra no máximo 25 itens (os mais fortes, contando os da Fila), agrupados por tipo; o que passa
+    disso vira "+N itens nesta etapa · ver lista". O que está na Fila fica tracejado; o de outra etapa vira um toco."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        css = client.get("/static/cerebro.css").text
+    assert "const MAX_NOS_ETAPA = 25;" in js and "maisFortes(todos).slice(0, MAX_NOS_ETAPA)" in js
+    assert "itens nesta etapa · ver lista" in js and "`#base/${etapa}`" in js
+    assert ".cv-mini.fila { border-style: dashed; border-color: var(--alerta); }" in css
+    assert ".cv-mini.fora { border-style: dashed;" in css
+    assert "outros.set(r.outro.id, r.outro)" in js and ".slice(0, 6)" in js  # no máximo 6 tocos
+    assert 'e.key.toLowerCase() === "f"' in js  # F volta ao foco
+    # o leitor de tela ouve "INS-12 reforça INS-7", e não a chave interna da ligação
+    assert "leituras.push(" in js and "leituras.map((t)" in js and "[...vistas].map" not in js
+
+
+def test_mapa_no_celular_vira_pilha():
+    """Até 860 px o canvas não cabe: o foco vira uma pilha de cartões com a seta e a etiqueta entre os que se ligam, o
+    nível 0 vira a lista das etapas, "Etapa inteira" abre a lista da Base, e deslizar para os lados troca de etapa."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        css = client.get("/static/cerebro.css").text
+    assert "if (CELULAR.matches) { mapaNoCelular(" in js  # no celular não há canvas
+    assert "function pilhaDaResposta(" in js and "function listaPorEtapa(" in js
+    assert "as que reforçam a nota 1 ficam acima dela" in js and "Citado na resposta, sem ligação com os itens." in js
+    assert "`#base/${etapa}`" in js and "Deslize para os lados para trocar de etapa." in js
+    assert "Math.abs(dx) < 60 || Math.abs(dy) > 40" in js  # o limiar do deslize
+    assert ".cv-pilha .cv-cartao { position: static;" in css and ".mf-liga" in css
