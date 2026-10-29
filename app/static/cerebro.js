@@ -65,7 +65,9 @@
     itens: [],
     conversa: [],
     ocupado: false,
-    reg: { conversa: [], proposta: null, ocupado: false },
+    reg: { conversa: [], proposta: null, ocupado: false, lacuna: null },  // lacuna: {id, pergunta} quando o relato responde a uma
+    lacunas: { abertas: null, status: "aberta", pedido: 0 },  // abertas: quantas perguntas sem resposta (null até carregar)
+    anexando: false,  // um arquivo está sendo enviado pelo clipe do chat
     filtro: { secao: null, segmento: null, busca: "", historico: false, origem: null, mostrar: {} },
     fontes: null,  // o resumo de GET /fontes/resumo
     filtroFontes: { status: null, busca: "", origem: null },
@@ -162,11 +164,12 @@
   }
   async function chamar(metodo, url, corpo) {
     let r;
+    const ehForm = typeof FormData !== "undefined" && corpo instanceof FormData;  // o anexo vai como arquivo, não como JSON
     try {
       r = await fetch(url, {
         method: metodo,
-        headers: corpo ? { "Content-Type": "application/json" } : {},
-        body: corpo ? JSON.stringify(corpo) : undefined,
+        headers: corpo && !ehForm ? { "Content-Type": "application/json" } : {},
+        body: corpo ? (ehForm ? corpo : JSON.stringify(corpo)) : undefined,
       });
     } catch {
       throw new ErroApi("Sem conexão com o servidor. Confira a internet e tente de novo.", 0);
@@ -456,9 +459,9 @@
     caixa.scrollTop = caixa.scrollHeight;
     return linha;
   }
-  function digitando(caixa) {
+  function digitando(caixa, rotulo = "Lendo a base") {
     const linha = el("div", { class: "fala-ele pensando-linha", role: "status" },
-      mascoteEm("m", { humor: "pensando" }), el("span", { class: "t-rotulo", text: "Lendo a base" }));
+      mascoteEm("m", { humor: "pensando" }), el("span", { class: "t-rotulo", text: rotulo }));
     caixa.append(linha);
     caixa.scrollTop = caixa.scrollHeight;
     return linha;
@@ -468,9 +471,9 @@
   // A navegação é por hash, para o link funcionar ("#item/INS-12", "#base/proposta"). Os endereços antigos
   // (#conversar, #playbook, #briefing) continuam abrindo a tela certa. As abas abertas ficam no localStorage, que pode
   // falhar: sem ele, a tela abre só com o Hoje.
-  const TELAS = ["hoje", "cerebro", "item", "base", "fila", "registrar", "preparar", "fontes"];
+  const TELAS = ["hoje", "cerebro", "item", "base", "fila", "registrar", "preparar", "lacunas", "fontes"];
   const APELIDOS = { conversar: "cerebro", playbook: "base", briefing: "preparar" };
-  const NOME_TELA = { fila: "Fila", registrar: "Rascunho", preparar: "Preparar reunião", fontes: "Fontes" };
+  const NOME_TELA = { fila: "Fila", registrar: "Rascunho", preparar: "Preparar reunião", lacunas: "Lacunas", fontes: "Fontes" };
   const MAX_ABAS = 8;
 
   function lerRota() {
@@ -516,6 +519,7 @@
     if (rota.tela === "base") abrirBase(rota.arg);
     if (rota.tela === "fila") pintarFila();
     if (rota.tela === "fontes") pintarFontes();
+    if (rota.tela === "lacunas") pintarLacunas();
     if (rota.tela === "preparar") montarBriefing();
     const tela = $(`.tela[data-tela="${rota.tela}"]`);
     if (tela) tela.scrollTop = 0;
@@ -624,6 +628,11 @@
     for (const contador of [$("#contador-fila"), $("#contador-fila-celular")]) {
       contador.textContent = naFila;
       contador.hidden = naFila === 0;
+    }
+    const abertas = estado.lacunas.abertas;
+    for (const contador of [$("#contador-lacunas"), $("#contador-lacunas-celular")]) {
+      contador.textContent = abertas || 0;
+      contador.hidden = !abertas;
     }
     seguro(pintarBarra, "árvore");
     if (estado.tela === "hoje") seguro(pintarHoje, "hoje");
@@ -759,7 +768,8 @@
           el("b", { class: "forte", text: `${base.length} ${base.length === 1 ? "item aprovado" : "itens aprovados"} na base.` }), resumo)),
       el("div", { class: "metricas" },
         metrica("camadas", "Base", base.length, base.length === 1 ? "item aprovado" : "itens aprovados", "", "#base"),
-        metrica("fila", "Fila", fila.length, "esperando aprovação", "marca", "#fila")),
+        metrica("fila", "Fila", fila.length, "esperando aprovação", "marca", "#fila"),
+        estado.lacunas.abertas ? metrica("lacuna", "Lacunas", estado.lacunas.abertas, "perguntas sem resposta", "", "#lacunas") : null),
       el("div", { class: "cab-tela" }, el("p", { class: "t-rotulo", text: "Começar por" }),
         el("div", { class: "comecar" },
           atalhoGrande("#preparar", "preparar", "Preparar reunião", "Um briefing com a prova de cada ponto"),
@@ -803,8 +813,12 @@
       const r = await chamar("POST", "/chat", { mensagem: texto, historico: estado.conversa.slice(-30) });
       const resposta = r.resposta;
       indicador.remove();
-      adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", docs: r.documentos || [] });
+      // lacuna_id: o consultor admitiu que a base não cobre o tema. A pergunta já virou lacuna no servidor; aqui só se
+      // oferece o caminho para a pessoa cobrir o buraco.
+      const extra = r.lacuna_id ? convitePraRegistrar(r.lacuna_id, texto) : null;
+      adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", docs: r.documentos || [], extra });
       estado.conversa.push({ role: "user", text: texto }, { role: "model", text: resposta });
+      if (r.lacuna_id) contarLacunas();
       pulsarMascote();
     } catch (e) {
       indicador.remove();
@@ -840,6 +854,19 @@
       texto: "Me conta o que aconteceu, do jeito que você contaria para um colega. Eu organizo em um item, aponto o que faltou e você revisa antes de ir para a Fila.",
     });
   }
+  // A resposta do curador a um relato: o resumo no chat (com as perguntas, se houver) e o rascunho ao lado.
+  function responderComProposta(caixa, proposta, relato) {
+    const perguntas = proposta.perguntas || [];
+    const resumo = perguntas.length
+      ? `Já montei um rascunho ao lado. Antes de fechar, ${perguntas.length === 1 ? "uma pergunta" : "duas perguntas"}:`
+      : "Pronto. O rascunho está ao lado: revise, ajuste o que quiser e envie para a Fila.";
+    const extra = perguntas.length ? el("ol", { class: "lista-perguntas" }, perguntas.map((p) => el("li", { text: p }))) : null;
+    adicionarMsg(caixa, { papel: "cerebro", quem: "Curador", texto: resumo, extra });
+    estado.reg.conversa.push({ role: "user", text: relato }, { role: "model", text: perguntas.length ? perguntas.join("\n") : resumo });
+    estado.reg.proposta = proposta;
+    pintarRascunho();
+    pulsarMascote();
+  }
   async function relatar(texto) {
     texto = texto.trim();
     if (!texto || estado.reg.ocupado) return;
@@ -854,16 +881,7 @@
     try {
       const proposta = await chamar("POST", "/registrar/propor", { texto, conversa: estado.reg.conversa.slice(-10) });
       indicador.remove();
-      const perguntas = proposta.perguntas || [];
-      const resumo = perguntas.length
-        ? `Já montei um rascunho ao lado. Antes de fechar, ${perguntas.length === 1 ? "uma pergunta" : "duas perguntas"}:`
-        : "Pronto. O rascunho está ao lado: revise, ajuste o que quiser e envie para a Fila.";
-      const extra = perguntas.length ? el("ol", { class: "lista-perguntas" }, perguntas.map((p) => el("li", { text: p }))) : null;
-      adicionarMsg(caixa, { papel: "cerebro", quem: "Curador", texto: resumo, extra });
-      estado.reg.conversa.push({ role: "user", text: texto }, { role: "model", text: perguntas.length ? perguntas.join("\n") : resumo });
-      estado.reg.proposta = proposta;
-      pintarRascunho();
-      pulsarMascote();
+      responderComProposta(caixa, proposta, texto);
     } catch (e) {
       indicador.remove();
       adicionarMsg(caixa, { papel: "erro", texto: e.message, quem: "Não deu certo" });
@@ -949,9 +967,10 @@
     };
   }
   function descartarRascunho() {
-    estado.reg = { conversa: [], proposta: null, ocupado: false };
+    estado.reg = { conversa: [], proposta: null, ocupado: false, lacuna: null };
     boasVindasRegistro();
     pintarRascunho();
+    pintarVinculoLacuna();
   }
   async function enviarParaFila(ev) {
     ev.preventDefault();
@@ -965,8 +984,10 @@
     const botao = $("#enviar-fila");
     botao.disabled = true;
     try {
-      const criado = await chamar("POST", "/insights", { ...dados, fonte: "chat" });
+      const lacuna = estado.reg.lacuna;
+      const criado = await chamar("POST", "/insights", { ...dados, fonte: "chat", ...(lacuna ? { lacuna_id: lacuna.id } : {}) });
       await carregarItens();
+      if (lacuna) await contarLacunas();  // o assunto da lacuna agora tem um item esperando a Fila
       aviso(`Enviado para a Fila como proposto (INS-${criado.id}).`, "ok");
       pulsarMascote();
       descartarRascunho();
@@ -974,6 +995,233 @@
     } catch (e) {
       aviso(e.message, "erro");
       botao.disabled = false;
+    }
+  }
+
+  // ---------------------------------------------------------------- "Registrar isso" e as lacunas
+  // O consultor disse "A base não cobre…": o servidor guardou a pergunta como lacuna e mandou o id. O convite leva a
+  // conversa ao curador (POST /chat/registrar, que NÃO grava nada); o rascunho aparece na tela Registrar, a pessoa
+  // confere e envia (POST /insights com o lacuna_id, que fecha a lacuna).
+  function convitePraRegistrar(lacunaId, pergunta) {
+    let aberto = false;  // depois que o rascunho abriu, o botão só volta a ele
+    const botao = el("button", { type: "button", class: "btn", onclick: async () => {
+      if (aberto) { location.hash = "#registrar"; return; }
+      aberto = await registrarDoChat(lacunaId, pergunta, botao);
+    } }, icone("registrar", "ic p"), "Registrar isso");
+    return el("div", { class: "convite-registro" },
+      el("p", { class: "nota-msg", text: "A base ainda não cobre esse tema. Se isso já aconteceu numa conta sua, o curador organiza o relato e ele vai para a Fila antes de entrar na base." }),
+      botao);
+  }
+  function temRascunhoAberto() {
+    if (!estado.reg.proposta && !estado.reg.ocupado) return false;
+    aviso("Você tem um rascunho aberto em Registrar. Envie ou descarte antes de começar outro.", "erro");
+    location.hash = "#registrar";
+    return true;
+  }
+  async function registrarDoChat(lacunaId, pergunta, botao) {  // devolve true quando o rascunho abriu
+    if (temRascunhoAberto() || !exigirAutor()) return false;
+    botao.disabled = true;
+    botao.setAttribute("aria-busy", "true");
+    try {
+      const proposta = await chamar("POST", "/chat/registrar", { historico: estado.conversa.slice(-30), lacuna_id: lacunaId });
+      const falas = estado.conversa.filter((m) => m.role === "user").map((m) => m.text).slice(-3);  // as que o servidor usou
+      estado.reg = { conversa: [], proposta: null, ocupado: false, lacuna: { id: lacunaId, pergunta } };
+      const caixa = $("#mensagens-reg");
+      boasVindasRegistro();
+      for (const fala of falas) adicionarMsg(caixa, { papel: "eu", texto: fala, quem: nomeDoUsuario() });
+      responderComProposta(caixa, proposta, falas.join("\n\n"));
+      pintarVinculoLacuna();
+      botao.replaceChildren(icone("registrar", "ic p"), "Abrir o rascunho");
+      location.hash = "#registrar";
+      return true;
+    } catch (e) {
+      aviso(e.message, "erro");
+      return false;
+    } finally {
+      botao.disabled = false;
+      botao.removeAttribute("aria-busy");
+    }
+  }
+  // Na tela Registrar: a que pergunta do time este relato responde (e como desfazer o vínculo).
+  function pintarVinculoLacuna() {
+    const faixa = $("#reg-lacuna");
+    const lacuna = estado.reg.lacuna;
+    faixa.hidden = !lacuna;
+    if (!lacuna) { faixa.replaceChildren(); return; }
+    faixa.replaceChildren(icone("lacuna", "ic p"),
+      el("span", { class: "txt" }, el("b", { text: "Responde a uma pergunta do time: " }), `“${lacuna.pergunta}”`),
+      el("button", { type: "button", class: "btn fantasma", onclick: () => { estado.reg.lacuna = null; pintarVinculoLacuna(); } }, "Desvincular"));
+  }
+  // Do painel de lacunas: abre o curador com a pergunta do time, sem chamar o modelo (a pessoa conta o que aconteceu).
+  function registrarDaLacuna(l) {
+    if (temRascunhoAberto()) return;
+    estado.reg = { conversa: [], proposta: null, ocupado: false, lacuna: { id: l.id, pergunta: l.pergunta } };
+    boasVindasRegistro();
+    adicionarMsg($("#mensagens-reg"), { papel: "cerebro", quem: "Curador",
+      texto: `O time perguntou: “${l.pergunta}”. A base ainda não cobre. Se isso já aconteceu numa conta sua, conte o que aconteceu, o que foi feito e o resultado.` });
+    pintarRascunho();
+    pintarVinculoLacuna();
+    location.hash = "#registrar";
+    setTimeout(() => $("#campo-reg").focus(), 0);
+  }
+
+  async function contarLacunas() {
+    try {
+      const r = await chamar("GET", "/lacunas?status=aberta&limit=200");
+      estado.lacunas.abertas = r.itens.length;
+    } catch { /* sem o contador, a barra só não mostra o número */ }
+    atualizarNumeros();
+  }
+  function vezes(n, singular, plural) { return `${n} ${n === 1 ? singular : plural}`; }
+  function cartaoLacuna(l, aoMudar) {
+    const resolvida = l.status === "resolvida";
+    const cod = l.resolvida_por_insight_id ? `INS-${l.resolvida_por_insight_id}` : null;
+    const acoes = el("div", { class: "botoes" });
+    if (!resolvida) {
+      const tirar = el("button", { type: "button", class: "btn fantasma",
+        title: "Tira da lista esta pergunta e as parecidas: alguém já cobriu o assunto, ou ele não interessa." }, "Já foi coberta");
+      tirar.addEventListener("click", () => {
+        if (tirar.dataset.confirma) { resolverLacuna(l, tirar, aoMudar); return; }
+        tirar.dataset.confirma = "1";
+        tirar.textContent = "Confirmar: tirar da lista";
+        setTimeout(() => { delete tirar.dataset.confirma; tirar.textContent = "Já foi coberta"; }, 4000);
+      });
+      acoes.append(el("button", { type: "button", class: "btn primario", onclick: () => registrarDaLacuna(l) }, icone("registrar", "ic p"), "Registrar"), tirar);
+    } else if (cod) {
+      acoes.append(el("a", { class: "btn fantasma", href: `#item/${cod}` }, `Coberta pelo ${cod}`));
+    }
+    return el("article", { class: "item lacuna" },
+      el("div", { class: "meta" },
+        el("span", { class: `etiqueta${resolvida ? "" : " estado-alerta"}`, text: resolvida ? "Resolvida" : "Sem resposta na base" }),
+        el("span", { class: "etiqueta", text: vezes(l.vezes, "vez", "vezes") }),
+        el("span", { class: "etiqueta", text: vezes(l.pessoas, "pessoa", "pessoas") })),
+      el("h3", { class: "titulo-cartao", text: l.pergunta }),
+      el("div", { class: "pe" }, el("span", { text: `Última vez: ${dataHora(l.ultima_em)}` }),
+        l.vezes > 1 ? el("span", { text: `Primeira: ${dataHora(l.primeira_em)}` }) : null),
+      acoes);
+  }
+  async function resolverLacuna(l, botao, aoMudar) {
+    botao.disabled = true;
+    try {
+      await chamar("POST", `/lacunas/${l.id}/resolver`);
+      aviso("Tirei da lista.", "ok");
+      await aoMudar();
+    } catch (e) {
+      aviso(e.message, "erro");
+      botao.disabled = false;
+    }
+  }
+  async function pintarLacunas() {
+    const box = $("#lacunas-conteudo");
+    const L = estado.lacunas;
+    const pedido = ++L.pedido;  // só o último pedido pinta (o filtro pode mudar no meio)
+    let r;
+    try {
+      r = await chamar("GET", `/lacunas?${new URLSearchParams({ status: L.status, limit: "100" })}`);
+    } catch (e) {
+      aviso(`Não consegui carregar as lacunas: ${e.message}`, "erro");
+      return;
+    }
+    if (pedido !== L.pedido) return;
+    if (L.status === "aberta") { L.abertas = r.itens.length; atualizarNumeros(); }
+    const recarregar = async () => { await contarLacunas(); await pintarLacunas(); };
+    const filtros = el("div", { class: "filtros", role: "group", "aria-label": "Mostrar" },
+      ...[["aberta", "Abertas"], ["resolvida", "Resolvidas"]].map(([chave, nome]) =>
+        chip(nome, L.status === chave, () => { L.status = chave; pintarLacunas(); })));
+    if (!r.itens.length) {
+      box.replaceChildren(filtros, vazio(
+        L.status === "aberta" ? "Nenhuma pergunta sem resposta" : "Nenhuma lacuna resolvida ainda",
+        L.status === "aberta"
+          ? "Quando o Cérebro disser “A base não cobre…”, a pergunta aparece aqui, as mais repetidas primeiro."
+          : "As lacunas saem da lista aberta quando alguém registra o assunto ou as tira da lista."));
+      return;
+    }
+    box.replaceChildren(filtros,
+      el("p", { class: "resumo-lista", text: `${vezes(r.itens.length, "pergunta", "perguntas")}${L.status === "aberta" ? " sem resposta, as mais repetidas primeiro" : " resolvidas"}` }),
+      el("div", { class: "lista" }, r.itens.map((l) => cartaoLacuna(l, recarregar))));
+  }
+
+  // ---------------------------------------------------------------- anexo no chat (o clipe)
+  const ANEXO_EXTENSOES = [".docx", ".pdf", ".xlsx", ".csv", ".txt", ".md"];
+  const ANEXO_MAX_BYTES = 10 * 1024 * 1024;
+  const ANEXO_ESPERA_MS = 3000;
+  const ANEXO_TENTATIVAS = 40;  // 2 minutos olhando o curador; depois a pessoa vê o resultado em Fontes
+  async function anexar(arquivo) {
+    if (!arquivo || estado.anexando) return;
+    const entrada = $("#arquivo-anexo");
+    const nome = arquivo.name || "anexo";
+    const ponto = nome.lastIndexOf(".");
+    if (ponto < 0 || !ANEXO_EXTENSOES.includes(nome.slice(ponto).toLowerCase())) {
+      aviso("Esse formato não entra. Anexe docx, pdf, xlsx, csv, txt ou md.", "erro");
+      entrada.value = "";
+      return;
+    }
+    if (arquivo.size > ANEXO_MAX_BYTES) {
+      aviso("O arquivo passa de 10 MB. Anexe uma versão menor.", "erro");
+      entrada.value = "";
+      return;
+    }
+    const caixa = $("#mensagens");
+    estado.anexando = true;
+    $("#anexar").disabled = true;
+    adicionarMsg(caixa, { papel: "eu", texto: `Anexei: ${nome}`, quem: nomeDoUsuario() });
+    const indicador = digitando(caixa, "Lendo o arquivo");
+    try {
+      const dados = new FormData();
+      dados.append("arquivo", arquivo, nome);
+      const r = await chamar("POST", "/fontes/anexo", dados);
+      indicador.remove();
+      mostrarAnexo(caixa, r);
+    } catch (e) {
+      indicador.remove();
+      adicionarMsg(caixa, { papel: "erro", texto: e.message, quem: "Não deu certo" });
+    } finally {
+      estado.anexando = false;
+      $("#anexar").disabled = false;
+      entrada.value = "";  // o mesmo arquivo pode ser escolhido de novo
+    }
+  }
+  // A resposta ao anexo: o aviso do servidor, o que o consultor já pode fazer com ele e, enquanto o curador lê, o andamento.
+  function mostrarAnexo(caixa, r) {
+    const f = r.fonte;
+    const barrado = f.status === "vazia" || f.status === "pulada_dado_pessoal";
+    const andamento = el("div", { class: "anexo-andamento", role: "status" });
+    const nota = r.documento
+      ? `O Cérebro já acha trechos de “${f.titulo}” nas respostas (marcados DOC-${r.documento.id}), mas o time ainda não revisou o arquivo.`
+      : null;
+    adicionarMsg(caixa, { papel: barrado ? "erro" : "cerebro", quem: barrado ? "Não entrou" : "Cérebro",
+      texto: r.aviso || "Recebi o arquivo.", extra: r.curando ? andamento : null, nota, docs: r.documento ? [r.documento] : [] });
+    if (r.curando) acompanharAnexo(f.id, andamento);
+  }
+  async function acompanharAnexo(id, alvo, tentativas = ANEXO_TENTATIVAS) {
+    alvo.replaceChildren(el("span", { class: "ponto-vivo", "aria-hidden": "true" }), " O curador está lendo o arquivo…");
+    for (let i = 0; i < tentativas; i++) {
+      await new Promise((resolve) => setTimeout(resolve, ANEXO_ESPERA_MS));
+      if (!document.contains(alvo)) return;  // a conversa foi limpa: ninguém mais olha
+      let f;
+      try { f = await chamar("GET", `/fontes/${id}`); } catch { continue; }
+      if (f.status === "a_curar") continue;
+      if (f.status === "falha") {
+        alvo.replaceChildren("O curador falhou neste arquivo. ",
+          el("button", { type: "button", class: "btn fantasma", onclick: () => reprocessarAnexo(id, alvo) }, "Tentar de novo"));
+        return;
+      }
+      const itens = resumoDeItens(f.itens);
+      alvo.replaceChildren(itens
+        ? el("span", {}, `O curador terminou: ${itens}. Eles esperam a revisão do time na `, el("a", { href: "#fila", text: "Fila" }), ".")
+        : "O curador terminou e não achou nada novo para propor.");
+      await carregarItens();
+      atualizarNumeros();
+      return;
+    }
+    alvo.replaceChildren("O curador ainda está lendo. Veja como terminou em ", el("a", { href: "#fontes", text: "Fontes" }), ".");
+  }
+  async function reprocessarAnexo(id, alvo) {
+    try {
+      await chamar("POST", `/fontes/${id}/curar`);
+      acompanharAnexo(id, alvo);
+    } catch (e) {
+      aviso(e.message, "erro");
     }
   }
 
@@ -1167,7 +1415,8 @@
   const PULADAS = ["vazia", "pulada_dado_pessoal", "pulada_longa", "pulada_duplicata"];
   const ROTULO_ITEM = { historico_a_validar: "na Fila", proposto: "na Fila", validado: "aprovado", consolidado: "consolidado", obsoleto: "obsoleto" };
 
-  function linkSeguro(url) { return typeof url === "string" && /^https:\/\//.test(url) ? url : null; }
+  // https, ou o texto de um anexo do próprio servidor ("/fontes/12/texto"): é o link do [DOC-n] de um arquivo anexado.
+  function linkSeguro(url) { return typeof url === "string" && /^(https:\/\/|\/fontes\/\d+\/texto$)/.test(url) ? url : null; }
   function dataHora(iso) {
     if (!iso) return "";
     const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`);  // o servidor manda em UTC, sem o "Z"
@@ -1619,7 +1868,7 @@
   // Teclado: setas movem, Enter abre, Cmd+Enter pergunta ao Cérebro, Tab troca o filtro e Esc fecha.
   const paleta = { aberta: false, termo: "", filtro: "tudo", sel: 0, opcoes: [], fontes: [], pedido: 0, espera: null, focoAntes: null };
   const FILTROS_PALETA = [["tudo", "Tudo"], ["itens", "Itens"], ["fontes", "Fontes"], ["acoes", "Ações"]];
-  const TELAS_PALETA = [["#hoje", "hoje", "Hoje"], ["#fila", "fila", "Fila"], ["#preparar", "preparar", "Preparar reunião"], ["#fontes", "fontes", "Fontes"]];
+  const TELAS_PALETA = [["#hoje", "hoje", "Hoje"], ["#fila", "fila", "Fila"], ["#preparar", "preparar", "Preparar reunião"], ["#lacunas", "lacuna", "Lacunas"], ["#fontes", "fontes", "Fontes"]];
   const MAX_ITENS_PALETA = 8;
 
   // O trecho que bate com o termo vai num <mark> (a comparação ignora acento e maiúscula).
@@ -1858,6 +2107,8 @@
     ligarCampo($("#campo-reg"), formReg);
     formReg.addEventListener("submit", (e) => { e.preventDefault(); relatar($("#campo-reg").value); });
     $("#rascunho").addEventListener("submit", enviarParaFila);
+    $("#anexar").addEventListener("click", () => { if (!estado.anexando) $("#arquivo-anexo").click(); });
+    $("#arquivo-anexo").addEventListener("change", (e) => anexar(e.target.files[0]));
 
     $("#form-briefing").addEventListener("submit", montarBriefing);
     $("#nova-conversa").addEventListener("click", () => {
@@ -1925,7 +2176,7 @@
     const rascunho = guardar.ler("cerebro.rascunho-chat");
     if (rascunho) { $("#campo-chat").value = rascunho; guardar.escrever("cerebro.rascunho-chat", ""); }
     await carregarItens();
-    atualizarNumeros();
+    await contarLacunas();
     iniciarConversa();
     boasVindasRegistro();
     pintarRascunho();
