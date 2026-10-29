@@ -280,3 +280,50 @@ def test_tela_sem_texto_de_desenvolvedor():
         assert termo not in sem_comentarios and termo not in html, termo
     assert "Sem conexão com o servidor. Nada aparece nem vai para a base até ele responder." in js
     assert 'id="faixa-servidor"' in html and "Tentar conectar" in js
+
+
+# --- "Registrar isso", Lacunas e o clipe de anexo (a interface liga o que a T7 entregou na API) -------------------
+
+def _pagina_e_js():
+    with TestClient(app) as client:
+        return client.get("/").text, client.get("/static/cerebro.js").text, client.get("/static/cerebro.css").text
+
+
+def test_chat_oferece_registrar_isso_quando_a_resposta_traz_lacuna_id():
+    """O servidor decide pela frase "A base não cobre…" (lacuna_id); a tela só mostra o convite e leva a conversa ao
+    curador (POST /chat/registrar), sem gravar. Quem grava é o envio do rascunho, com o lacuna_id."""
+    _, js, _ = _pagina_e_js()
+    assert "r.lacuna_id ? convitePraRegistrar" in js
+    assert '"/chat/registrar"' in js and "lacuna_id: lacunaId" in js
+    assert '"Registrar isso"' in js
+    assert '...(lacuna ? { lacuna_id: lacuna.id } : {})' in js  # o POST /insights leva o lacuna_id e fecha a lacuna
+    assert "temRascunhoAberto()" in js  # um rascunho aberto nunca é apagado em silêncio
+
+
+def test_tela_de_lacunas_esta_no_menu_na_paleta_e_usa_a_api():
+    html, js, _ = _pagina_e_js()
+    assert 'data-tela="lacunas"' in html and 'id="lacunas-conteudo"' in html
+    assert html.count('href="#lacunas"') == 2  # a barra e a navegação do celular
+    assert 'id="contador-lacunas"' in html and 'id="contador-lacunas-celular"' in html
+    assert 'id="reg-lacuna"' in html  # a faixa "responde a uma pergunta do time" na tela Registrar
+    assert '"lacunas"' in js and "/lacunas?" in js and "/lacunas/${l.id}/resolver" in js
+    assert '["#lacunas", "lacuna", "Lacunas"]' in js  # Cmd+K
+    assert "Confirmar: tirar da lista" in js  # tirar da lista pede um segundo clique (não há como reabrir)
+
+
+def test_clipe_de_anexo_envia_o_arquivo_e_acompanha_o_curador():
+    html, js, css = _pagina_e_js()
+    assert 'id="anexar"' in html and 'id="arquivo-anexo"' in html
+    assert 'accept=".docx,.pdf,.xlsx,.csv,.txt,.md"' in html
+    assert 'dados.append("arquivo", arquivo, nome)' in js and '"/fontes/anexo"' in js
+    assert "corpo instanceof FormData" in js  # o upload não vai como JSON
+    assert "10 * 1024 * 1024" in js
+    assert "/fontes/${id}/curar" in js and 'chamar("GET", `/fontes/${id}`)' in js  # acompanha e tenta de novo
+    assert r"\/fontes\/\d+\/texto$" in js  # o [DOC-n] de um anexo abre o texto, que é um endereço do próprio servidor
+    assert ".anexo-andamento" in css
+
+
+def test_a_interface_nunca_manda_o_anexo_sem_o_servidor():
+    """Sem servidor o clipe some junto com o resto do que só existe ao vivo (não há para onde enviar)."""
+    html, _, _ = _pagina_e_js()
+    assert re.search(r'class="btn-icone so-ao-vivo" id="anexar"', html)

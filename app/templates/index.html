@@ -31,6 +31,7 @@
     <p class="t-rotulo grupo-barra">Trabalho</p>
     <a class="no" href="#fila"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg><span class="txt">Fila</span><b class="selo-cont" id="contador-fila" hidden>0</b></a>
     <a class="no" href="#preparar"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/><path d="m9 15 2 2 4-4"/></svg><span class="txt">Preparar reunião</span></a>
+    <a class="no so-ao-vivo" href="#lacunas"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.3-2.5 4"/><path d="M12 17.5h.01"/></svg><span class="txt">Lacunas</span><b class="selo-cont" id="contador-lacunas" hidden>0</b></a>
     <p class="t-rotulo grupo-barra so-ao-vivo">Bastidores</p>
     <a class="no so-ao-vivo" href="#fontes" data-tela="fontes"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.5"/><path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13"/><path d="M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5"/></svg><span class="txt">Fontes</span></a>
     <div class="rodape" id="voce" hidden></div>
@@ -88,6 +89,7 @@
             <p class="t-rotulo">Rascunho do curador · ainda não gravado</p>
             <h1 class="t-titulo">Registrar um relato</h1>
           </header>
+          <p class="reg-lacuna" id="reg-lacuna" role="status" hidden></p>
           <div class="painel registrar-chat">
             <div class="cab">
               <span class="mascote p av" data-mascote="simbolo"></span>
@@ -135,6 +137,17 @@
         </div>
       </section>
 
+      <section class="tela" data-tela="lacunas" aria-label="Lacunas da base" hidden>
+        <div class="miolo tela-lista">
+          <header class="cab-tela">
+            <p class="t-rotulo">Trabalho · Lacunas</p>
+            <h1 class="t-titulo">O que a base ainda não sabe</h1>
+            <p class="t-corpo">Perguntas do time que o Cérebro não soube responder, as mais repetidas primeiro. Registrar o que o time viveu fecha a lacuna.</p>
+          </header>
+          <div id="lacunas-conteudo"></div>
+        </div>
+      </section>
+
       <section class="tela" data-tela="fontes" aria-label="Fontes importadas" hidden>
         <div class="miolo tela-lista">
           <header class="cab-tela">
@@ -164,6 +177,8 @@
       <label class="t-rotulo" for="campo-chat">Pergunta</label>
       <textarea class="campo-msg" id="campo-chat" rows="2" maxlength="4000" placeholder="Pergunte ou conte o que aconteceu"></textarea>
       <div class="compor-base">
+        <button class="btn-icone so-ao-vivo" id="anexar" type="button" aria-label="Anexar um arquivo (docx, pdf, xlsx, csv, txt ou md; até 10 MB)" title="Anexar um arquivo (docx, pdf, xlsx, csv, txt ou md; até 10 MB)"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="m20 11.5-8.2 8.2a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></svg></button>
+        <input type="file" id="arquivo-anexo" accept=".docx,.pdf,.xlsx,.csv,.txt,.md" hidden>
         <button class="btn primario enviar" id="enviar-chat" type="submit" aria-label="Perguntar"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
       </div>
     </form>
@@ -179,6 +194,7 @@
   <a class="no" href="#base"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span class="txt">Base</span></a>
   <a class="no" href="#preparar"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/><path d="m9 15 2 2 4-4"/></svg><span class="txt">Preparar reunião</span></a>
   <a class="no" href="#fila"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg><span class="txt">Fila</span><b class="selo-cont" id="contador-fila-celular" hidden>0</b></a>
+  <a class="no" href="#lacunas"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.3-2.5 4"/><path d="M12 17.5h.01"/></svg><span class="txt">Lacunas</span><b class="selo-cont" id="contador-lacunas-celular" hidden>0</b></a>
   <a class="no" href="#hoje"><svg class="ic p" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span class="txt">Hoje</span></a>
 </nav>
 

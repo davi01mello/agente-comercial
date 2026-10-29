@@ -143,6 +143,10 @@ Drive o dado pessoal **não** é mascarado nem pulado (só avisado). Detalhes no
 
 Tudo exige login (T5). Detalhes e decisões no [ADR-008](docs/adr-008-backend-t7.md).
 
+A interface usa todas estas rotas: o botão **Registrar isso** aparece na resposta do chat quando vem `lacuna_id`, a tela
+**Lacunas** (barra lateral, Cmd+K e o contador) lista e resolve as perguntas sem resposta, e o **clipe** do chat envia o
+anexo e acompanha o curador.
+
 | Rota | Para quê |
 |---|---|
 | `POST /chat` | Já devolvia `resposta` e `documentos`; agora também `lacuna_id` (quando o consultor disse que a base não cobre). |
