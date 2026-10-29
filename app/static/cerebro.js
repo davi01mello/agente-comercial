@@ -3,7 +3,7 @@
    Fala sempre com a API de verdade (FastAPI). Não há base de exemplo nem modo de demonstração: sem servidor, a tela
    avisa e não mostra nada inventado.
    Regra de segurança: todo texto que vem do usuário ou do modelo entra na página como texto (textContent),
-   nunca como HTML. O único innerHTML é o SVG do orbe, que é gerado aqui mesmo. */
+   nunca como HTML. O único innerHTML é o SVG do mascote, que é gerado aqui mesmo. */
 "use strict";
 
 (() => {
@@ -27,19 +27,8 @@
     return n;
   }
 
-  function rng(semente) {
-    let s = semente | 0;
-    return () => {
-      s = (s + 0x6d2b79f5) | 0;
-      let t = Math.imul(s ^ (s >>> 15), 1 | s);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
   const normalizar = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const capital = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
-  const hora = () => new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   const dataBr = (iso) => (iso ? iso.split("-").reverse().join("/") : "");
 
   const guardar = {
@@ -84,244 +73,79 @@
     fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [] },
     focoAntes: null,
     pessoa: null,  // quem entrou (GET /auth/eu): {email, nome, dev, dominio}; null enquanto não entrou
+    erroCarga: null,  // a mensagem, quando a base não carregou
+    telaHash: null,  // o endereço da tela aberta no centro ("#fila", "#item/INS-12")
+    abas: [],  // as abas abertas além do Hoje (os endereços), lembradas no localStorage
+    pastas: new Set(),  // as pastas da árvore que a pessoa abriu
   };
   const aoVivo = () => estado.modo === "vivo";
 
-  // ---------------------------------------------------------------- orbe (o mascote)
-  let seqOrbe = 0;
-  function orbe(classe = "") {
-    const id = `orb${++seqOrbe}`;
-    const r = rng(42);
-    const pts = [];
-    while (pts.length < 11) {
-      const x = 60 + (r() * 2 - 1) * 30;
-      const y = 60 + (r() * 2 - 1) * 30;
-      if (Math.hypot(x - 60, y - 60) < 30) pts.push([x, y]);
+  // ---------------------------------------------------------------- mascote (a marca)
+  // Um cerebrozinho em traço que levanta uma nota (a prova), com o anel do orbe do CITi na cintura. O desenho é o do
+  // Design System (Cerebro.mascote) e só usa classes: as cores vêm dos tokens no CSS. O "símbolo" é a versão pequena
+  // (barra lateral, avatar da resposta e botão do celular). Os humores trocam a boca, os olhos e a nota: "pensando"
+  // (esperando o modelo), "sem-resposta" (o modelo falhou) e "nota-em-branco" (base vazia). Erro nunca vai no rosto
+  // dele: fica no texto.
+  const CONTORNO = "M37 92C29 92 25 84 29 78C23 74 23 63 31 61C29 52 37 46 45 49C47 41 57 39 61 45C64 39 75 39 78 47C86 45 93 52 90 60C96 63 96 74 90 78C93 86 86 93 79 91C74 96 65 96 61 92C56 96 43 96 37 92Z";
+  const SULCOS = "M61 45C59 50 62 53 60 57M38 56q5-4 10 0M72 53q5-4 10 0M32 86q4-3.5 8-1M80 85q4-2.5 8 1";
+  const HUMORES = {
+    padrao: { olhoY: 62, olhoA: 10, boca: "M54 77q6 4.5 12 0", nota: "acena" },
+    pensando: { olhoY: 58, olhoA: 9, boca: "M57 78h6", nota: "parada" },
+    "sem-resposta": { olhoY: 62, olhoA: 10, boca: "M55 80q5-3.6 10 0", nota: "apagada" },
+    "nota-em-branco": { olhoY: 62, olhoA: 10, boca: "M54 77q6 4.5 12 0", nota: "branca" },
+  };
+  let seqMascote = 0;
+  function mascote({ forma = "", humor = "padrao" } = {}) {
+    if (forma === "simbolo") {
+      return `<svg viewBox="20 24 88 76" aria-hidden="true" focusable="false"><path class="mc-corpo grosso" d="${CONTORNO}"/><path class="mc-sulco grosso" d="M61 45C59 50 62 53 60 57"/><rect class="mc-olho" x="46.5" y="61" width="8" height="12" rx="4"/><rect class="mc-olho" x="65.5" y="61" width="8" height="12" rx="4"/><path class="mc-boca grosso" d="M53 78q7 5 14 0"/><g transform="rotate(9 96 38)"><rect class="mc-nota" x="85" y="26" width="22" height="24" rx="6"/><path class="mc-nota-linha" d="M90.5 34h11M90.5 39.5h11M90.5 45h6"/></g></svg>`;
     }
-    let linhas = "";
-    pts.forEach((p, i) => {
-      pts.map((q, j) => [j, Math.hypot(q[0] - p[0], q[1] - p[1])])
-        .filter(([j]) => j > i).sort((a, b) => a[1] - b[1]).slice(0, 2)
-        .forEach(([j]) => { linhas += `<line x1="${p[0].toFixed(1)}" y1="${p[1].toFixed(1)}" x2="${pts[j][0].toFixed(1)}" y2="${pts[j][1].toFixed(1)}"/>`; });
-    });
-    const nos = pts.map((p, i) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${(1.5 + r() * 1.5).toFixed(1)}" style="--d:${(i * 0.37).toFixed(2)}s"/>`).join("");
-    return `<svg class="orbe ${classe}" viewBox="0 0 120 120" aria-hidden="true" focusable="false">
-      <defs>
-        <radialGradient id="${id}v" cx="38%" cy="32%" r="75%">
-          <stop offset="0" stop-color="#dcd5ff" stop-opacity=".95"/><stop offset=".36" stop-color="#7f74ff" stop-opacity=".78"/>
-          <stop offset=".8" stop-color="#2a1f8f" stop-opacity=".94"/><stop offset="1" stop-color="#160f4e"/>
-        </radialGradient>
-        <radialGradient id="${id}n" cx="64%" cy="68%" r="52%">
-          <stop offset="0" stop-color="#ff7ad9" stop-opacity=".55"/><stop offset="1" stop-color="#ff7ad9" stop-opacity="0"/>
-        </radialGradient>
-        <linearGradient id="${id}a" x1="0" x2="1">
-          <stop offset="0" stop-color="#7fd7ff" stop-opacity=".08"/><stop offset=".5" stop-color="#cdb8ff"/><stop offset="1" stop-color="#7fd7ff" stop-opacity=".08"/>
-        </linearGradient>
-        <clipPath id="${id}c"><circle cx="60" cy="60" r="37"/></clipPath>
-      </defs>
-      <g transform="rotate(-16 60 60)"><path d="M5 62 A55 15 0 0 1 115 62" fill="none" stroke="url(#${id}a)" stroke-width="3" opacity=".5"/></g>
-      <circle cx="60" cy="60" r="38" fill="url(#${id}v)"/>
-      <circle cx="60" cy="60" r="38" fill="url(#${id}n)"/>
-      <g clip-path="url(#${id}c)">
-        <g class="rede" stroke="#ebe6ff" stroke-opacity=".45" stroke-width=".7">${linhas}</g>
-        <g class="nos" fill="#f6f3ff">${nos}</g>
-      </g>
-      <ellipse cx="46" cy="40" rx="13" ry="7.5" fill="#fff" opacity=".3" transform="rotate(-30 46 40)"/>
-      <circle cx="60" cy="60" r="38" fill="none" stroke="#d3cbff" stroke-opacity=".55" stroke-width="1"/>
-      <g transform="rotate(-16 60 60)"><path d="M115 62 A55 15 0 0 1 5 62" fill="none" stroke="url(#${id}a)" stroke-width="3.2"/></g>
-    </svg>`;
+    const h = HUMORES[humor] || HUMORES.padrao;
+    const id = `masc${++seqMascote}`;  // o gradiente do anel precisa de um id por desenho
+    const linhas = h.nota === "branca" ? "" : '<path class="mc-nota-linha" d="M97 34h12M97 39h12M97 44h7"/>';
+    const pensa = humor === "pensando"
+      ? '<g class="mc-pensa"><circle cx="50" cy="31" r="2.2"/><circle cx="60" cy="28" r="2.2"/><circle cx="70" cy="31" r="2.2"/></g>'
+      : "";
+    return `<svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+      <defs><linearGradient id="${id}" x1="0" x2="1"><stop offset="0" class="mc-anel-ponta"/><stop offset=".5" class="mc-anel-meio"/><stop offset="1" class="mc-anel-ponta"/></linearGradient></defs>
+      <path class="mc-chao" d="M14 104H106"/><path class="mc-chao cruz" d="M60 99v10M55 104h10"/>
+      <g transform="rotate(-12 60 76)"><path class="mc-anel tras" d="M10 76A50 12 0 0 1 110 76" stroke="url(#${id})"/></g>
+      <path class="mc-pe" d="M50 94.5v9.5M70 94.5v9.5"/>
+      <g class="mc-respira"><path class="mc-corpo" d="${CONTORNO}"/><path class="mc-sulco" d="${SULCOS}"/>
+        <rect class="mc-olho piscar" x="48" y="${h.olhoY}" width="6" height="${h.olhoA}" rx="3"/><rect class="mc-olho piscar" x="66" y="${h.olhoY}" width="6" height="${h.olhoA}" rx="3"/>
+        <ellipse class="mc-bochecha" cx="42.5" cy="76" rx="4" ry="2.4"/><ellipse class="mc-bochecha" cx="77.5" cy="76" rx="4" ry="2.4"/>
+        <path class="mc-boca" d="${h.boca}"/></g>
+      <g transform="rotate(-12 60 76)"><path class="mc-anel" d="M110 76A50 12 0 0 1 10 76" stroke="url(#${id})"/></g>
+      <g class="mc-mao ${h.nota}"><path class="mc-pe braco" d="M90 66 99 51"/><g transform="rotate(9 103 38)"><rect class="mc-nota" x="92" y="26" width="22" height="24" rx="5"/>${linhas}</g></g>
+      ${pensa}</svg>`;
   }
-  function pintarOrbes(raiz = document) {
-    for (const alvo of $$("[data-orbe]", raiz)) alvo.innerHTML = orbe(alvo.dataset.orbe);
+  // Pinta o mascote em todo [data-mascote] da página (o valor é a forma; o data-humor, o humor).
+  function pintarMascotes(raiz = document) {
+    for (const alvo of $$("[data-mascote]", raiz)) alvo.innerHTML = mascote({ forma: alvo.dataset.mascote, humor: alvo.dataset.humor });
   }
-  const orbeEm = (classe) => { const s = el("span", { class: classe }); s.innerHTML = orbe(); return s; };
-
-  // ---------------------------------------------------------------- cena: a cidade à noite
-  const cena = (() => {
-    const cv = $("#cena");
-    const ctx = cv.getContext("2d");
-    const calmo = matchMedia("(prefers-reduced-motion: reduce)");
-    let W = 0, H = 0, dpr = 1, ceu = null, cidade = null;
-    let estrelas = [], nos = [], arestas = [], faiscas = [], luzes = [];
-    let rodando = false, ultimo = 0;
-
-    const tela = (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
-
-    function predios(c, r, o) {
-      let x = -20;
-      while (x < W + 20) {
-        const w = o.larg[0] + r() * (o.larg[1] - o.larg[0]);
-        const h = H * (o.alt[0] + r() * (o.alt[1] - o.alt[0]));
-        const topo = o.base - h;
-        c.fillStyle = o.cor;
-        c.fillRect(x, topo, w - 2, H - topo);
-        if (r() < 0.35) c.fillRect(x + w * 0.28, topo - h * 0.07, w * 0.44, h * 0.07);
-        if (r() < 0.22) {
-          c.fillRect(x + w * 0.48, topo - h * 0.2, 2, h * 0.2);
-          luzes.push({ x: x + w * 0.48 + 1, y: topo - h * 0.2, antena: true, f: r() * 6.28 });
-        }
-        c.fillStyle = o.aresta;
-        c.fillRect(x, topo, 1.5, H - topo);
-        if (o.janelas) {
-          const cols = Math.floor((w - 10) / 9), linhas = Math.floor((H - topo - 14) / 12);
-          for (let i = 0; i < cols; i++) {
-            for (let j = 0; j < linhas; j++) {
-              if (r() >= o.acesas) continue;
-              const tom = o.tons[Math.floor(r() * o.tons.length)];
-              const wx = x + 6 + i * 9, wy = topo + 10 + j * 12;
-              c.fillStyle = `${tom}${(0.3 + r() * 0.55).toFixed(2)})`;
-              c.fillRect(wx, wy, 4, 6);
-              if (r() < 0.035) luzes.push({ x: wx, y: wy, tom, f: r() * 6.28 });
-            }
-          }
-        }
-        x += w + (r() < 0.3 ? r() * 16 : 0);
-      }
+  function mascoteEm(classe, { forma = "", humor = "padrao" } = {}) {
+    const s = el("span", { class: `mascote ${classe}`, "data-mascote": forma, "data-humor": humor, "aria-hidden": "true" });
+    s.innerHTML = mascote({ forma, humor });
+    return s;
+  }
+  // Quando o Cérebro responde ou um item é aprovado, o mascote da barra acena uma vez (no lugar da rajada da cena).
+  function pulsarMascote() {
+    for (const m of $$(".mascote.marca-viva")) {
+      m.classList.remove("acenou");
+      void m.offsetWidth;  // reinicia a animação
+      m.classList.add("acenou");
     }
+  }
 
-    function montar() {
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
-      W = window.innerWidth; H = window.innerHeight;
-      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-      const r = rng(7);
-      luzes = [];
-
-      // céu, névoa do horizonte e lua
-      ceu = tela(cv.width, cv.height);
-      const f = ceu.getContext("2d");
-      f.scale(dpr, dpr);
-      const g = f.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, "#04051a"); g.addColorStop(0.42, "#121048"); g.addColorStop(0.68, "#36217e");
-      g.addColorStop(0.84, "#78398e"); g.addColorStop(1, "#1a0f33");
-      f.fillStyle = g; f.fillRect(0, 0, W, H);
-      const nevoa = f.createRadialGradient(W * 0.64, H * 0.84, 0, W * 0.64, H * 0.84, W * 0.7);
-      nevoa.addColorStop(0, "rgba(255,140,190,.34)"); nevoa.addColorStop(0.42, "rgba(140,80,220,.16)"); nevoa.addColorStop(1, "rgba(0,0,0,0)");
-      f.fillStyle = nevoa; f.fillRect(0, 0, W, H);
-      const lx = W * 0.8, ly = H * (W > 860 ? 0.14 : 0.42), lr = Math.max(34, Math.min(W, H) * 0.07);
-      const halo = f.createRadialGradient(lx, ly, lr * 0.6, lx, ly, lr * 4.2);
-      halo.addColorStop(0, "rgba(205,195,255,.32)"); halo.addColorStop(1, "rgba(205,195,255,0)");
-      f.fillStyle = halo; f.beginPath(); f.arc(lx, ly, lr * 4.2, 0, 7); f.fill();
-      const lua = f.createRadialGradient(lx - lr * 0.35, ly - lr * 0.35, lr * 0.1, lx, ly, lr);
-      lua.addColorStop(0, "#fbf8ff"); lua.addColorStop(0.7, "#d2c8ff"); lua.addColorStop(1, "#9c8df0");
-      f.fillStyle = lua; f.beginPath(); f.arc(lx, ly, lr, 0, 7); f.fill();
-      f.fillStyle = "rgba(118,98,210,.17)";
-      for (let i = 0; i < 6; i++) {
-        const a = r() * 6.28, d = r() * lr * 0.6;
-        f.beginPath(); f.arc(lx + Math.cos(a) * d, ly + Math.sin(a) * d, lr * (0.08 + r() * 0.14), 0, 7); f.fill();
-      }
-
-      // estrelas de fundo
-      estrelas = [];
-      const n = Math.round((W * H) / 5200);
-      for (let i = 0; i < n; i++) estrelas.push({ x: r() * W, y: r() * H * 0.72, t: r() * 1.3 + 0.3, f: r() * 6.28, v: 0.5 + r() * 1.5 });
-
-      // constelação: a base de conhecimento (itens e relações)
-      nos = [];
-      const k = Math.max(9, Math.round(W / 105));
-      for (let i = 0; i < k; i++) nos.push({ x: W * (0.05 + r() * 0.9), y: H * (0.05 + r() * 0.42), f: r() * 6.28 });
-      arestas = [];
-      nos.forEach((a, i) => {
-        nos.map((b, j) => [j, Math.hypot(b.x - a.x, b.y - a.y)]).filter(([j]) => j !== i)
-          .sort((p, q) => p[1] - q[1]).slice(0, 2)
-          .forEach(([j, d]) => { if (d < W * 0.24 && !arestas.some(([p, q]) => (p === j && q === i) || (p === i && q === j))) arestas.push([i, j]); });
-      });
-
-      // cidade em três planos, moldura da janela e luz de mesa
-      cidade = tela(cv.width, cv.height);
-      const c = cidade.getContext("2d");
-      c.scale(dpr, dpr);
-      predios(c, r, { base: H * 0.7, alt: [0.1, 0.26], larg: [28, 70], cor: "#251b58", aresta: "rgba(170,150,255,.07)", janelas: false });
-      predios(c, r, { base: H * 0.8, alt: [0.14, 0.36], larg: [36, 90], cor: "#170f3c", aresta: "rgba(170,150,255,.09)", janelas: true, acesas: 0.24, tons: ["rgba(150,160,255,", "rgba(255,190,120,"] });
-      predios(c, r, { base: H * 0.93, alt: [0.18, 0.44], larg: [48, 120], cor: "#0b0821", aresta: "rgba(170,150,255,.1)", janelas: true, acesas: 0.33, tons: ["rgba(255,196,120,", "rgba(150,170,255,", "rgba(255,120,200,"] });
-      const mesa = c.createLinearGradient(0, H * 0.86, 0, H);
-      mesa.addColorStop(0, "rgba(5,4,15,0)"); mesa.addColorStop(1, "rgba(5,4,15,.92)");
-      c.fillStyle = mesa; c.fillRect(0, H * 0.86, W, H * 0.14);
-      const lampada = c.createRadialGradient(W * 0.02, H * 0.98, 0, W * 0.02, H * 0.98, Math.max(W, H) * 0.42);
-      lampada.addColorStop(0, "rgba(255,170,90,.28)"); lampada.addColorStop(1, "rgba(255,170,90,0)");
-      c.fillStyle = lampada; c.fillRect(0, 0, W, H);
-      const tela2 = c.createRadialGradient(W * 0.74, H, 0, W * 0.74, H, Math.max(W, H) * 0.3);
-      tela2.addColorStop(0, "rgba(110,150,255,.2)"); tela2.addColorStop(1, "rgba(110,150,255,0)");
-      c.fillStyle = tela2; c.fillRect(0, 0, W, H);
+  // O que é enfeite nunca derruba o início da página: um erro aqui vai para o console e a tela segue. Foi assim que a
+  // tela ficou em branco em 27/10 (o fundo em canvas quebrava com a janela em 0 px e levava o iniciar() junto).
+  function seguro(fn, nome) {
+    try {
+      return fn();
+    } catch (e) {
+      console.error(`Cérebro: a peça "${nome}" falhou e foi pulada.`, e);
+      return undefined;
     }
-
-    function quadro(ms) {
-      const s = ms / 1000;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(ceu, 0, 0);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = "#e9e5ff";
-      for (const e of estrelas) {
-        ctx.globalAlpha = 0.3 + 0.7 * Math.abs(Math.sin(e.f + s * e.v * 0.6));
-        ctx.fillRect(e.x, e.y, e.t, e.t);
-      }
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(184,150,255,.2)";
-      ctx.beginPath();
-      for (const [a, b] of arestas) { ctx.moveTo(nos[a].x, nos[a].y); ctx.lineTo(nos[b].x, nos[b].y); }
-      ctx.stroke();
-      if (!calmo.matches && faiscas.length < 3 && Math.random() < 0.015 && arestas.length) {
-        const [a, b] = arestas[Math.floor(Math.random() * arestas.length)];
-        faiscas.push({ a, b, p: 0 });
-      }
-      for (const fz of faiscas) {
-        fz.p += 0.014;
-        const A = nos[fz.a], B = nos[fz.b];
-        const x = A.x + (B.x - A.x) * fz.p, y = A.y + (B.y - A.y) * fz.p;
-        const g = ctx.createRadialGradient(x, y, 0, x, y, 11);
-        g.addColorStop(0, "rgba(170,232,255,.95)"); g.addColorStop(1, "rgba(170,232,255,0)");
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 11, 0, 7); ctx.fill();
-      }
-      faiscas = faiscas.filter((fz) => fz.p < 1);
-      for (const n of nos) {
-        const p = 0.6 + 0.4 * Math.sin(n.f + s * 1.3);
-        const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, 10);
-        g.addColorStop(0, `rgba(236,230,255,${(0.92 * p).toFixed(3)})`);
-        g.addColorStop(0.35, `rgba(184,150,255,${(0.34 * p).toFixed(3)})`);
-        g.addColorStop(1, "rgba(184,150,255,0)");
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, 10, 0, 7); ctx.fill();
-      }
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(cidade, 0, 0);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      for (const l of luzes) {
-        if (l.antena) {
-          ctx.fillStyle = `rgba(255,90,120,${Math.sin(l.f + s * 2.2) > 0.6 ? 1 : 0.15})`;
-          ctx.beginPath(); ctx.arc(l.x, l.y, 1.8, 0, 7); ctx.fill();
-        } else {
-          ctx.fillStyle = `${l.tom}${(0.2 + 0.65 * (0.5 + 0.5 * Math.sin(l.f + s * 0.4))).toFixed(2)})`;
-          ctx.fillRect(l.x, l.y, 4, 6);
-        }
-      }
-    }
-
-    function laco(ms) {
-      if (!rodando) return;
-      if (!document.hidden && ms - ultimo > 32) { quadro(ms); ultimo = ms; }
-      requestAnimationFrame(laco);
-    }
-    function ligar() { if (!rodando && !calmo.matches) { rodando = true; requestAnimationFrame(laco); } }
-
-    let espera = 0;
-    function iniciar() {
-      montar(); quadro(performance.now()); ligar();
-      window.addEventListener("resize", () => {
-        clearTimeout(espera);
-        espera = setTimeout(() => { montar(); quadro(performance.now()); }, 150);
-      });
-      calmo.addEventListener?.("change", () => { if (calmo.matches) rodando = false; else ligar(); });
-    }
-    // Quando o Cérebro responde ou um item é aprovado, uma rajada de sinapses atravessa a constelação.
-    function pulsar() {
-      if (!arestas.length) return;
-      for (let i = 0; i < 6; i++) {
-        const [a, b] = arestas[Math.floor(Math.random() * arestas.length)];
-        faiscas.push({ a, b, p: Math.random() * 0.25 });
-      }
-      if (calmo.matches) quadro(performance.now());
-    }
-    return { iniciar, pulsar };
-  })();
+  }
 
   // ---------------------------------------------------------------- API
   class ErroApi extends Error {
@@ -329,10 +153,12 @@
   }
   function mensagemErro(status, dados) {
     const det = dados && dados.detail;
+    if (status === 502) return "O modelo não respondeu. Tente de novo em instantes.";
+    if (status === 503) return "O serviço não está configurado. Avise quem cuida do servidor.";
     if (typeof det === "string") return det;
     if (Array.isArray(det)) return det.map((e) => `${(e.loc || []).slice(1).join(".") || "campo"}: ${e.msg}`).join(" · ");
-    if (status === 404 || status === 405) return "Esta ação ainda não existe no servidor.";
-    return `O servidor respondeu com erro ${status}.`;
+    if (status === 404) return "Não achei isso no servidor. Recarregue a página.";
+    return "Algo deu errado do lado do servidor. Tente de novo em instantes.";
   }
   async function chamar(metodo, url, corpo) {
     let r;
@@ -343,7 +169,7 @@
         body: corpo ? JSON.stringify(corpo) : undefined,
       });
     } catch {
-      throw new ErroApi("Não consegui falar com o servidor. Confira se o uvicorn está rodando.", 0);
+      throw new ErroApi("Sem conexão com o servidor. Confira a internet e tente de novo.", 0);
     }
     let dados = null;
     try { dados = await r.json(); } catch { /* resposta sem JSON */ }
@@ -395,11 +221,14 @@
     const p = estado.pessoa;
     caixa.hidden = !p;
     if (!p) { caixa.replaceChildren(); return; }
-    caixa.replaceChildren(
-      el("span", { class: "voce-nome", title: p.email, text: p.nome }),
-      p.dev
-        ? el("span", { class: "voce-dev", title: "O login do Google está desligado neste computador (sem GOOGLE_CLIENT_ID no .env)." }, "sem login")
-        : el("button", { type: "button", class: "btn fantasma voce-sair", onclick: sairDoApp }, "Sair"));
+    const iniciais = p.nome.split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0]).join("").toUpperCase();
+    caixa.replaceChildren(...[  // replaceChildren(null) escreveria o texto "null": só entra o que existe
+      el("span", { class: "avatar", "aria-hidden": "true", text: iniciais || "?" }),
+      el("span", { class: "quem-entrou" },
+        el("span", { class: "nome", title: p.email, text: p.nome }),
+        el("span", { class: "t-legenda", text: p.dev ? "Sem login neste computador" : `@${p.dominio}` })),
+      p.dev ? null : el("button", { type: "button", class: "btn fantasma", onclick: sairDoApp }, "Sair")].filter(Boolean));
+    pintarModo();
   }
   async function sairDoApp() {
     try { await fetch("/auth/logout", { method: "POST" }); } catch { /* sai do mesmo jeito */ }
@@ -435,8 +264,10 @@
         ["validado", "consolidado", "proposto", "historico_a_validar"].map(itensDoStatus),
       );
       estado.itens = porStatus.flat().map((i) => ({ ...i, codigo: `INS-${i.id}` }));
+      estado.erroCarga = null;
     } catch (e) {
-      aviso(`Não consegui carregar os itens: ${e.message}`, "erro");
+      estado.erroCarga = e.message;
+      aviso(`Não consegui carregar a base: ${e.message}`, "erro");
     }
     try { estado.fontes = await chamar("GET", "/fontes/resumo"); } catch { /* sem o resumo, o contador fica em 0 */ }
     atualizarNumeros();
@@ -458,11 +289,57 @@
   function itemPorId(id) {
     return estado.itens.find((i) => i.id === id) || null;
   }
-  function sinal(n) {
-    const s = el("span", { class: "sinal", role: "img", "aria-label": `Evidência ${n} de 4: ${EVIDENCIA[n]}` });
-    for (let i = 1; i <= 4; i++) s.append(el("i", { class: i <= n ? "on" : "" }));
+  const ICONES = {
+    busca: [["circle", {"cx":  "11", "cy":  "11", "r":  "7"}], ["path", {"d":  "m20 20-3.5-3.5"}]],
+    hoje: [["path", {"d":  "M3 10.5 12 3l9 7.5"}], ["path", {"d":  "M5 9.5V21h14V9.5"}]],
+    camadas: [["path", {"d":  "m12 3 9 5-9 5-9-5z"}], ["path", {"d":  "m3 13 9 5 9-5"}]],
+    mapa: [["circle", {"cx":  "6", "cy":  "6", "r":  "2.5"}], ["circle", {"cx":  "18", "cy":  "8", "r":  "2.5"}], ["circle", {"cx":  "10", "cy":  "18", "r":  "2.5"}], ["path", {"d":  "M8.4 6.4 15.6 7.6M6.8 8.4l2.4 7.2M16.6 10.1l-5 6"}]],
+    fila: [["path", {"d":  "M3 13h5l1.5 3h5L16 13h5"}], ["path", {"d":  "M5.5 5h13L21 13v6H3v-6z"}]],
+    lacuna: [["circle", {"cx":  "12", "cy":  "12", "r":  "9"}], ["path", {"d":  "M9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.3-2.5 4"}], ["path", {"d":  "M12 17.5h.01"}]],
+    preparar: [["rect", {"x":  "3.5", "y":  "5", "width":  "17", "height":  "15.5", "rx":  "2"}], ["path", {"d":  "M8 3v4M16 3v4M3.5 10h17"}], ["path", {"d":  "m9 15 2 2 4-4"}]],
+    fontes: [["ellipse", {"cx":  "12", "cy":  "5.5", "rx":  "7.5", "ry":  "2.5"}], ["path", {"d":  "M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13"}], ["path", {"d":  "M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5"}]],
+    clipe: [["path", {"d":  "m20 11.5-8.2 8.2a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"}]],
+    enviar: [["path", {"d":  "M12 19V5M6 11l6-6 6 6"}]],
+    seta: [["path", {"d":  "M5 12h14M13 6l6 6-6 6"}]],
+    registrar: [["path", {"d":  "M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"}], ["path", {"d":  "m13.5 6.5 4 4"}]],
+    refazer: [["path", {"d":  "M20 12a8 8 0 1 1-2.3-5.7"}], ["path", {"d":  "M20 4v5h-5"}]],
+    copiar: [["rect", {"x":  "8.5", "y":  "8.5", "width":  "12", "height":  "12", "rx":  "2"}], ["path", {"d":  "M15.5 8.5V5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 5v9A1.5 1.5 0 0 0 5 15.5h3.5"}]],
+    "seta-dir": [["path", {"d":  "m9 6 6 6-6 6"}]],
+    x: [["path", {"d":  "M6 6l12 12M18 6 6 18"}]],
+    mais: [["path", {"d":  "M12 5v14M5 12h14"}]],
+    usuarios: [["circle", {"cx":  "9", "cy":  "8", "r":  "3.5"}], ["path", {"d":  "M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"}], ["path", {"d":  "M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.6 3 5.2"}]],
+    alerta: [["path", {"d":  "M12 3.5 2.5 20h19z"}], ["path", {"d":  "M12 10v4.5M12 17.5h.01"}]],
+    brilho: [["path", {"d":  "M12 3.5 13.8 9l5.7 1.8-5.7 1.8L12 18.2l-1.8-5.6-5.7-1.8L10.2 9z"}], ["path", {"d":  "M19 3v3M17.5 4.5h3"}]],
+    voltar: [["path", {"d":  "m15 6-6 6 6 6"}]],
+    ligacao: [["path", {"d":  "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"}], ["path", {"d":  "M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"}]],
+    escudo: [["path", {"d":  "M12 3 4.5 6v5.5c0 4.5 3.2 8 7.5 9.5 4.3-1.5 7.5-5 7.5-9.5V6z"}], ["path", {"d":  "M12 8.5v4M12 15.5h.01"}]],
+    check: [["path", {"d":  "m5 12.5 4.5 4.5L19 7.5"}]],
+    relogio: [["circle", {"cx":  "12", "cy":  "12", "r":  "9"}], ["path", {"d":  "M12 7v5l3 2"}]],
+    doc: [["path", {"d":  "M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"}], ["path", {"d":  "M14 3v5h5M8.5 13h7M8.5 16.5h5"}]],
+    sinc: [["path", {"d":  "M20 12a8 8 0 0 1-14 5.3M4 12a8 8 0 0 1 14-5.3"}], ["path", {"d":  "M18 3v4h-4M6 21v-4h4"}]],
+    recolher: [["rect", {"x":  "3.5", "y":  "4.5", "width":  "17", "height":  "15", "rx":  "2"}], ["path", {"d":  "M9.5 4.5v15"}]],
+    chat: [["path", {"d":  "M20.5 12a8 8 0 0 1-11.8 7L3.5 20.5 5 15.6A8 8 0 1 1 20.5 12z"}]],
+  };
+  const NS_SVG = "http://www.w3.org/2000/svg";
+  function icone(nome, classe = "ic") {
+    const s = document.createElementNS(NS_SVG, "svg");
+    s.setAttribute("class", classe);
+    s.setAttribute("viewBox", "0 0 24 24");
+    s.setAttribute("aria-hidden", "true");
+    for (const [tag, attrs] of ICONES[nome] || []) {
+      const n = document.createElementNS(NS_SVG, tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+      s.append(n);
+    }
     return s;
   }
+  // A evidência: 1 a 4 segmentos acesos (a cor nunca vai sozinha; o leitor de tela ouve o nome).
+  function trilha(n, grande = false) {
+    const s = el("span", { class: `trilha n${n}${grande ? " g" : ""}`, role: "img", "aria-label": `Evidência ${n} de 4: ${EVIDENCIA[n]}` });
+    for (let i = 1; i <= 4; i++) s.append(el("i"));
+    return s;
+  }
+  function pontoEv(n) { return el("span", { class: `ponto-ev e${n}`, "aria-hidden": "true" }); }
   function metaItem(it, { secao = true } = {}) {
     const m = el("div", { class: "meta" });
     m.append(el("span", { class: "etiqueta tipo", "data-tipo": it.tipo, text: TIPOS[it.tipo] || it.tipo }));
@@ -494,7 +371,7 @@
     return chip;
   }
   function vazio(titulo, texto, ...extra) {
-    return el("div", { class: "vazio" }, orbeEm("orbe-vazio"), el("h3", { text: titulo }), el("p", { text: texto }), ...extra);
+    return el("div", { class: "vazio" }, mascoteEm("m mascote-vazio", { humor: "padrao" }), el("h3", { text: titulo }), el("p", { text: texto }), ...extra);
   }
   function autoAltura(t) {
     t.style.height = "auto";
@@ -554,99 +431,364 @@
     const citados = (docs || []).filter((d) => texto.includes(`[DOC-${d.id}]`) && linkSeguro(d.url));
     if (!citados.length) return null;
     return el("div", { class: "docs-citados" },
-      el("p", { class: "nota", text: "Documentos do Drive, ainda não revisados pelo time:" }),
+      el("p", { class: "nota-msg", text: "Documentos do Drive, ainda não revisados pelo time:" }),
       el("ul", {}, citados.map((d) => el("li", {},
         el("a", { href: d.url, target: "_blank", rel: "noopener noreferrer", text: d.titulo }),
         d.categoria ? el("span", { class: "pasta-doc", text: ` · ${d.categoria}` }) : null))));
   }
 
   function adicionarMsg(caixa, { papel, texto, quem, nota, extra, docs }) {
-    const linha = el("div", { class: `linha${papel === "eu" ? " eu" : ""}` });
-    if (papel !== "eu") linha.append(orbeEm("av"));
-    const bolha = el("div", { class: `msg ${papel}` }, el("span", { class: "quem", text: quem }), formatar(texto, docs));
-    if (extra) bolha.append(extra);
-    const citados = rodapeDocumentos(texto, docs);
-    if (citados) bolha.append(citados);
-    if (nota) bolha.append(el("p", { class: "nota", text: nota }));
-    bolha.append(el("span", { class: "hora", text: hora() }));
-    linha.append(bolha);
+    const vazia = caixa.querySelector(".conversa-vazia");
+    if (vazia) vazia.remove();
+    let linha;
+    if (papel === "eu") {
+      linha = el("div", { class: "fala-eu" }, formatar(texto, docs));
+    } else {
+      linha = el("div", { class: `fala-ele${papel === "erro" ? " erro" : ""}` },
+        el("div", { class: "quem" }, mascoteEm("p", { forma: "simbolo" }), el("span", { class: "t-rotulo", text: quem })),
+        el("div", { class: "resposta" }, formatar(texto, docs)));
+      if (extra) linha.append(extra);
+      const citados = rodapeDocumentos(texto, docs);
+      if (citados) linha.append(citados);
+      if (nota) linha.append(el("p", { class: "nota-msg", text: nota }));
+    }
     caixa.append(linha);
     caixa.scrollTop = caixa.scrollHeight;
     return linha;
   }
   function digitando(caixa) {
-    const linha = el("div", { class: "linha" }, orbeEm("av"),
-      el("div", { class: "msg cerebro digitando", role: "status", "aria-label": "Pensando" }, el("i"), el("i"), el("i")));
+    const linha = el("div", { class: "fala-ele pensando-linha", role: "status" },
+      mascoteEm("m", { humor: "pensando" }), el("span", { class: "t-rotulo", text: "Lendo a base" }));
     caixa.append(linha);
     caixa.scrollTop = caixa.scrollHeight;
     return linha;
   }
-  function pensando(sim) { document.body.classList.toggle("pensando", sim); }
 
-  // ---------------------------------------------------------------- topo e navegação
-  const TOPO = {
-    registrar: ["Registrar", "Conte o que aconteceu. O curador organiza, e você revisa antes de mandar para a Fila."],
-    fila: ["Fila de curadoria", "Itens propostos e itens vindos de fontes antigas esperando aprovação. Nada entra no playbook sem alguém aprovar."],
-    fontes: ["Fontes", "O que o Cérebro leu do Notion e do Drive e o que virou item. Nada daqui entra no playbook sem passar pela Fila."],
-    playbook: ["Playbook", "O que o time já validou, na ordem do funil."],
-    briefing: ["Briefing de reunião", "Um roteiro montado só com o que está na base, cada ponto com a fonte."],
-  };
-  function pintarTopo(tela) {
-    const box = $("#ident");
-    box.replaceChildren();
-    if (tela === "conversar") {
-      box.append(orbeEm("av-topo"), el("div", {},
-        el("h1", { text: "Cérebro" }),
-        el("p", {}, el("span", { class: "online", text: "Online" }), " · consultor comercial do CITi")));
-    } else {
-      const [t, s] = TOPO[tela];
-      box.append(el("div", {}, el("h1", { text: t }), el("p", { text: s })));
+  // ---------------------------------------------------------------- a casca: rotas, abas e a barra lateral
+  // A navegação é por hash, para o link funcionar ("#item/INS-12", "#base/proposta"). Os endereços antigos
+  // (#conversar, #playbook, #briefing) continuam abrindo a tela certa. As abas abertas ficam no localStorage, que pode
+  // falhar: sem ele, a tela abre só com o Hoje.
+  const TELAS = ["hoje", "cerebro", "item", "base", "fila", "registrar", "preparar", "fontes"];
+  const APELIDOS = { conversar: "cerebro", playbook: "base", briefing: "preparar" };
+  const NOME_TELA = { fila: "Fila", registrar: "Rascunho", preparar: "Preparar reunião", fontes: "Fontes" };
+  const MAX_ABAS = 8;
+
+  function lerRota() {
+    if (!location.hash && CELULAR.matches) return { tela: "cerebro", arg: null, hash: "#cerebro" };  // no celular, começa no chat
+    let decodificado;
+    try {
+      decodificado = decodeURIComponent((location.hash || "").slice(1));
+    } catch {
+      return { tela: "hoje", arg: null, hash: "#hoje" };  // um link com "%" quebrado não derruba a navegação
     }
+    const [bruta, ...resto] = decodificado.split("/");
+    const tela = APELIDOS[bruta] || bruta;
+    if (!TELAS.includes(tela)) return { tela: "hoje", arg: null, hash: "#hoje" };
+    const arg = resto.join("/") || null;
+    return { tela, arg, hash: `#${tela}${arg ? `/${arg}` : ""}` };
   }
-  const TELAS = ["conversar", "registrar", "fila", "fontes", "playbook", "briefing"];
   function rotear() {
-    const alvo = (location.hash || "#conversar").slice(1);
-    const tela = TELAS.includes(alvo) ? alvo : "conversar";
-    for (const s of $$(".tela")) s.hidden = s.dataset.tela !== tela;
-    for (const a of $$(".nav a")) {
-      if (a.dataset.tela === tela) a.setAttribute("aria-current", "page");
+    const rota = lerRota();
+    fecharNavCelular();
+    if (rota.tela !== "cerebro") fecharGavetaCerebro();  // abrir um item pela gaveta mostra o item, não a gaveta
+    document.body.classList.toggle("ver-centro", rota.tela !== "cerebro");  // no celular, uma coluna por vez
+    if (rota.tela === "cerebro") {  // o Cérebro é o painel da direita: a tela do centro continua a que estava
+      if (!estado.telaHash) mostrarTela(lerRotaPadrao());
+      mostrarCerebro();
+      return;
+    }
+    mostrarTela(rota);
+  }
+  // As larguras da casca: até 860 px é o celular (uma coluna); até 1279 px o Cérebro vira gaveta.
+  const CELULAR = matchMedia("(max-width: 860px)");
+  const ESTREITO = matchMedia("(max-width: 1279px)");
+  const ehGaveta = () => ESTREITO.matches && !CELULAR.matches;
+  function lerRotaPadrao() { return { tela: "hoje", arg: null, hash: "#hoje" }; }
+  function mostrarTela(rota) {
+    estado.tela = rota.tela;
+    estado.telaHash = rota.hash;
+    abrirAba(rota.hash);
+    for (const s of $$(".tela")) s.hidden = s.dataset.tela !== rota.tela;
+    pintarAbas();
+    marcarAtivos();
+    if (rota.tela === "hoje") seguro(pintarHoje, "hoje");
+    if (rota.tela === "item") pintarItem(rota.arg);
+    if (rota.tela === "base") abrirBase(rota.arg);
+    if (rota.tela === "fila") pintarFila();
+    if (rota.tela === "fontes") pintarFontes();
+    if (rota.tela === "preparar") montarBriefing();
+    const tela = $(`.tela[data-tela="${rota.tela}"]`);
+    if (tela) tela.scrollTop = 0;
+  }
+  // O painel do Cérebro: fixo no desktop, gaveta de 861 a 1279 px e tela cheia no celular.
+  function mostrarCerebro() {
+    if (ehGaveta()) abrirGavetaCerebro();
+    else if (!CELULAR.matches) $("#campo-chat").focus();
+  }
+  function abrirGavetaCerebro() {
+    if (document.body.classList.contains("cerebro-aberto")) { $("#campo-chat").focus(); return; }
+    estado.focoAntes = document.activeElement;
+    document.body.classList.add("cerebro-aberto");
+    $("#fundo-cerebro").hidden = false;
+    $("#abrir-cerebro").setAttribute("aria-expanded", "true");
+    $("#campo-chat").focus();
+  }
+  function fecharGavetaCerebro() {
+    if (!document.body.classList.contains("cerebro-aberto")) return false;
+    document.body.classList.remove("cerebro-aberto");
+    $("#fundo-cerebro").hidden = true;
+    $("#abrir-cerebro").setAttribute("aria-expanded", "false");
+    if (estado.focoAntes && document.contains(estado.focoAntes)) estado.focoAntes.focus();
+    return true;
+  }
+  // Celular: o botão do mascote abre a coluna de navegação (Esc ou tocar fora fecha).
+  function abrirNavCelular() {
+    const nav = $("#nav-celular");
+    nav.hidden = false;
+    $("#nav-mascote").setAttribute("aria-expanded", "true");
+    for (const a of $$("a.no", nav)) {
+      if (a.getAttribute("href") === (document.body.classList.contains("ver-centro") ? estado.telaHash : "#cerebro")) a.setAttribute("aria-current", "page");
       else a.removeAttribute("aria-current");
     }
-    estado.tela = tela;
-    pintarTopo(tela);
-    if (tela === "fila") pintarFila();
-    if (tela === "fontes") pintarFontes();
-    if (tela === "playbook") pintarPlaybook();
-    if (tela === "briefing") montarBriefing();
+    $("a.no", nav).focus();
   }
+  function fecharNavCelular() {
+    const nav = $("#nav-celular");
+    if (nav.hidden) return false;
+    nav.hidden = true;
+    $("#nav-mascote").setAttribute("aria-expanded", "false");
+    return true;
+  }
+
+  function rotuloDaAba(hash) {
+    const [tela, arg] = hash.slice(1).split("/");
+    if (tela === "item") {
+      const it = acharItem(arg);
+      return { codigo: arg, texto: it ? it.titulo : "fora da base" };
+    }
+    if (tela === "base") return { texto: arg ? `Base · ${NOME_SECAO[arg] || arg}` : "Base" };
+    return { texto: NOME_TELA[tela] || tela };
+  }
+  function lerAbas() {
+    try {
+      const lidas = JSON.parse(guardar.ler("cerebro.abas") || "[]");
+      estado.abas = Array.isArray(lidas) ? lidas.filter((h) => typeof h === "string" && h.startsWith("#")).slice(-MAX_ABAS) : [];
+    } catch {
+      estado.abas = [];  // o que estava guardado não é JSON: começa do zero
+    }
+  }
+  function guardarAbas() { guardar.escrever("cerebro.abas", JSON.stringify(estado.abas)); }
+  function abrirAba(hash) {
+    if (hash === "#hoje" || estado.abas.includes(hash)) return;
+    estado.abas.push(hash);
+    if (estado.abas.length > MAX_ABAS) estado.abas.shift();  // a mais antiga sai
+    guardarAbas();
+  }
+  function fecharAba(hash) {
+    const i = estado.abas.indexOf(hash);
+    if (i < 0) return;
+    estado.abas.splice(i, 1);
+    guardarAbas();
+    if (estado.telaHash === hash) location.hash = estado.abas[Math.min(i, estado.abas.length - 1)] || "#hoje";
+    else pintarAbas();
+  }
+  function pintarAbas() {
+    const aba = (hash, fixa) => {
+      const r = fixa ? { texto: "Hoje" } : rotuloDaAba(hash);
+      const ativa = hash === estado.telaHash;
+      return el("div", { class: `aba${fixa ? " fixa" : ""}${ativa ? " ativa" : ""}` },
+        el("a", { href: hash, "aria-current": ativa ? "page" : null, title: r.codigo ? `${r.codigo} · ${r.texto}` : r.texto },
+          r.codigo ? el("span", { class: "t-dado", text: r.codigo }) : null, el("span", { class: "txt", text: r.texto })),
+        fixa ? null : el("button", { type: "button", class: "x", "aria-label": `Fechar a aba ${r.codigo || r.texto}`,
+          onclick: () => fecharAba(hash) }, icone("x", "ic p")));
+    };
+    $("#abas").replaceChildren(aba("#hoje", true), ...estado.abas.map((h) => aba(h, false)));
+  }
+  function marcarAtivos() {
+    for (const a of $$("#barra a.no")) {
+      if (a.getAttribute("href") === estado.telaHash) a.setAttribute("aria-current", "page");
+      else a.removeAttribute("aria-current");
+    }
+  }
+
   // Na Fila: o que as pessoas registraram (proposto) e o que veio de fontes antigas, ainda sem revisão (histórico a validar)
   function estaNaFila(i) { return i.status === "proposto" || i.status === "historico_a_validar"; }
+  function itensDaBase() { return estado.itens.filter((i) => i.status === "validado" || i.status === "consolidado"); }
+  // Os mais fortes primeiro: evidência, depois consolidado, depois o mais novo.
+  function maisFortes(itens) {
+    return [...itens].sort((a, b) => (b.evidencia - a.evidencia)
+      || (Number(b.status === "consolidado") - Number(a.status === "consolidado")) || (b.id - a.id));
+  }
   function atualizarNumeros() {
-    const noPlaybook = estado.itens.filter((i) => i.status === "validado" || i.status === "consolidado").length;
     const naFila = estado.itens.filter(estaNaFila).length;
-    const hipoteses = estado.itens.filter((i) => i.tipo === "hipotese" && i.status !== "obsoleto").length;
-    $("#n-playbook").textContent = noPlaybook;
-    $("#n-fila").textContent = naFila;
-    $("#n-hipoteses").textContent = hipoteses;
-    const contador = $("#contador-fila");
-    contador.textContent = naFila;
-    contador.hidden = naFila === 0;
-    $("#n-fontes").textContent = estado.fontes ? estado.fontes.total : 0;
-    $("#rodape-base").textContent = aoVivo()
-      ? "Ligado ao servidor. O consultor responde só com os itens aprovados no Playbook."
-      : "Sem conexão com o servidor. Rode o app com o uvicorn.";
+    for (const contador of [$("#contador-fila"), $("#contador-fila-celular")]) {
+      contador.textContent = naFila;
+      contador.hidden = naFila === 0;
+    }
+    seguro(pintarBarra, "árvore");
+    if (estado.tela === "hoje") seguro(pintarHoje, "hoje");
   }
   function pintarModo() {
-    const m = $("#modo");
-    m.dataset.modo = estado.modo;
-    m.textContent = aoVivo() ? "Ao vivo" : "Sem servidor";
+    const dev = Boolean(estado.pessoa && estado.pessoa.dev);
+    for (const m of [$("#modo"), $("#modo-celular")]) {  // o selo da barra e o do topo do Cérebro no celular
+      m.dataset.modo = estado.modo;
+      m.className = `selo ${m.id === "modo-celular" ? "modo-celular " : ""}${aoVivo() ? (dev ? "" : "vivo") : "alerta"}`;
+      m.replaceChildren(...(aoVivo() && !dev ? [el("span", { class: "ponto-vivo", "aria-hidden": "true" })] : []),
+        aoVivo() ? (dev ? "Dev local" : "Ao vivo") : "Sem servidor");
+    }
+    document.body.classList.toggle("sem-servidor", !aoVivo());
+    const faixa = $("#faixa-servidor");
+    faixa.hidden = aoVivo();
+    faixa.replaceChildren(...(aoVivo() ? [] : [
+      el("span", { text: "Sem conexão com o servidor. Nada aparece nem vai para a base até ele responder." }),
+      el("button", { type: "button", class: "btn", onclick: () => location.reload() }, "Tentar conectar")]));
+  }
+
+  // A árvore da base: as 7 etapas como pastas, com os 20 itens mais fortes dentro e o "ver todos" que abre a etapa.
+  const POR_PASTA = 20;
+  function pintarBarra() {
+    const base = itensDaBase();
+    const pastas = SECOES.map(([chave, nome]) => {
+      const da = maisFortes(base.filter((i) => i.secao === chave));
+      const pasta = el("details", { class: "pasta", open: estado.pastas.has(chave) || null },
+        el("summary", { class: "no" }, el("span", { class: "dobra", "aria-hidden": "true" }),
+          el("span", { class: "txt", text: nome }), el("span", { class: "cont", text: String(da.length) })),
+        ...da.slice(0, POR_PASTA).map((it) => el("a", { class: "no filho", href: `#item/${it.codigo}`, title: it.titulo },
+          pontoEv(it.evidencia), el("span", { class: "txt", text: it.titulo }))),
+        el("a", { class: "no filho ver-todos", href: `#base/${chave}` },
+          el("span", { class: "txt", text: da.length > POR_PASTA ? `Ver todos (${da.length})` : "Ver a etapa" })));
+      pasta.addEventListener("toggle", () => { if (pasta.open) estado.pastas.add(chave); else estado.pastas.delete(chave); });
+      return pasta;
+    });
+    if (!base.length) {
+      pastas.push(el("p", { class: "t-legenda arvore-vazia", text: aoVivo() ? "A base ainda não tem itens aprovados." : "Sem conexão com o servidor." }));
+    }
+    $("#arvore").replaceChildren(...pastas);
+    marcarAtivos();
+  }
+
+  // Os 7 nós da base por etapa (Hoje e, no PR 3, o mapa): a cor da borda é a evidência média, e o tracejado marca a
+  // "pouca base" (nenhum item com evidência 3 ou mais). A cor nunca vai sozinha: o número e o "evid." vão junto.
+  function nosEtapas(itens, { href } = {}) {
+    return el("div", { class: "nos-etapas" }, SECOES.map(([chave, nome]) => {
+      const da = itens.filter((i) => i.secao === chave);
+      const media = da.length ? da.reduce((t, i) => t + i.evidencia, 0) / da.length : 0;
+      const pouca = !da.some((i) => i.evidencia >= 3);
+      const tom = Math.min(4, Math.max(1, Math.round(media)));
+      const rotulo = da.length ? `evid. ${media.toFixed(1).replace(".", ",")}` : "sem itens";
+      return el(href ? "a" : "div", {
+        class: `no-etapa c${tom}`, href: href ? href(chave) : null, role: href ? null : "img",
+        "aria-label": `${nome}: ${da.length} ${da.length === 1 ? "item" : "itens"}, ${rotulo}${pouca ? ", pouca base" : ""}`,
+      },
+      el("div", { class: `cx${pouca ? " pouca" : ""}`, "aria-hidden": "true" }, el("span", { class: "numero", text: String(da.length) })),
+      el("b", { text: nome, "aria-hidden": "true" }),
+      el("span", { class: "t-dado", text: rotulo, "aria-hidden": "true" }));
+    }));
+  }
+
+  // ---------------------------------------------------------------- Hoje (a tela inicial no desktop)
+  function metrica(icon, rotulo, n, legenda, tom, href) {
+    return el("a", { class: "metrica", href },
+      icone(icon, "ic g"),
+      el("span", {}, el("span", { class: "t-rotulo", text: rotulo }),
+        el("span", { class: `numero${tom ? ` ${tom}` : ""}`, text: String(n).padStart(2, "0") }),
+        el("span", { class: "t-legenda", text: legenda })));
+  }
+  function atalhoGrande(href, icon, titulo, texto, extra = "") {
+    return el("a", { class: `atalho-grande${extra ? ` ${extra}` : ""}`, href },
+      el("span", { class: "bola" }, icone(icon)),
+      el("span", { class: "txt" }, el("b", { text: titulo }), el("span", { text: texto })),
+      icone("seta", "ic seta"));
+  }
+  function seloDaFila(it) {
+    if ((it.relacoes || []).some((r) => r.tipo === "contradiz")) return el("span", { class: "selo risco", text: "Contradiz" });
+    const origem = ORIGEM_ITEM[it.fonte] || it.fonte;
+    return el("span", { class: it.status === "historico_a_validar" ? "selo alerta" : "selo", text: origem });
+  }
+  function painelFila(fila) {
+    const sec = el("section", { class: "painel raso" }, el("div", { class: "cab-painel" },
+      el("h2", { class: "t-secao", text: "Esperando você na Fila" }),
+      fila.length ? el("a", { class: "btn primario", href: "#fila", text: "Triar agora" }) : null));
+    if (!fila.length) {
+      sec.append(el("p", { class: "t-p suave", text: "Fila em dia: nada esperando revisão." }));
+      return sec;
+    }
+    for (const it of fila.slice(0, 3)) {
+      sec.append(el("a", { class: "linha-lista", href: `#item/${it.codigo}` },
+        pontoEv(it.evidencia), el("span", { class: "txt", text: it.titulo }), seloDaFila(it)));
+    }
+    const resto = fila.length - 3;
+    if (resto > 0) sec.append(el("p", { class: "t-legenda", text: `e mais ${resto} ${resto === 1 ? "item" : "itens"}` }));
+    return sec;
+  }
+  function cartaoSync(u) {
+    const partes = [
+      `${FONTE_DA_SYNC[u.origem] || u.origem}, ${dataHora(u.fim || u.inicio)}${u.fim ? "" : " (não terminou)"}`,
+      `${u.paginas_novas} ${u.paginas_novas === 1 ? "página nova" : "páginas novas"}`,
+      `${u.paginas_alteradas} ${u.paginas_alteradas === 1 ? "alterada" : "alteradas"}`,
+    ];
+    return el("div", { class: "cartao ultima-sync" }, el("span", { class: "ponto-vivo", "aria-hidden": "true" }),
+      el("span", { class: "t-p" }, el("b", { class: "forte", text: "Última sincronização: " }), partes.join(" · ")),
+      el("a", { class: "btn fantasma", href: "#fontes" }, "Fontes", icone("seta", "ic p")));
+  }
+  function pintarHoje() {
+    if (!aoVivo()) {  // sem servidor não há base nem Fila para contar, e "base vazia" seria mentira
+      const caixa = vazio("Sem conexão com o servidor", "Sem ele eu não tenho a base e não invento nada. Confira a internet e tente de novo.",
+        el("button", { type: "button", class: "btn primario", onclick: () => location.reload() }, "Tentar conectar"));
+      caixa.querySelector(".mascote").replaceWith(mascoteEm("m mascote-vazio", { humor: "sem-resposta" }));
+      $("#hoje").replaceChildren(caixa);
+      return;
+    }
+    if (estado.erroCarga) {
+      $("#hoje").replaceChildren(vazio("Não consegui carregar a base", estado.erroCarga,
+        el("button", { type: "button", class: "btn primario", onclick: async () => { await carregarItens(); pintarHoje(); } }, "Tentar de novo")));
+      return;
+    }
+    const base = itensDaBase();
+    const fila = estado.itens.filter(estaNaFila).sort((a, b) => b.id - a.id);
+    const nome = estado.pessoa ? estado.pessoa.nome.split(/\s+/)[0] : "";
+    const dia = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" }).replace("-feira", "");
+    const resumo = fila.length
+      ? ` ${fila.length} ${fila.length === 1 ? "espera" : "esperam"} a leitura do time na Fila.`
+      : " A Fila está em dia.";
+    const filhos = [
+      el("header", { class: "hoje-cab" },
+        el("p", { class: "t-rotulo", text: `Cérebro Comercial · ${dia}` }),
+        el("h1", { class: "t-display", text: nome ? `Olá, ${nome}` : "Olá" }),
+        el("p", { class: "t-corpo" },
+          el("b", { class: "forte", text: `${base.length} ${base.length === 1 ? "item aprovado" : "itens aprovados"} na base.` }), resumo)),
+      el("div", { class: "metricas" },
+        metrica("camadas", "Base", base.length, base.length === 1 ? "item aprovado" : "itens aprovados", "", "#base"),
+        metrica("fila", "Fila", fila.length, "esperando aprovação", "marca", "#fila")),
+      el("div", { class: "cab-tela" }, el("p", { class: "t-rotulo", text: "Começar por" }),
+        el("div", { class: "comecar" },
+          atalhoGrande("#preparar", "preparar", "Preparar reunião", "Um briefing com a prova de cada ponto"),
+          atalhoGrande("#registrar", "registrar", "Registrar um relato", "O curador transforma em item", "sereno"))),
+    ];
+    if (base.length) {
+      filhos.push(el("section", { class: "painel" },
+        el("div", { class: "cab-tela" }, el("h2", { class: "t-titulo", text: "A base por etapa" }),
+          el("p", { class: "t-p suave", text: "A cor da borda é a evidência média. Tracejado: pouca base, nenhum item com evidência 3 ou mais." })),
+        nosEtapas(base, { href: (chave) => `#base/${chave}` })));
+    } else {
+      filhos.push(vazio("A base ainda está vazia",
+        "Sem itens aprovados eu não monto roteiro: prefiro não inventar. Registre o primeiro relato ou aprove o que está na Fila.",
+        el("div", { class: "botoes" },
+          el("a", { class: "btn primario", href: "#registrar", text: "Registrar o primeiro" }),
+          fila.length ? el("a", { class: "btn", href: "#fila", text: "Abrir a Fila" }) : null)));
+      filhos[filhos.length - 1].querySelector(".mascote").replaceWith(mascoteEm("m mascote-vazio", { humor: "nota-em-branco" }));
+    }
+    filhos.push(el("div", { class: "duas-colunas" }, painelFila(fila)));
+    const ultima = aoVivo() && estado.fontes && estado.fontes.ultima_execucao;
+    if (ultima) filhos.push(cartaoSync(ultima));
+    $("#hoje").replaceChildren(...filhos);
   }
 
   // ---------------------------------------------------------------- conversar
   const ATALHOS_CHAT = [
-    ["Cliente disse que está caro", "O cliente disse que está caro. Como respondemos?", "var(--ambar)"],
-    ["Testar hipótese: eventos ou LinkedIn", "Pensei em prospectar em eventos do setor em vez de LinkedIn. O que você acha?", "var(--lilas)"],
-    ["O que a base não cobre?", "O que a base ainda não cobre?", "var(--risco)"],
+    "O que funciona numa reunião de diagnóstico?",
+    "O cliente disse que está caro. Como respondemos?",
+    "Como apresentar o Discovery?",
   ];
   async function perguntar(texto) {
     texto = texto.trim();
@@ -655,7 +797,7 @@
     const campo = $("#campo-chat");
     adicionarMsg(caixa, { papel: "eu", texto, quem: nomeDoUsuario() });
     campo.value = ""; autoAltura(campo);
-    estado.ocupado = true; $("#enviar-chat").disabled = true; pensando(true);
+    estado.ocupado = true; $("#enviar-chat").disabled = true;
     const indicador = digitando(caixa);
     try {
       const r = await chamar("POST", "/chat", { mensagem: texto, historico: estado.conversa.slice(-30) });
@@ -663,27 +805,30 @@
       indicador.remove();
       adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", docs: r.documentos || [] });
       estado.conversa.push({ role: "user", text: texto }, { role: "model", text: resposta });
-      cena.pulsar();
+      pulsarMascote();
     } catch (e) {
       indicador.remove();
       adicionarMsg(caixa, { papel: "erro", texto: e.message, quem: "Não deu certo" });
+      if (!campo.value.trim()) { campo.value = texto; autoAltura(campo); }  // a pergunta volta ao campo, para tentar de novo
     } finally {
-      estado.ocupado = false; $("#enviar-chat").disabled = false; pensando(false);
+      estado.ocupado = false; $("#enviar-chat").disabled = false;
       campo.focus();
     }
   }
+  function pintarAtalhosChat() {
+    return el("div", { class: "atalhos" }, ATALHOS_CHAT.map((texto) =>
+      el("button", { type: "button", class: "atalho", onclick: () => perguntar(texto) }, icone("brilho", "ic p"), el("span", { text: texto }))));
+  }
+  function conversaVazia() {
+    return el("div", { class: "conversa-vazia" }, mascoteEm(""),
+      el("div", {}, el("h3", { class: "t-titulo", text: "Pergunte ao Cérebro" }),
+        el("p", { class: "t-p", text: "Ele responde com o que o time já aprovou e mostra de onde veio cada parte." })),
+      pintarAtalhosChat());
+  }
   function iniciarConversa() {
     const caixa = $("#mensagens");
-    caixa.replaceChildren();
+    caixa.replaceChildren(conversaVazia());
     estado.conversa = [];
-    const exemplo = estado.itens.find((i) => i.status === "validado" || i.status === "consolidado");
-    const toque = exemplo
-      ? `Toque numa fonte, como [${exemplo.codigo}], para ver o item inteiro.`
-      : "Quando houver itens aprovados, toque numa fonte para ver o item inteiro.";
-    adicionarMsg(caixa, {
-      papel: "cerebro", quem: "Cérebro",
-      texto: `Oi! Eu respondo com base no que o time aprovou e mostro de onde tirei cada ponto. ${toque}`,
-    });
   }
 
   // ---------------------------------------------------------------- registrar (curador)
@@ -704,7 +849,7 @@
     const campo = $("#campo-reg");
     adicionarMsg(caixa, { papel: "eu", texto, quem: autor });
     campo.value = ""; autoAltura(campo);
-    estado.reg.ocupado = true; $("#enviar-reg").disabled = true; pensando(true);
+    estado.reg.ocupado = true; $("#enviar-reg").disabled = true;
     const indicador = digitando(caixa);
     try {
       const proposta = await chamar("POST", "/registrar/propor", { texto, conversa: estado.reg.conversa.slice(-10) });
@@ -718,12 +863,12 @@
       estado.reg.conversa.push({ role: "user", text: texto }, { role: "model", text: perguntas.length ? perguntas.join("\n") : resumo });
       estado.reg.proposta = proposta;
       pintarRascunho();
-      cena.pulsar();
+      pulsarMascote();
     } catch (e) {
       indicador.remove();
       adicionarMsg(caixa, { papel: "erro", texto: e.message, quem: "Não deu certo" });
     } finally {
-      estado.reg.ocupado = false; $("#enviar-reg").disabled = false; pensando(false);
+      estado.reg.ocupado = false; $("#enviar-reg").disabled = false;
     }
   }
 
@@ -823,7 +968,7 @@
       const criado = await chamar("POST", "/insights", { ...dados, fonte: "chat" });
       await carregarItens();
       aviso(`Enviado para a Fila como proposto (INS-${criado.id}).`, "ok");
-      cena.pulsar();
+      pulsarMascote();
       descartarRascunho();
       atualizarNumeros();
     } catch (e) {
@@ -833,7 +978,7 @@
   }
 
   // ---------------------------------------------------------------- fila
-  const ORIGEM_ITEM = { chat: "Chat", notion: "Notion", drive: "Drive", canva: "Canva", reuniao: "Reunião" };
+  const ORIGEM_ITEM = { chat: "Chat", notion: "Notion", drive: "Drive", canva: "Canva", reuniao: "Reunião", upload: "Arquivo" };
   const POR_PAGINA_FILA = 30;
   let barraLote = null;
 
@@ -844,9 +989,9 @@
     const itens = estado.itens.filter(estaNaFila);
     for (const id of [...f.selecionados]) if (!itens.some((i) => i.id === id)) f.selecionados.delete(id);  // já decididos
     if (!itens.length) {
-      box.append(el("div", { class: "painel vidro" }, vazio("A Fila está vazia",
-        "Quando alguém registrar um insight, ele aparece aqui para ser aprovado ou rejeitado.",
-        el("a", { class: "btn primario", href: "#registrar", text: "Registrar um insight" }))));
+      box.append(el("div", { class: "embrulho" }, vazio("A Fila está vazia",
+        "Quando alguém registrar um relato, ele aparece aqui para ser aprovado ou rejeitado.",
+        el("a", { class: "btn primario", href: "#registrar", text: "Registrar um relato" }))));
       return;
     }
     const origens = [...new Set(itens.map((i) => i.fonte))];
@@ -861,7 +1006,7 @@
         ...origens.map((o) => chip(`${ORIGEM_ITEM[o] || o} (${itens.filter((i) => i.fonte === o).length})`, f.origem === o,
           () => { f.origem = f.origem === o ? null : o; f.mostrar = POR_PAGINA_FILA; pintarFila(); }))));
     }
-    barraLote = el("div", { class: "barra-lote vidro", role: "region", "aria-label": "Aprovar vários de uma vez" });
+    barraLote = el("div", { class: "barra-lote", role: "region", "aria-label": "Aprovar vários de uma vez" });
     box.append(barraLote);
     atualizarBarraLote();
 
@@ -931,11 +1076,11 @@
     }
     f.aprovando = null;
     await carregarItens();
-    if (aprovados) { cena.pulsar(); }
+    if (aprovados) { pulsarMascote(); }
     const restantes = semServidor ? ids.length - aprovados : falhas.length;
     aviso(restantes
       ? `${aprovados} aprovados. ${restantes} não foram aprovados${semServidor ? " (o servidor parou de responder)" : `: ${falhas.slice(0, 5).join(", ")}${falhas.length > 5 ? "…" : ""}`}. Continuam marcados.`
-      : `${aprovados} ${aprovados === 1 ? "item aprovado" : "itens aprovados"}. Já aparecem no Playbook.`, restantes ? "erro" : "ok");
+      : `${aprovados} ${aprovados === 1 ? "item aprovado" : "itens aprovados"}. Já estão na base.`, restantes ? "erro" : "ok");
     atualizarNumeros();
     pintarFila();
   }
@@ -957,13 +1102,13 @@
       card.classList.toggle("selecionado", caixa.checked);
       atualizarBarraLote();
     });
-    const card = el("article", { class: marcado ? "item vidro selecionado" : "item vidro", "data-id": String(it.id) },
+    const card = el("article", { class: marcado ? "item selecionado" : "item", "data-id": String(it.id) },
       el("label", { class: "sel" }, caixa, el("span", { text: "Selecionar" })),
       metaItem(it),
       el("h3", { text: it.titulo }),
       el("p", { class: "desc", text: it.descricao }),
       el("div", { class: "linha-evid" },
-        el("span", { class: "evid" }, sinal(it.evidencia), `Evidência ${it.evidencia} · ${EVIDENCIA[it.evidencia]}`),
+        el("span", { class: "evid" }, trilha(it.evidencia), `Evidência ${it.evidencia} · ${EVIDENCIA[it.evidencia]}`),
         el("span", { text: [it.autor, dataBr(it.data_evento), it.codigo].filter(Boolean).join(" · ") }),
         linkOrigem(it)));
     if (it.relacoes && it.relacoes.length) card.append(el("div", { class: "relacoes" }, it.relacoes.map((r) => relacaoChip(r, it))));
@@ -984,13 +1129,12 @@
     try {
       await chamar("POST", `/insights/${it.id}/${acao}`, acao === "aprovar" ? undefined : { motivo: motivo.trim() });
       await carregarItens();
-      aviso(acao === "aprovar" ? `${it.codigo} aprovado. Já aparece no Playbook.` : `${it.codigo} rejeitado e marcado como obsoleto.`, "ok");
-      cena.pulsar();
+      aviso(acao === "aprovar" ? `${it.codigo} aprovado. Já está na base.` : `${it.codigo} rejeitado e marcado como obsoleto.`, "ok");
+      pulsarMascote();
       atualizarNumeros();
       pintarFila();
     } catch (e) {
-      if (e.status === 404 || e.status === 405) aviso("Aprovar e rejeitar chegam na PR 3 do Rafael. Por enquanto o item continua na Fila.", "erro");
-      else aviso(e.message, "erro");
+      aviso(e.message, "erro");
     }
   }
 
@@ -1036,7 +1180,7 @@
       `${ORIGEM[it.fonte] || it.fonte} ↗`);
   }
   function numeroCartao(n, rotulo, cor) {
-    return el("div", { class: "cartao-numero vidro", style: cor ? `--c:${cor}` : null },
+    return el("div", { class: "cartao-numero", style: cor ? `--c:${cor}` : null },
       el("b", { text: String(n) }), el("span", { text: rotulo }));
   }
   function resumoDeItens(itens) {
@@ -1051,7 +1195,7 @@
       ? el("a", { href: url, target: "_blank", rel: "noopener noreferrer", text: f.titulo })
       : document.createTextNode(f.titulo);
     const gerou = resumoDeItens(f.itens);
-    return el("article", { class: "item fonte vidro" },
+    return el("article", { class: "item fonte" },
       el("div", { class: "meta" },
         el("span", { class: "etiqueta", text: ORIGEM[f.origem] || f.origem }),
         f.categoria ? el("span", { class: "etiqueta pasta", text: f.categoria }) : null,
@@ -1064,11 +1208,10 @@
         el("span", { text: `Editada em ${dataHora(f.editado_em)} · lida em ${dataHora(f.importado_em)}` })));
   }
   function orientacaoFontes() {
-    return el("div", { class: "painel vidro passo-a-passo" },
+    return el("div", { class: "painel passo-a-passo" },
       vazio("Nada lido ainda", "Quando o Cérebro ler o Notion ou o Drive, cada página ou documento aparece aqui, com o que aconteceu com ele."),
       el("ol", {},
-        el("li", {}, "No .env do servidor, preencha ", el("code", { text: "NOTION_TOKEN" }), " (Notion: a integração só enxerga as páginas compartilhadas com ela) ou ",
-          el("code", { text: "DRIVE_PASTA_ID" }), " e a credencial do Google (Drive: a pasta precisa estar compartilhada com a conta de serviço)."),
+        el("li", {}, "Peça a quem cuida do servidor para ligar o Notion ou o Drive (no Notion, a integração só enxerga as páginas compartilhadas com ela; no Drive, a pasta precisa estar compartilhada com a conta do Cérebro)."),
         el("li", {}, "Escolha a origem (Notion ou Drive) no painel acima."),
         el("li", {}, "Clique em ", el("b", { text: "Só simular" }), " acima: lê o Notion e estima o custo, sem gravar nada."),
         el("li", {}, "Clique em ", el("b", { text: "Sincronizar agora" }), ". Os itens propostos aparecem na Fila."),
@@ -1195,7 +1338,7 @@
     const ultima = resumo.ultima_execucao;
     const sy = estado.sync;
     if (ultima && !ultima.fim && !sy.id) acompanharExecucao(ultima.id, false);  // reabriu a tela com uma rodando
-    painelSync = el("div", { class: "painel vidro sync", "aria-label": "Sincronizar o Notion ou o Drive" });
+    painelSync = el("div", { class: "painel sync", "aria-label": "Sincronizar o Notion ou o Drive" });
     if (!resumo.total) { box.replaceChildren(painelSync, orientacaoFontes()); pintarPainelSync(); return; }
 
     const por = resumo.por_status;
@@ -1225,7 +1368,7 @@
       total = lista.total;
       for (const f of lista.itens) linhas.append(cartaoFonte(f));
       carregadas += lista.itens.length;
-      if (!total) linhas.replaceChildren(el("div", { class: "painel vidro" }, vazio("Nada com esse filtro", "Tire o filtro ou mude a busca.")));
+      if (!total) linhas.replaceChildren(el("div", { class: "embrulho" }, vazio("Nada com esse filtro", "Tire o filtro ou mude a busca.")));
       rodape.replaceChildren(...(total > carregadas
         ? [el("p", { class: "resumo-lista", text: `Mostrando ${carregadas} de ${total}` }),
            el("button", { type: "button", class: "btn fantasma", onclick: () => carregarLista(false) },
@@ -1278,26 +1421,31 @@
     return el("button", { type: "button", class: "chip", "aria-pressed": String(Boolean(ativo)), onclick: aoClicar }, rotulo);
   }
   const POR_PAGINA_PLAYBOOK = 12;  // por etapa do funil: centenas de cartões de uma vez ficam lentos e cansam
-  function pintarPlaybook() {
+  function abrirBase(secao) {
+    estado.filtro.secao = NOME_SECAO[secao] ? secao : null;
+    estado.filtro.mostrar = {};
+    pintarBase();
+  }
+  function pintarBase() {
     const todos = itensDoPlaybook();
     const funil = $("#funil");
     funil.replaceChildren();
-    SECOES.forEach(([chave, nome], i) => {
-      if (i) funil.append(el("span", { class: "fio", "aria-hidden": "true" }));
+    $("#titulo-base").textContent = estado.filtro.secao ? NOME_SECAO[estado.filtro.secao] : "A base inteira";
+    SECOES.forEach(([chave, nome]) => {
       const n = todos.filter((x) => x.secao === chave).length;
       funil.append(el("button", {
-        type: "button", class: `etapa${n ? " cheia" : ""}`, "aria-pressed": String(estado.filtro.secao === chave),
+        type: "button", class: "etapa-filtro", "aria-pressed": String(estado.filtro.secao === chave),
         "aria-label": `${nome}: ${n} ${n === 1 ? "item" : "itens"}`,
-        onclick: () => { estado.filtro.secao = estado.filtro.secao === chave ? null : chave; estado.filtro.mostrar = {}; pintarPlaybook(); },
-      }, el("span", { class: "no", text: String(n) }), el("span", { text: nome })));
+        onclick: () => { estado.filtro.secao = estado.filtro.secao === chave ? null : chave; estado.filtro.mostrar = {}; pintarBase(); },
+      }, el("span", { class: "num-etapa", text: String(n) }), el("span", { text: nome })));
     });
 
     const filtros = $("#filtros");
     filtros.replaceChildren();
-    const busca = el("input", { type: "search", id: "busca-playbook", class: "busca", placeholder: "Buscar no playbook", "aria-label": "Buscar no playbook" });
+    const busca = el("input", { type: "search", id: "busca-base", class: "busca", placeholder: "Buscar na base", "aria-label": "Buscar na base" });
     busca.value = estado.filtro.busca;
-    busca.addEventListener("input", () => { estado.filtro.busca = busca.value; estado.filtro.mostrar = {}; pintarGrupos(); });
-    const refiltrar = (mudar) => () => { mudar(); estado.filtro.mostrar = {}; pintarPlaybook(); };
+    busca.addEventListener("input", () => { estado.filtro.busca = busca.value; estado.filtro.mostrar = {}; pintarGruposBase(); });
+    const refiltrar = (mudar) => () => { mudar(); estado.filtro.mostrar = {}; pintarBase(); };
     filtros.append(busca, chip("Todos os segmentos", !estado.filtro.segmento, refiltrar(() => { estado.filtro.segmento = null; })));
     for (const s of [...new Set(estado.itens.map((i) => i.segmento).filter(Boolean))].sort()) {
       filtros.append(chip(capital(s), estado.filtro.segmento === s, refiltrar(() => { estado.filtro.segmento = s; })));
@@ -1312,9 +1460,9 @@
           refiltrar(() => { estado.filtro.origem = estado.filtro.origem === o ? null : o; }))));
     }
     filtros.append(chip("Incluir histórico a validar", estado.filtro.historico, refiltrar(() => { estado.filtro.historico = !estado.filtro.historico; })));
-    pintarGrupos();
+    pintarGruposBase();
   }
-  function pintarGrupos() {
+  function pintarGruposBase() {
     const box = $("#grupos");
     box.replaceChildren();
     const f = estado.filtro;
@@ -1326,11 +1474,11 @@
       (!termo || normalizar(`${i.titulo} ${i.descricao}`).includes(termo)));
     if (!itens.length) {
       const nadaAinda = itensDoPlaybook().length === 0;
-      box.append(el("div", { class: "painel vidro" }, vazio(
+      box.append(el("div", { class: "embrulho" }, vazio(
         nadaAinda ? "Nenhum item validado ainda" : "Nada com esses filtros",
-        nadaAinda ? "Registre um insight e aprove na Fila. Ele aparece aqui, na etapa do funil a que pertence."
+        nadaAinda ? "Registre um relato e aprove na Fila. Ele aparece aqui, na etapa do funil a que pertence."
           : "Tire um filtro ou busque outra palavra.",
-        nadaAinda ? el("a", { class: "btn primario", href: "#registrar", text: "Registrar um insight" }) : null)));
+        nadaAinda ? el("a", { class: "btn primario", href: "#registrar", text: "Registrar um relato" }) : null)));
       return;
     }
     SECOES.forEach(([chave, nome], i) => {
@@ -1343,65 +1491,59 @@
         el("div", { class: "grade" }, doGrupo.slice(0, quantos).map(cartaoPlaybook)),
         doGrupo.length > quantos
           ? el("button", { type: "button", class: "btn fantasma mais",
-              onclick: () => { f.mostrar[chave] = quantos + POR_PAGINA_PLAYBOOK; pintarGrupos(); } },
+              onclick: () => { f.mostrar[chave] = quantos + POR_PAGINA_PLAYBOOK; pintarGruposBase(); } },
             `Mostrar mais ${Math.min(POR_PAGINA_PLAYBOOK, doGrupo.length - quantos)} (restam ${doGrupo.length - quantos})`)
           : null));
     });
   }
   function cartaoPlaybook(it) {
-    return el("button", { type: "button", class: "item vidro cartao", onclick: () => abrirItem(it.codigo) },
+    return el("button", { type: "button", class: "item cartao", onclick: () => abrirItem(it.codigo) },
       metaItem(it, { secao: false }),
       el("span", { class: "titulo-cartao", text: it.titulo }),
       el("span", { class: "desc", text: it.descricao }),
-      el("span", { class: "pe" }, el("span", { class: "evid" }, sinal(it.evidencia), EVIDENCIA[it.evidencia]), el("span", { text: it.codigo })));
+      el("span", { class: "pe" }, el("span", { class: "evid" }, trilha(it.evidencia), EVIDENCIA[it.evidencia]), el("span", { text: it.codigo })));
   }
 
-  // ---------------------------------------------------------------- gaveta de detalhe
+  // ---------------------------------------------------------------- página do item
+  // O item abre numa aba do centro (no lugar da gaveta). O PR 2 completa a página com as ligações.
   function abrirItem(codigo) {
-    const it = acharItem(codigo);
-    if (!it) { aviso(`Não achei ${codigo} na base carregada.`, "erro"); return; }
-    const corpo = $("#gaveta-corpo");
-    corpo.replaceChildren();
+    if (!acharItem(codigo)) { aviso(`${codigo} não está na base carregada.`, "erro"); return; }
+    location.hash = `#item/${codigo}`;
+  }
+  function pintarItem(codigo) {
+    const corpo = $("#item-conteudo");
+    const it = codigo ? acharItem(codigo) : null;
+    if (!it) {
+      corpo.replaceChildren(vazio(`${codigo || "Esse item"} não está na base`,
+        "Ele pode ter sido rejeitado ou ainda não ter sido carregado.", el("a", { class: "btn", href: "#hoje", text: "Voltar ao Hoje" })));
+      return;
+    }
     const linhas = [
-      ["Seção", NOME_SECAO[it.secao]],
+      ["Etapa", NOME_SECAO[it.secao]],
       ["Segmento", it.segmento ? capital(it.segmento) : "Todos os segmentos"],
-      ["Evidência", el("span", { class: "evid" }, sinal(it.evidencia), `${it.evidencia} · ${EVIDENCIA[it.evidencia]}`)],
+      ["Evidência", el("span", { class: "evid" }, trilha(it.evidencia), `${it.evidencia} · ${EVIDENCIA[it.evidencia]}`)],
       ["Status", STATUS[it.status] || it.status],
       ["O que foi feito", it.o_que_foi_feito],
       ["Resultado", it.resultado],
       ["Contexto", it.contexto_cliente],
       ["Quem registrou", it.autor],
       ["Quando", dataBr(it.data_evento)],
-      ["Fonte", it.fonte],
+      ["Origem", ORIGEM_ITEM[it.fonte] || it.fonte],
       ["Motivo", it.motivo_obsolescencia],
     ].filter(([, v]) => v);
-    corpo.append(
+    corpo.replaceChildren(
+      el("header", { class: "cab-tela" },
+        el("p", { class: "t-rotulo marca", text: `${it.codigo} · ${TIPOS[it.tipo] || it.tipo}` }),
+        el("h1", { class: "t-titulo", text: it.titulo })),
       metaItem(it),
-      el("h2", { text: it.titulo }),
       el("p", { class: "desc", text: it.descricao }),
       el("dl", {}, linhas.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", {}, v)])));
     if (it.relacoes && it.relacoes.length) {
-      corpo.append(el("span", { class: "rotulo", text: "Relações" }), el("div", { class: "relacoes" }, it.relacoes.map((r) => relacaoChip(r, it))));
+      corpo.append(el("h2", { class: "t-secao", text: "Ligações" }), el("div", { class: "relacoes" }, it.relacoes.map((r) => relacaoChip(r, it))));
     }
     const avs = avisosDeEvidencia(it);
     if (avs.length) corpo.append(listaAvisos(avs));
-    corpo.append(el("span", { class: "codigo", text: it.codigo }));
-    estado.focoAntes = document.activeElement;
-    const g = $("#gaveta");
-    g.removeAttribute("inert");
-    g.setAttribute("aria-hidden", "false");
-    g.classList.add("aberta");
-    $("#fundo-gaveta").hidden = false;
-    $("#fechar-gaveta").focus();
-  }
-  function fecharGaveta() {
-    const g = $("#gaveta");
-    if (!g.classList.contains("aberta")) return;
-    g.classList.remove("aberta");
-    g.setAttribute("aria-hidden", "true");
-    g.setAttribute("inert", "");
-    $("#fundo-gaveta").hidden = true;
-    if (estado.focoAntes && document.contains(estado.focoAntes)) estado.focoAntes.focus();
+    pintarAbas();  // o título da aba pode ter chegado agora
   }
 
   // ---------------------------------------------------------------- briefing (POST /briefing)
@@ -1428,7 +1570,7 @@
     return li;
   }
   function bloco(titulo, cor, conteudo, classes = "") {
-    return el("article", { class: `bloco vidro ${classes}`, style: `--c:${cor}` }, el("h3", { text: titulo }), conteudo);
+    return el("article", { class: `bloco ${classes}`, style: `--c:${cor}` }, el("h3", { text: titulo }), conteudo);
   }
   const semBase = (t) => el("p", { class: "sem-base", text: t });
 
@@ -1472,6 +1614,227 @@
     saida.append(grade);
   }
 
+  // ---------------------------------------------------------------- paleta Cmd+K: buscar ou agir
+  // Busca nos itens já carregados (a API não tem busca própria de itens) e, ao vivo, nas fontes (GET /fontes?q=).
+  // Teclado: setas movem, Enter abre, Cmd+Enter pergunta ao Cérebro, Tab troca o filtro e Esc fecha.
+  const paleta = { aberta: false, termo: "", filtro: "tudo", sel: 0, opcoes: [], fontes: [], pedido: 0, espera: null, focoAntes: null };
+  const FILTROS_PALETA = [["tudo", "Tudo"], ["itens", "Itens"], ["fontes", "Fontes"], ["acoes", "Ações"]];
+  const TELAS_PALETA = [["#hoje", "hoje", "Hoje"], ["#fila", "fila", "Fila"], ["#preparar", "preparar", "Preparar reunião"], ["#fontes", "fontes", "Fontes"]];
+  const MAX_ITENS_PALETA = 8;
+
+  // O trecho que bate com o termo vai num <mark> (a comparação ignora acento e maiúscula).
+  function marcarTermo(texto, termo) {
+    const n = normalizar(termo);
+    const plano = [...texto].map((c) => normalizar(c) || c).join("");
+    const i = n ? plano.indexOf(n) : -1;
+    if (i < 0) return [texto];
+    const letras = [...texto];
+    return [letras.slice(0, i).join(""), el("mark", { text: letras.slice(i, i + n.length).join("") }), letras.slice(i + n.length).join("")];
+  }
+  function tecla(t) { return el("span", { class: "tecla", text: t }); }
+  function segmentoDoTermo(termo) {
+    const n = normalizar(termo.trim());
+    return n.length >= 3 ? SEGMENTOS.find((s) => normalizar(s).startsWith(n) || n.includes(normalizar(s))) || null : null;
+  }
+  function itensDaPaleta(termo) {
+    const n = normalizar(termo.trim());
+    if (!n) return [];
+    const achados = estado.itens.filter((i) => normalizar(`${i.codigo} ${i.titulo}`).includes(n) && i.status !== "obsoleto");
+    const comeca = (i) => Number(normalizar(i.titulo).startsWith(n) || normalizar(i.codigo) === n);
+    return achados.sort((a, b) => comeca(b) - comeca(a) || (b.evidencia - a.evidencia)).slice(0, MAX_ITENS_PALETA);
+  }
+  function opcoesDaPaleta() {
+    const termo = paleta.termo.trim();
+    const grupos = { perguntar: [], itens: [], fontes: [], acoes: [], telas: [] };
+    if (termo) {
+      grupos.perguntar.push({ mascote: true, titulo: `Perguntar ao Cérebro: “${termo}”`, sub: "Responde com notas da base e dos documentos",
+        dir: [tecla("↵")], agir: () => perguntarDaPaleta(termo) });
+    }
+    for (const it of itensDaPaleta(termo)) {
+      grupos.itens.push({ icone: "camadas", titulo: it.titulo, marcar: true,
+        sub: `${TIPOS[it.tipo] || it.tipo} · ${NOME_SECAO[it.secao] || it.secao}`,
+        dir: [estaNaFila(it) ? el("span", { class: "selo alerta", text: "na Fila" }) : trilha(it.evidencia), el("span", { class: "t-dado suave", text: it.codigo })],
+        agir: () => { location.hash = `#item/${it.codigo}`; } });
+    }
+    for (const f of paleta.fontes) {
+      const [rotulo, cor] = STATUS_FONTE[f.status] || [f.status, "mudo"];
+      const quando = f.importado_em ? ` · lida em ${dataHora(f.importado_em).split(" ")[0]}` : "";
+      grupos.fontes.push({ icone: "doc", titulo: f.titulo, marcar: true,
+        sub: `${ORIGEM[f.origem] || f.origem}${f.categoria ? ` · pasta ${f.categoria}` : ""}${quando}`,
+        dir: [el("span", { class: `selo ${{ ok: "ok", alerta: "alerta", risco: "risco" }[cor] || ""}`, text: rotulo })],
+        agir: () => { const url = linkSeguro(f.url); if (url) window.open(url, "_blank", "noopener"); else location.hash = "#fontes"; } });
+    }
+    const seg = segmentoDoTermo(termo);
+    grupos.acoes.push({ icone: "preparar", titulo: seg ? `Preparar reunião com ${seg}` : "Preparar reunião",
+      sub: seg ? "Abre o briefing com o segmento já escolhido" : "Um briefing com a prova de cada ponto",
+      agir: () => prepararDaPaleta(seg) });
+    grupos.acoes.push({ icone: "registrar", titulo: "Registrar o que aconteceu", sub: "Conta ao curador; o item entra na Fila antes da base",
+      agir: () => { location.hash = "#registrar"; setTimeout(() => $("#campo-reg").focus(), 0); } });
+    const nTermo = normalizar(termo);
+    for (const [hash, icon, nome] of TELAS_PALETA) {
+      if (hash === "#fontes" && !aoVivo()) continue;
+      if (nTermo && !normalizar(nome).includes(nTermo)) continue;
+      grupos.telas.push({ icone: icon, titulo: nome, sub: "Abrir a tela", agir: () => { location.hash = hash; } });
+    }
+    return grupos;
+  }
+  function pintarPaleta() {
+    const g = opcoesDaPaleta();
+    const conta = { itens: g.itens.length, fontes: g.fontes.length, acoes: g.acoes.length };
+    const blocos = {
+      tudo: [["Perguntar", g.perguntar], [`Itens · ${conta.itens}`, g.itens], [`Fontes · ${conta.fontes}`, g.fontes], ["Ações", g.acoes], ["Telas", g.telas]],
+      itens: [[`Itens · ${conta.itens}`, g.itens]],
+      fontes: [[`Fontes · ${conta.fontes}`, g.fontes]],
+      acoes: [["Ações", g.acoes], ["Telas", g.telas]],
+    }[paleta.filtro].filter(([, lista]) => lista.length);
+    paleta.opcoes = blocos.flatMap(([, lista]) => lista);
+    paleta.sel = Math.min(paleta.sel, Math.max(0, paleta.opcoes.length - 1));
+
+    $("#paleta-filtros").replaceChildren(...FILTROS_PALETA.map(([chave, nome]) => {
+      const n = chave === "tudo" ? g.perguntar.length + conta.itens + conta.fontes + conta.acoes : conta[chave];
+      return el("button", { type: "button", class: "chip", tabindex: "-1", "aria-pressed": String(paleta.filtro === chave),
+        onclick: () => { paleta.filtro = chave; paleta.sel = 0; pintarPaleta(); $("#paleta-campo").focus(); } },
+      nome, el("span", { class: "t-dado", text: String(n) }));
+    }));
+
+    let i = 0;
+    const lista = [];
+    for (const [titulo, opcoes] of blocos) {
+      lista.push(el("p", { class: "t-rotulo ck-grupo", text: titulo, role: "presentation" }));
+      for (const op of opcoes) {
+        const indice = i++;
+        lista.push(el("div", {
+          class: `ck-item${indice === paleta.sel ? " sim" : ""}`, id: `paleta-op-${indice}`, role: "option",
+          "aria-selected": String(indice === paleta.sel),
+          onclick: () => escolherNaPaleta(indice),
+          onmousemove: () => { if (paleta.sel !== indice) { paleta.sel = indice; marcarSelecaoPaleta(); } },
+        },
+        el("span", { class: "caixa" }, op.mascote ? mascoteEm("p", { forma: "simbolo" }) : icone(op.icone, "ic p")),
+        el("span", { class: "txt" }, el("b", {}, ...(op.marcar ? marcarTermo(op.titulo, paleta.termo) : [op.titulo])), el("span", { text: op.sub })),
+        op.dir ? el("span", { class: "dir" }, ...op.dir) : null));
+      }
+    }
+    const termo = paleta.termo.trim();
+    if (termo && !g.itens.length && !g.fontes.length && paleta.filtro !== "acoes") {
+      lista.push(el("p", { class: "ck-nada", text: `Nada com «${termo}». Perguntar ao Cérebro?` }));
+    }
+    $("#paleta-lista").replaceChildren(...lista);
+    marcarSelecaoPaleta();
+  }
+  function marcarSelecaoPaleta() {
+    $$("#paleta-lista .ck-item").forEach((o, i) => {
+      o.classList.toggle("sim", i === paleta.sel);
+      o.setAttribute("aria-selected", String(i === paleta.sel));
+    });
+    const campo = $("#paleta-campo");
+    if (paleta.opcoes.length) {
+      campo.setAttribute("aria-activedescendant", `paleta-op-${paleta.sel}`);
+      $(`#paleta-op-${paleta.sel}`).scrollIntoView({ block: "nearest" });
+    } else {
+      campo.removeAttribute("aria-activedescendant");
+    }
+  }
+  function escolherNaPaleta(indice) {
+    const op = paleta.opcoes[indice];
+    if (!op) return;
+    fecharPaleta(false);
+    op.agir();
+  }
+  function perguntarDaPaleta(texto) {
+    fecharPaleta(false);
+    if (CELULAR.matches) location.hash = "#cerebro";
+    else mostrarCerebro();
+    perguntar(texto);
+  }
+  function prepararDaPaleta(seg) {
+    pintarSegmentosBriefing();
+    if (seg) $("#b-segmento").value = seg;
+    if (location.hash === "#preparar") montarBriefing();
+    else location.hash = "#preparar";
+  }
+  function buscarFontesDaPaleta() {
+    clearTimeout(paleta.espera);
+    paleta.fontes = [];
+    const termo = paleta.termo.trim();
+    if (!aoVivo() || termo.length < 2) return;  // as fontes só existem com o servidor
+    const pedido = ++paleta.pedido;
+    paleta.espera = setTimeout(async () => {
+      try {
+        const r = await chamar("GET", `/fontes?${new URLSearchParams({ q: termo, limit: "5" })}`);
+        if (pedido !== paleta.pedido || !paleta.aberta) return;  // só o último pedido vale
+        paleta.fontes = r.itens;
+        pintarPaleta();
+      } catch { /* sem as fontes, a paleta segue com os itens */ }
+    }, 250);
+  }
+  function montarPaleta() {
+    const campo = el("input", { id: "paleta-campo", type: "text", autocomplete: "off", spellcheck: "false",
+      placeholder: "Buscar um item, uma fonte ou o que fazer", role: "combobox", "aria-expanded": "true",
+      "aria-controls": "paleta-lista", "aria-autocomplete": "list", "aria-label": "Buscar ou agir" });
+    campo.addEventListener("input", () => {
+      paleta.termo = campo.value;
+      paleta.sel = 0;
+      buscarFontesDaPaleta();
+      pintarPaleta();
+    });
+    campo.addEventListener("keydown", (e) => {
+      const n = paleta.opcoes.length;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        if (n) { paleta.sel = (paleta.sel + (e.key === "ArrowDown" ? 1 : -1) + n) % n; marcarSelecaoPaleta(); }
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if ((e.metaKey || e.ctrlKey) && paleta.termo.trim()) perguntarDaPaleta(paleta.termo.trim());
+        else escolherNaPaleta(paleta.sel);
+      } else if (e.key === "Tab") {  // Tab troca o filtro: o foco fica no campo
+        e.preventDefault();
+        const i = FILTROS_PALETA.findIndex(([c]) => c === paleta.filtro);
+        paleta.filtro = FILTROS_PALETA[(i + (e.shiftKey ? -1 : 1) + FILTROS_PALETA.length) % FILTROS_PALETA.length][0];
+        paleta.sel = 0;
+        pintarPaleta();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();  // o Esc fecha só a paleta (não a gaveta nem a navegação que estiverem atrás)
+        fecharPaleta();
+      }
+    });
+    const fundo = el("div", { class: "ck-fundo", id: "paleta", hidden: true },
+      el("div", { class: "ck", role: "dialog", "aria-modal": "true", "aria-label": "Buscar ou agir" },
+        el("div", { class: "ck-entrada" }, icone("busca"), campo, tecla("Esc")),
+        el("div", { class: "ck-filtros", id: "paleta-filtros", role: "group", "aria-label": "Filtro" }),
+        el("div", { class: "ck-lista", id: "paleta-lista", role: "listbox", "aria-label": "Resultados" }),
+        el("div", { class: "ck-pe" },
+          el("span", { class: "t-legenda" }, tecla("↑"), tecla("↓"), "navegar"),
+          el("span", { class: "t-legenda" }, tecla("↵"), "abrir"),
+          el("span", { class: "t-legenda" }, tecla("⌘↵"), "perguntar ao Cérebro"),
+          el("span", { class: "t-legenda" }, tecla("Tab"), "filtro"),
+          el("span", { class: "t-legenda ck-alcance", id: "paleta-alcance" }))));
+    fundo.addEventListener("mousedown", (e) => { if (e.target === fundo) fecharPaleta(); });
+    document.body.append(fundo);
+  }
+  function abrirPaleta(termo = "") {
+    if (!$("#paleta")) montarPaleta();
+    paleta.focoAntes = paleta.aberta ? paleta.focoAntes : document.activeElement;
+    Object.assign(paleta, { aberta: true, termo, filtro: "tudo", sel: 0, fontes: [] });
+    fecharNavCelular();
+    $("#paleta").hidden = false;
+    const campo = $("#paleta-campo");
+    campo.value = termo;
+    $("#paleta-alcance").textContent = aoVivo()
+      ? `Busca nos ${estado.itens.length} itens carregados e nas fontes`
+      : "Sem servidor: só as telas e as ações";
+    pintarPaleta();
+    campo.focus();
+  }
+  function fecharPaleta(devolverFoco = true) {
+    if (!paleta.aberta) return false;
+    paleta.aberta = false;
+    clearTimeout(paleta.espera);
+    $("#paleta").hidden = true;
+    if (devolverFoco && paleta.focoAntes && document.contains(paleta.focoAntes)) paleta.focoAntes.focus();
+    return true;
+  }
+
   // ---------------------------------------------------------------- eventos e início
   function ligarCampo(campoMsg, formulario) {
     campoMsg.addEventListener("input", () => autoAltura(campoMsg));
@@ -1481,7 +1844,11 @@
   }
   function ligarEventos() {
     window.addEventListener("hashchange", rotear);
-    $("#entrada-botao").addEventListener("click", () => { $("#entrada-botao").setAttribute("aria-busy", "true"); });
+    $("#entrada-botao").addEventListener("click", () => {
+      $("#entrada-botao").setAttribute("aria-busy", "true");
+      const rascunho = $("#campo-chat").value.trim();  // a ida ao Google recarrega a página: o texto espera na volta
+      if (rascunho) guardar.escrever("cerebro.rascunho-chat", rascunho);
+    });
 
     const formChat = $("#form-chat");
     ligarCampo($("#campo-chat"), formChat);
@@ -1493,30 +1860,70 @@
     $("#rascunho").addEventListener("submit", enviarParaFila);
 
     $("#form-briefing").addEventListener("submit", montarBriefing);
-    $("#fechar-gaveta").addEventListener("click", fecharGaveta);
-    $("#fundo-gaveta").addEventListener("click", fecharGaveta);
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharGaveta(); });
-  }
+    $("#nova-conversa").addEventListener("click", () => {
+      if (!estado.ocupado) iniciarConversa();
+      $("#campo-chat").focus();
+    });
 
-  function pintarAtalhosChat() {
-    $("#atalhos-chat").replaceChildren(...ATALHOS_CHAT.map(([rotulo, texto, cor]) =>
-      el("button", { type: "button", class: "atalho", style: `--c:${cor}`, onclick: () => perguntar(texto) }, el("span", { class: "ponto" }), rotulo)));
+    // A barra lateral recolhe num trilho só de ícones; o navegador lembra a escolha (se o localStorage deixar).
+    const app = $("#app");
+    const recolher = $("#recolher-barra");
+    const aplicarBarra = (recolhida) => {
+      app.classList.toggle("barra-recolhida", recolhida);
+      recolher.setAttribute("aria-expanded", String(!recolhida));
+      recolher.setAttribute("aria-label", recolhida ? "Abrir a barra lateral" : "Recolher a barra lateral");
+      recolher.title = recolher.getAttribute("aria-label");
+    };
+    aplicarBarra(guardar.ler("cerebro.barra") === "recolhida");
+
+    // A gaveta do Cérebro (de 861 a 1279 px): o botão no topo do centro ou Cmd+J; Esc e o fundo fecham.
+    $("#abrir-cerebro").addEventListener("click", abrirGavetaCerebro);
+    $("#fechar-cerebro").addEventListener("click", fecharGavetaCerebro);
+    $("#fundo-cerebro").addEventListener("click", fecharGavetaCerebro);
+    $("#nav-mascote").addEventListener("click", () => { if (!fecharNavCelular()) abrirNavCelular(); });
+    document.addEventListener("click", (e) => {
+      if (!$("#nav-celular").hidden && !e.target.closest("#nav-celular, #nav-mascote")) fecharNavCelular();
+    });
+    $("#abrir-busca").addEventListener("click", () => abrirPaleta());
+    $("#abrir-busca-celular").addEventListener("click", () => abrirPaleta());
+    document.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {  // a paleta: buscar ou agir
+        e.preventDefault();
+        if (!fecharPaleta()) abrirPaleta();
+        return;
+      }
+      if (paleta.aberta) return;  // com a paleta aberta, o teclado é dela
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        if (ehGaveta() && fecharGavetaCerebro()) return;
+        mostrarCerebro();
+        return;
+      }
+      if (e.key === "Escape" && (fecharNavCelular() || fecharGavetaCerebro())) e.preventDefault();
+    });
+    ESTREITO.addEventListener?.("change", () => { if (!ehGaveta()) fecharGavetaCerebro(); });
+    recolher.addEventListener("click", () => {
+      const recolhida = !app.classList.contains("barra-recolhida");
+      aplicarBarra(recolhida);
+      guardar.escrever("cerebro.barra", recolhida ? "recolhida" : "aberta");
+    });
   }
 
   async function iniciar() {
-    pintarOrbes();
-    cena.iniciar();
+    seguro(pintarMascotes, "mascote");
     ligarEventos();
-    pintarTopo("conversar");
+    seguro(lerAbas, "abas");
     estado.modo = await detectarModo();
     pintarModo();
     if (!aoVivo()) {  // nada de dado inventado: sem servidor a tela só avisa
       atualizarNumeros();
-      aviso("Não consegui falar com o servidor. Confira se o uvicorn está rodando e recarregue a página.", "erro");
+      aviso("Não consegui falar com o servidor. Confira a internet e tente de novo.", "erro");
+      rotear();
       return;
     }
     if (!(await verificarLogin())) return;  // sem sessão: a tela de entrada fica; o Google devolve para cá
-    pintarAtalhosChat();
+    const rascunho = guardar.ler("cerebro.rascunho-chat");
+    if (rascunho) { $("#campo-chat").value = rascunho; guardar.escrever("cerebro.rascunho-chat", ""); }
     await carregarItens();
     atualizarNumeros();
     iniciarConversa();
