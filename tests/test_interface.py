@@ -276,7 +276,160 @@ def test_tela_sem_texto_de_desenvolvedor():
     sem_comentarios = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
     linhas = [linha.split(" // ")[0] for linha in sem_comentarios.splitlines() if not linha.strip().startswith("//")]
     sem_comentarios = "\n".join(linhas)
-    for termo in ("ainda não existe", "uvicorn", "PR 3", "T9", "GOOGLE_CLIENT_ID", "NOTION_TOKEN", "endpoint", ".env"):
+    for termo in ("ainda não existe", "uvicorn", "PR 3", "T9", "GOOGLE_CLIENT_ID", "NOTION_TOKEN", "endpoint"):
         assert termo not in sem_comentarios and termo not in html, termo
+    # o arquivo .env, e não ".enviado" (estado.reg.enviado)
+    assert not re.search(r"\.env\b", sem_comentarios) and not re.search(r"\.env\b", html)
     assert "Sem conexão com o servidor. Nada aparece nem vai para a base até ele responder." in js
     assert 'id="faixa-servidor"' in html and "Tentar conectar" in js
+
+
+def test_chat_numera_as_notas_e_destaca_o_proximo_passo():
+    """A citação é uma nota numerada na ordem das fontes (o mesmo número vai ao mapa); a linha "Próximo passo:" ganha
+    destaque, e sem a linha nada aparece. O [INS-n] fora da base carregada vira texto simples."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        css = client.get("/static/cerebro.css").text
+    assert "function numeroDaNota(" in js and "notas.set(codigo, notas.size + 1)" in js
+    assert "Pr[óo]ximo passo" in js and "function blocoProximo(" in js
+    assert 'role: "tooltip"' in js and "function ligarPrevia(" in js
+    assert "if (!item) return document.createTextNode(" in js
+    assert ".nota.doc" in css and ".previa-cita" in css and ".proximo" in css
+
+
+def test_chat_trata_o_erro_do_modelo_e_o_dado_pessoal_sem_repetir_o_dado():
+    """502: o mascote sem resposta e "Tentar de novo"; 422: a pergunta volta ao campo e a mensagem do servidor
+    (que diz o tipo e o campo, nunca o dado) aparece num aviso."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert 'humor: "sem-resposta"' in js and '"Tentar de novo"' in js and '"Parar"' in js
+    assert "e.status === 422" in js and "com-erro" in js
+    # a frase do 422 fica junto ao campo (a torrada some em segundos)
+    assert "não foi enviada ao modelo" in js and 'id="aviso-chat"' in html and 'role="alert"' in html
+    assert "AbortController" in js
+
+
+def test_documento_do_anexo_abre_o_texto_no_proprio_servidor():
+    """O anexo guarda a url /fontes/<id>/texto (relativa): o linkSeguro aceita esse caminho e https, e mais nada."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert r"\/fontes\/\d+\/texto$" in js
+    assert "linkSeguro(doc.url)" in js
+
+
+def test_chat_registra_pela_api_e_leva_a_lacuna():
+    """"Registrar isso" usa POST /chat/registrar (que não grava nada); a resposta com lacuna_id mostra o selo e leva o
+    lacuna_id ao rascunho, que o POST /insights usa para resolver a lacuna."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert 'chamar("POST", "/chat/registrar", corpo)' in js
+    assert "corpo.lacuna_id = lacunaId" in js and "r.lacuna_id" in js
+    assert "Registrar isso" in js and "Registrar o que você sabe" in js
+    assert "Guardei como lacuna: a base não cobre isso." in js
+    assert "if (r.lacunaId) corpo.lacuna_id = r.lacunaId" in js  # salvar resolve a lacuna de onde o item veio
+
+
+def test_rascunho_valida_no_campo_antes_de_enviar():
+    """Título e descrição, a regra com evidência baixa e a evidência 4 sem número aparecem no campo, na hora, ligados
+    por aria-describedby. O dado pessoal que o servidor barrar marca o campo (tipo e campo, nunca o dado)."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert 'aria-invalid' in js and "aria-describedby" in js
+    for msg in ("Escreva um título.", "Para virar regra, a evidência precisa ser 3 ou 4.",
+                "Evidência 4 exige um número no campo Resultado."):
+        assert msg in js, msg
+    assert "function camposComDadoPessoal(" in js and "Nada foi gravado." in js
+    assert "Responda, ou deixe em branco" in js
+
+
+def test_historico_do_chat_fica_so_no_navegador():
+    """A conversa fica no localStorage (por pessoa, até 30 falas) e nunca vai ao servidor além do papel e do texto de
+    cada fala. "Nova conversa" esquece a anterior. Com um item aberto, a pergunta leva o prefixo "Sobre o item"."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert "cerebro.conversa:" in js and "estado.conversa.slice(-30)" in js
+    assert "map(({ role, text }) => ({ role, text }))" in js  # o servidor só recebe papel e texto
+    assert "Nova conversa" in html
+    assert "`Sobre o item ${codigo}" in js and "slice(0, 4000)" in js
+    assert 'id="sobre-chip"' in html and "Tirar o item da pergunta" in js
+
+
+def test_anexo_vai_por_multipart_e_acompanha_o_curador():
+    """O clipe manda o arquivo (FormData, sem o Content-Type do JSON) para POST /fontes/anexo e acompanha o curador por
+    GET /fontes/{id}; o anexo com dado pessoal é barrado sem repetir o dado."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert 'chamar("POST", "/fontes/anexo", corpo)' in js and "new FormData()" in js
+    assert "corpo instanceof FormData" in js  # o navegador põe o Content-Type do multipart
+    assert "`/fontes/${id}`" in js and "`/fontes/${id}/curar`" in js
+    for status in ("pulada_dado_pessoal", "so_busca", "vazia", "importada"):
+        assert status in js, status
+    assert "Tem dado pessoal: não entra." in js
+    # o nome com dado pessoal não é repetido: depois da resposta vale o título que o servidor guardou
+    assert "nomeDoAnexo(arquivo.name)" in js and "painel.nomear(f.titulo)" in js
+    assert "const RE_PESSOAL = [" in js  # o padrão que o nomeDoAnexo usa (saiu com a demonstração no #19)
+    assert 'id="arquivo-anexo"' in html and ".docx,.pdf,.xlsx,.csv,.txt,.md" in html
+
+
+def test_pagina_do_item_mostra_ligacoes_de_ida_e_de_volta():
+    """As ligações que saem do item vêm de `relacoes`; as que chegam nele são calculadas dos itens carregados (não há
+    rota de "citado em"). Um item ligado que não está carregado aparece como "fora da base atual", sem título."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+    assert "function ligacoesDoItem(" in js and "chega: true" in js and "chega: false" in js
+    assert "fora da base atual" in js
+    assert 'ORDEM_LIGACAO = ["contradiz", "substitui", "reforca", "duplica"]' in js  # as que importam vêm primeiro
+    assert "Perguntar sobre este item" in js and "Copiar código" in js
+    assert "relacoes-de-quem-cita" not in js and "/citado" not in js  # a API não entrega "citado em"
+
+
+def test_fila_anda_pelo_teclado():
+    """J e K movem, Enter abre, A aprova, R vai ao motivo, X marca, Shift+A aprova os marcados (com a confirmação) e ?
+    mostra os atalhos. A legenda fica sempre visível, e nada é otimista: o cartão fica "aprovando…" até o servidor."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+        css = client.get("/static/cerebro.css").text
+    assert "function teclasDaFila(" in js and 'document.addEventListener("keydown", teclasDaFila)' in js
+    for trecho in ('k === "j"', 'k === "k"', 'k === "a"', 'k === "r"', 'k === "x"', 'k === "enter"'):
+        assert trecho in js, trecho
+    assert 'e.shiftKey && e.key.toLowerCase() === "a"' in js and "function pedirLote(" in js
+    assert 'id="teclas-fila"' in html and "aprovar marcados, sem ler um a um" in js
+    assert '"Aprovando…"' in js and "Contradiz um item aprovado" in js
+    assert "Recarregar a Fila" in js and "Para rejeitar, escreva o motivo." in js
+    # na Fila, de 1280 px em diante, o Cérebro vira um trilho de 64 px que reabre o painel
+    assert 'classList.toggle("fila-aberta"' in js and 'id="trilho-cerebro"' in html
+    assert "body.fila-aberta { --largura-cerebro: 64px; }" in css and "(min-width: 1280px)" in css
+
+
+def test_lacunas_listam_e_resolvem_pela_api():
+    """A tela das lacunas lê GET /lacunas (abertas e resolvidas), resolve pelo POST /lacunas/{id}/resolver depois de
+    uma confirmação e mostra quantas vezes e por quantas pessoas, nunca quem."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert 'chamar("GET", "/lacunas?status=aberta&limit=200")' in js
+    assert 'chamar("GET", "/lacunas?status=resolvida&limit=200")' in js
+    assert "`/lacunas/${l.id}/resolver`" in js
+    assert "Marcar como resolvida sem registrar nada?" in js and "Essa lacuna não existe mais." in js
+    assert "O Cérebro respondeu tudo o que perguntaram." in js
+    assert "por ${textoPessoas(foco)}" in js and "quem perguntou" not in js.lower()
+    assert 'data-tela="lacunas"' in html and 'href="#lacunas"' in html
+
+
+def test_briefing_vem_da_api_e_nao_inventa_roteiro():
+    """Preparar reunião chama POST /briefing: nada é montado no navegador. Com a base vazia (usou_modelo falso) a tela
+    diz que não monta roteiro; o dado pessoal no contexto marca o campo; os últimos ficam só neste navegador."""
+    with TestClient(app) as client:
+        js = client.get("/static/cerebro.js").text
+        html = client.get("/").text
+    assert 'chamar("POST", "/briefing"' in js and "tipo_reuniao: d.tipo" in js
+    assert "function montarBriefing" not in js and "function baseUtil" not in js  # o roteiro do navegador saiu
+    assert "r.usou_modelo" in js and "Sem itens validados eu não monto roteiro: prefiro não inventar." in js
+    assert "Prévia da T9" not in js and "Prévia da T9" not in html
+    assert "cerebro.briefings:" in js and "Só neste computador" in js
+    assert "camposComDadoPessoal(e.message)" in js and "Diga o segmento da reunião." in js
+    assert 'id="preparar-conteudo"' in html

@@ -30,6 +30,7 @@
   const normalizar = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const capital = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
   const dataBr = (iso) => (iso ? iso.split("-").reverse().join("/") : "");
+  const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const guardar = {
     ler(chave) { try { return localStorage.getItem(chave); } catch { return null; } },
@@ -65,15 +66,21 @@
     itens: [],
     conversa: [],
     ocupado: false,
-    reg: { conversa: [], proposta: null, ocupado: false },
+    reg: novoReg(),  // o rascunho do curador em andamento
+    lacunas: novoEstadoLacunas(),  // GET /lacunas: as abertas e as resolvidas
+    briefing: novoBriefing(),  // o pedido e o resultado de Preparar reunião
     filtro: { secao: null, segmento: null, busca: "", historico: false, origem: null, mostrar: {} },
     fontes: null,  // o resumo de GET /fontes/resumo
     filtroFontes: { status: null, busca: "", origem: null },
     sync: { id: null, dry: false, exec: null, acompanhando: false, teto: 1, origem: "notion" },
-    fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [] },
+    fila: { origem: null, selecionados: new Set(), mostrar: 30, confirmando: false, aprovando: null, visiveis: [],
+      atual: null, processando: null, erro: null, ajuda: false },
     focoAntes: null,
     pessoa: null,  // quem entrou (GET /auth/eu): {email, nome, dev, dominio}; null enquanto não entrou
     erroCarga: null,  // a mensagem, quando a base não carregou
+    sobreItem: null,  // o item aberto no centro ("INS-12"): a pergunta pode levá-lo como contexto
+    sobreTirado: false,  // a pessoa tirou o chip "Sobre INS-12" deste item
+    ultimaResposta: null,  // os códigos citados na última resposta do Cérebro, na ordem das notas (o mapa usa)
     telaHash: null,  // o endereço da tela aberta no centro ("#fila", "#item/INS-12")
     abas: [],  // as abas abertas além do Hoje (os endereços), lembradas no localStorage
     pastas: new Set(),  // as pastas da árvore que a pessoa abriu
@@ -160,15 +167,17 @@
     if (status === 404) return "Não achei isso no servidor. Recarregue a página.";
     return "Algo deu errado do lado do servidor. Tente de novo em instantes.";
   }
-  async function chamar(metodo, url, corpo) {
+  async function chamar(metodo, url, corpo, sinal) {
     let r;
     try {
       r = await fetch(url, {
         method: metodo,
-        headers: corpo ? { "Content-Type": "application/json" } : {},
-        body: corpo ? JSON.stringify(corpo) : undefined,
+        headers: corpo && !(corpo instanceof FormData) ? { "Content-Type": "application/json" } : {},  // o FormData põe o dele
+        body: corpo instanceof FormData ? corpo : (corpo ? JSON.stringify(corpo) : undefined),
+        signal: sinal,
       });
-    } catch {
+    } catch (e) {
+      if (e && e.name === "AbortError") throw new ErroApi("Parei de esperar a resposta.", -1);  // o "Parar" do chat
       throw new ErroApi("Sem conexão com o servidor. Confira a internet e tente de novo.", 0);
     }
     let dados = null;
@@ -378,87 +387,178 @@
     t.style.height = `${Math.min(t.scrollHeight, 150)}px`;
   }
 
-  // Texto do modelo -> parágrafos, listas, negrito e citações clicáveis (sem HTML do modelo).
-  function inline(txt, docs) {
+  // Texto do modelo -> parágrafos, listas, negrito, a linha do próximo passo e as fontes como notas numeradas (sem HTML
+  // do modelo). A nota é o número da fonte na resposta (1, 2, 3, na ordem em que aparecem), e o mesmo número vai ao
+  // cartão do mapa. `notas` é o Map código -> número da resposta; sem ele (a fala da própria pessoa), a citação não
+  // ganha número.
+  const RE_PROXIMO = /^\s*(?:\*\*)?\s*Pr[óo]ximo passo(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+)$/i;
+  function inline(txt, docs, notas) {
     const partes = [];
     const re = /\[((?:EX|INS)-\d+)\]|\[(DOC-\d+)\]|\*\*([^*]+)\*\*/g;
     let i = 0, m;
     while ((m = re.exec(txt))) {
       if (m.index > i) partes.push(document.createTextNode(txt.slice(i, m.index)));
-      if (m[1]) partes.push(chipCitacao(m[1]));
-      else if (m[2]) partes.push(chipDocumento(m[2], docs));
+      if (m[1]) partes.push(chipCitacao(m[1], notas));
+      else if (m[2]) partes.push(chipDocumento(m[2], docs, notas));
       else partes.push(el("strong", { text: m[3] }));
       i = re.lastIndex;
     }
     if (i < txt.length) partes.push(document.createTextNode(txt.slice(i)));
     return partes;
   }
-  function formatar(texto, docs) {
+  function blocoProximo(texto, docs, notas) {
+    return el("div", { class: "proximo" }, icone("seta-dir", "ic"),
+      el("p", {}, el("b", { text: "Próximo passo:" }), " ", ...inline(texto, docs, notas)));
+  }
+  function formatar(texto, docs, notas = null) {
     const frag = document.createDocumentFragment();
     for (const bloco of String(texto).trim().split(/\n{2,}/)) {
       const linhas = bloco.split("\n").filter((l) => l.trim());
       if (!linhas.length) continue;
       if (linhas.every((l) => /^\s*[-*•]\s+/.test(l))) {
-        frag.append(el("ul", {}, linhas.map((l) => el("li", {}, inline(l.replace(/^\s*[-*•]\s+/, ""), docs)))));
+        frag.append(el("ul", {}, linhas.map((l) => el("li", {}, inline(l.replace(/^\s*[-*•]\s+/, ""), docs, notas)))));
       } else if (linhas.every((l) => /^\s*\d+[.)]\s+/.test(l))) {
-        frag.append(el("ol", {}, linhas.map((l) => el("li", {}, inline(l.replace(/^\s*\d+[.)]\s+/, ""), docs)))));
+        frag.append(el("ol", {}, linhas.map((l) => el("li", {}, inline(l.replace(/^\s*\d+[.)]\s+/, ""), docs, notas)))));
       } else {
-        const p = el("p");
-        linhas.forEach((l, i) => { if (i) p.append(el("br")); p.append(...inline(l, docs)); });
-        frag.append(p);
+        let p = null;
+        for (const l of linhas) {
+          const m = RE_PROXIMO.exec(l);
+          if (m) { p = null; frag.append(blocoProximo(m[1], docs, notas)); continue; }  // sem a linha, nada aparece
+          if (!p) { p = el("p"); frag.append(p); } else p.append(el("br"));
+          p.append(...inline(l, docs, notas));
+        }
       }
     }
     return frag;
   }
-  function chipCitacao(codigo) {
-    const item = acharItem(codigo);
-    return el("button", { type: "button", class: "cita", title: item ? item.titulo : "Abrir item", onclick: () => abrirItem(codigo) }, codigo);
+
+  // A nota: um quadrado com o número da fonte. A do documento do Drive (ou do anexo) é tracejada, sem preenchimento.
+  function nota(numero, doc = false) {
+    return el("span", { class: `nota${doc ? " doc" : ""}`, "aria-hidden": "true", text: String(numero) });
+  }
+  function numeroDaNota(notas, codigo) {
+    if (!notas) return null;
+    if (!notas.has(codigo)) notas.set(codigo, notas.size + 1);
+    return notas.get(codigo);
   }
 
-  // [DOC-n]: um documento do Drive que o consultor leu mas o time ainda não revisou. Abre o documento no Drive.
-  // Só vira link se o servidor mandou esse documento junto com a resposta (o modelo não inventa um destino).
-  function chipDocumento(codigo, docs) {
+  // A prévia ao passar o mouse (ou focar) numa nota. É um balão só, fora do painel, para o painel não cortá-lo.
+  const previa = { no: null, dono: null };
+  function mostrarPrevia(dono, conteudo) {
+    if (!previa.no) {
+      previa.no = el("div", { class: "previa-cita", id: "previa-cita", role: "tooltip", hidden: true });
+      document.body.append(previa.no);
+    }
+    previa.dono = dono;
+    previa.no.replaceChildren(...conteudo);
+    previa.no.hidden = false;
+    dono.setAttribute("aria-describedby", "previa-cita");
+    const r = dono.getBoundingClientRect();
+    const x = Math.min(Math.max(8, r.left), Math.max(8, innerWidth - previa.no.offsetWidth - 8));
+    let y = r.top - previa.no.offsetHeight - 8;
+    if (y < 8) y = r.bottom + 8;  // sem espaço em cima: abre embaixo
+    previa.no.style.left = `${x}px`;
+    previa.no.style.top = `${y}px`;
+  }
+  function esconderPrevia(dono) {
+    if (!previa.no || (dono && previa.dono !== dono)) return;
+    previa.no.hidden = true;
+    if (previa.dono) previa.dono.removeAttribute("aria-describedby");
+    previa.dono = null;
+  }
+  function ligarPrevia(no, montar) {
+    no.addEventListener("mouseenter", () => mostrarPrevia(no, montar()));
+    no.addEventListener("focus", () => mostrarPrevia(no, montar()));
+    no.addEventListener("mouseleave", () => esconderPrevia(no));
+    no.addEventListener("blur", () => esconderPrevia(no));
+  }
+  function chipCitacao(codigo, notas) {
+    const item = acharItem(codigo);
+    if (!item) return document.createTextNode(`[${codigo}]`);  // fora da base carregada: texto simples, sem destino inventado
+    const n = numeroDaNota(notas, codigo);
+    const chip = el("button", { type: "button", class: "cita", "aria-label": `${n ? `Fonte ${n}: ` : ""}${codigo}, ${item.titulo}`,
+      onclick: () => abrirItem(codigo) }, n ? nota(n) : null, codigo);
+    ligarPrevia(chip, () => [
+      el("span", { class: "t-rotulo", text: `${codigo} · ${TIPOS[item.tipo] || item.tipo} · ${NOME_SECAO[item.secao] || item.secao}` }),
+      el("strong", { text: item.titulo }),
+      el("span", { class: "evid" }, trilha(item.evidencia), EVIDENCIA[item.evidencia]),
+      el("span", { class: "t-legenda", text: `${item.segmento ? capital(item.segmento) : "Todos os segmentos"} · clique para abrir` }),
+    ]);
+    return chip;
+  }
+
+  // [DOC-n]: um documento do Drive (ou o texto de um anexo) que o consultor leu mas o time ainda não revisou. Abre o
+  // documento fora da página. Só vira link se o servidor mandou esse documento junto com a resposta (o modelo não inventa
+  // um destino).
+  function chipDocumento(codigo, docs, notas) {
     const doc = (docs || []).find((d) => `DOC-${d.id}` === codigo);
     const url = doc ? linkSeguro(doc.url) : null;
     if (!url) return document.createTextNode(`[${codigo}]`);
-    return el("a", {
+    const n = numeroDaNota(notas, codigo);
+    const chip = el("a", {
       class: "cita doc", href: url, target: "_blank", rel: "noopener noreferrer",
-      title: `Documento do Drive ainda não revisado: ${doc.titulo}${doc.categoria ? ` (${doc.categoria})` : ""}`,
-    }, codigo);
+      "aria-label": `${n ? `Fonte ${n}: ` : ""}${codigo}, documento ainda não revisado: ${doc.titulo}`,
+    }, n ? nota(n, true) : null, codigo);
+    ligarPrevia(chip, () => [
+      el("span", { class: "t-rotulo", text: `${codigo} · Documento` }),
+      el("strong", { text: doc.titulo }),
+      el("span", {}, el("span", { class: "selo alerta", text: "Não revisado" })),
+      el("span", { class: "t-legenda", text: `${doc.categoria ? `pasta ${doc.categoria} · ` : ""}${url.startsWith("/") ? "Abre o texto" : "Abre no Drive"}` }),
+    ]);
+    return chip;
   }
   // Rodapé da resposta com os documentos que ela cita: o aviso de que não passaram pela revisão do time.
-  function rodapeDocumentos(texto, docs) {
+  function rodapeDocumentos(texto, docs, notas) {
     const citados = (docs || []).filter((d) => texto.includes(`[DOC-${d.id}]`) && linkSeguro(d.url));
     if (!citados.length) return null;
     return el("div", { class: "docs-citados" },
-      el("p", { class: "nota-msg", text: "Documentos do Drive, ainda não revisados pelo time:" }),
+      el("p", { class: "nota-msg", text: "Documentos ainda não revisados pelo time:" }),
       el("ul", {}, citados.map((d) => el("li", {},
-        el("a", { href: d.url, target: "_blank", rel: "noopener noreferrer", text: d.titulo }),
+        notas && notas.has(`DOC-${d.id}`) ? nota(notas.get(`DOC-${d.id}`), true) : null,
+        notas && notas.has(`DOC-${d.id}`) ? " " : null,
+        el("a", { href: linkSeguro(d.url), target: "_blank", rel: "noopener noreferrer", text: d.titulo }),
         d.categoria ? el("span", { class: "pasta-doc", text: ` · ${d.categoria}` }) : null))));
   }
 
-  function adicionarMsg(caixa, { papel, texto, quem, nota, extra, docs }) {
+  // Uma fala no painel. A da pessoa é um balão; a do Cérebro (ou o erro) leva o mascote, o texto com as notas numeradas
+  // e, abaixo, o que a acompanha. A última resposta com notas fica guardada: o mapa (PR 3) a usa.
+  function adicionarMsg(caixa, { papel, texto, quem, nota: avisoFinal, extra, docs, registrar = false, lacunaId = null, lacunaPergunta = null, sobre = null }) {
     const vazia = caixa.querySelector(".conversa-vazia");
     if (vazia) vazia.remove();
     let linha;
     if (papel === "eu") {
-      linha = el("div", { class: "fala-eu" }, formatar(texto, docs));
+      linha = el("div", { class: "fala-eu" }, sobre ? el("p", { class: "sobre-fala t-legenda", text: `Sobre ${sobre}` }) : null, formatar(texto, docs, null));
     } else {
+      const notas = new Map();
       linha = el("div", { class: `fala-ele${papel === "erro" ? " erro" : ""}` },
-        el("div", { class: "quem" }, mascoteEm("p", { forma: "simbolo" }), el("span", { class: "t-rotulo", text: quem })),
-        el("div", { class: "resposta" }, formatar(texto, docs)));
+        el("div", { class: "quem" },
+          papel === "erro" ? mascoteEm("m mascote-erro", { humor: "sem-resposta" }) : mascoteEm("p", { forma: "simbolo" }),
+          el("span", { class: "t-rotulo", text: quem })),
+        el("div", { class: "resposta" }, formatar(texto, docs, notas)));
       if (extra) linha.append(extra);
-      const citados = rodapeDocumentos(texto, docs);
+      const citados = rodapeDocumentos(texto, docs, notas);
       if (citados) linha.append(citados);
-      if (nota) linha.append(el("p", { class: "nota-msg", text: nota }));
+      if (avisoFinal) linha.append(el("p", { class: "nota-msg", text: avisoFinal }));
+      if (papel === "cerebro" && lacunaId) {  // a base não soube responder: a pergunta foi guardada como lacuna
+        linha.append(el("div", { class: "lacuna-selo" },
+          el("span", { class: "t-rotulo", text: "Lacuna guardada" }),
+          el("span", { text: "Guardei como lacuna: a base não cobre isso." }),
+          el("button", { type: "button", class: "btn fantasma", onclick: () => registrarDoChat({ lacunaId, lacunaPergunta }) }, "Registrar o que você sabe")));
+      }
+      if (papel === "cerebro" && registrar) {
+        linha.append(el("button", { type: "button", class: "btn fantasma registrar-isso", onclick: () => registrarDoChat({ lacunaId, lacunaPergunta }) },
+          icone("registrar", "ic p"), "Registrar isso"));
+      }
+      if (papel === "cerebro" && notas.size) estado.ultimaResposta = { notas: [...notas.keys()], docs: docs || [] };
     }
     caixa.append(linha);
     caixa.scrollTop = caixa.scrollHeight;
     return linha;
   }
-  function digitando(caixa) {
+  function digitando(caixa, aoParar) {
     const linha = el("div", { class: "fala-ele pensando-linha", role: "status" },
-      mascoteEm("m", { humor: "pensando" }), el("span", { class: "t-rotulo", text: "Lendo a base" }));
+      mascoteEm("m", { humor: "pensando" }), el("span", { class: "t-rotulo", text: "Lendo a base" }),
+      aoParar ? el("button", { type: "button", class: "btn fantasma", onclick: aoParar }, "Parar") : null);
     caixa.append(linha);
     caixa.scrollTop = caixa.scrollHeight;
     return linha;
@@ -468,9 +568,9 @@
   // A navegação é por hash, para o link funcionar ("#item/INS-12", "#base/proposta"). Os endereços antigos
   // (#conversar, #playbook, #briefing) continuam abrindo a tela certa. As abas abertas ficam no localStorage, que pode
   // falhar: sem ele, a tela abre só com o Hoje.
-  const TELAS = ["hoje", "cerebro", "item", "base", "fila", "registrar", "preparar", "fontes"];
+  const TELAS = ["hoje", "cerebro", "item", "base", "fila", "lacunas", "registrar", "preparar", "fontes"];
   const APELIDOS = { conversar: "cerebro", playbook: "base", briefing: "preparar" };
-  const NOME_TELA = { fila: "Fila", registrar: "Rascunho", preparar: "Preparar reunião", fontes: "Fontes" };
+  const NOME_TELA = { fila: "Fila", lacunas: "Lacunas", registrar: "Rascunho", preparar: "Preparar reunião", fontes: "Fontes" };
   const MAX_ABAS = 8;
 
   function lerRota() {
@@ -489,6 +589,7 @@
   }
   function rotear() {
     const rota = lerRota();
+    esconderPrevia();  // a prévia de uma nota não fica presa quando a tela muda e a nota some
     fecharNavCelular();
     if (rota.tela !== "cerebro") fecharGavetaCerebro();  // abrir um item pela gaveta mostra o item, não a gaveta
     document.body.classList.toggle("ver-centro", rota.tela !== "cerebro");  // no celular, uma coluna por vez
@@ -507,22 +608,36 @@
   function mostrarTela(rota) {
     estado.tela = rota.tela;
     estado.telaHash = rota.hash;
+    document.body.classList.toggle("fila-aberta", rota.tela === "fila");
     abrirAba(rota.hash);
     for (const s of $$(".tela")) s.hidden = s.dataset.tela !== rota.tela;
     pintarAbas();
     marcarAtivos();
+    atualizarSobre();
     if (rota.tela === "hoje") seguro(pintarHoje, "hoje");
     if (rota.tela === "item") pintarItem(rota.arg);
     if (rota.tela === "base") abrirBase(rota.arg);
     if (rota.tela === "fila") pintarFila();
+    if (rota.tela !== "lacunas") estado.lacunas.aviso = null;  // a faixa "Enviado para a Fila" some ao sair da tela
+    if (rota.tela === "lacunas") {
+      pintarLacunas();
+      carregarLacunas().then(() => { if (estado.tela === "lacunas") pintarLacunas(); });  // as perguntas mudam o tempo todo
+    }
+    if (rota.tela === "registrar") {
+      if (estado.reg.enviado) estado.reg = novoReg();  // depois de enviado, voltar à tela começa um relato novo
+      pintarRegistrar();
+    }
     if (rota.tela === "fontes") pintarFontes();
-    if (rota.tela === "preparar") montarBriefing();
+    if (rota.tela === "preparar") pintarPreparar();
     const tela = $(`.tela[data-tela="${rota.tela}"]`);
     if (tela) tela.scrollTop = 0;
   }
   // O painel do Cérebro: fixo no desktop, gaveta de 861 a 1279 px e tela cheia no celular.
+  // Na Fila, de 1280 px em diante, o painel vira um trilho de 64 px (a lista e o detalhe ganham a largura); o trilho abre o
+  // Cérebro por cima, do mesmo jeito que a gaveta de 861 a 1279 px. Ao sair da Fila, o painel volta como estava.
+  const trilhoDaFila = () => document.body.classList.contains("fila-aberta") && !ESTREITO.matches;
   function mostrarCerebro() {
-    if (ehGaveta()) abrirGavetaCerebro();
+    if (ehGaveta() || trilhoDaFila()) abrirGavetaCerebro();
     else if (!CELULAR.matches) $("#campo-chat").focus();
   }
   function abrirGavetaCerebro() {
@@ -637,6 +752,9 @@
         aoVivo() ? (dev ? "Dev local" : "Ao vivo") : "Sem servidor");
     }
     document.body.classList.toggle("sem-servidor", !aoVivo());
+    const anexar = $("#anexar");
+    anexar.disabled = !aoVivo();
+    anexar.title = aoVivo() ? "Anexar um arquivo (docx, pdf, xlsx, csv, txt ou md, até 10 MB)" : "Só com o servidor ligado";
     const faixa = $("#faixa-servidor");
     faixa.hidden = aoVivo();
     faixa.replaceChildren(...(aoVivo() ? [] : [
@@ -702,8 +820,8 @@
   }
   function seloDaFila(it) {
     if ((it.relacoes || []).some((r) => r.tipo === "contradiz")) return el("span", { class: "selo risco", text: "Contradiz" });
-    const origem = ORIGEM_ITEM[it.fonte] || it.fonte;
-    return el("span", { class: it.status === "historico_a_validar" ? "selo alerta" : "selo", text: origem });
+    if (it.status === "historico_a_validar") return el("span", { class: "selo alerta", text: "Histórico a validar" });
+    return el("span", { class: "selo", text: ORIGEM_ITEM[it.fonte] || it.fonte });
   }
   function painelFila(fila) {
     const sec = el("section", { class: "painel raso" }, el("div", { class: "cab-painel" },
@@ -759,7 +877,8 @@
           el("b", { class: "forte", text: `${base.length} ${base.length === 1 ? "item aprovado" : "itens aprovados"} na base.` }), resumo)),
       el("div", { class: "metricas" },
         metrica("camadas", "Base", base.length, base.length === 1 ? "item aprovado" : "itens aprovados", "", "#base"),
-        metrica("fila", "Fila", fila.length, "esperando aprovação", "marca", "#fila")),
+        metrica("fila", "Fila", fila.length, "esperando aprovação", "marca", "#fila"),
+        metrica("lacuna", "Lacunas", estado.lacunas.abertas.length, "perguntas sem resposta", "alerta", "#lacunas")),
       el("div", { class: "cab-tela" }, el("p", { class: "t-rotulo", text: "Começar por" }),
         el("div", { class: "comecar" },
           atalhoGrande("#preparar", "preparar", "Preparar reunião", "Um briefing com a prova de cada ponto"),
@@ -778,7 +897,7 @@
           fila.length ? el("a", { class: "btn", href: "#fila", text: "Abrir a Fila" }) : null)));
       filhos[filhos.length - 1].querySelector(".mascote").replaceWith(mascoteEm("m mascote-vazio", { humor: "nota-em-branco" }));
     }
-    filhos.push(el("div", { class: "duas-colunas" }, painelFila(fila)));
+    filhos.push(el("div", { class: "duas-colunas" }, painelFila(fila), painelLacunas(estado.lacunas.abertas)));
     const ultima = aoVivo() && estado.fontes && estado.fontes.ultima_execucao;
     if (ultima) filhos.push(cartaoSync(ultima));
     $("#hoje").replaceChildren(...filhos);
@@ -790,26 +909,58 @@
     "O cliente disse que está caro. Como respondemos?",
     "Como apresentar o Discovery?",
   ];
-  async function perguntar(texto) {
+  async function perguntar(texto, { semFala = false } = {}) {
     texto = texto.trim();
     if (!texto || estado.ocupado) return;
     const caixa = $("#mensagens");
     const campo = $("#campo-chat");
-    adicionarMsg(caixa, { papel: "eu", texto, quem: nomeDoUsuario() });
-    campo.value = ""; autoAltura(campo);
+    const compor = $("#form-chat");
+    compor.classList.remove("com-erro");
+    $("#aviso-chat").hidden = true;
+    const sobre = codigoSobre();
+    const enviado = sobre ? comPrefixoDoItem(sobre, texto) : texto;
+    const falaEu = semFala ? null : adicionarMsg(caixa, { papel: "eu", texto, quem: nomeDoUsuario(), sobre });
+    campo.value = ""; autoAltura(campo); atualizarContadorMsg();
     estado.ocupado = true; $("#enviar-chat").disabled = true;
-    const indicador = digitando(caixa);
+    const parar = new AbortController();
+    const indicador = digitando(caixa, () => parar.abort());
     try {
-      const r = await chamar("POST", "/chat", { mensagem: texto, historico: estado.conversa.slice(-30) });
+      const r = await chamar("POST", "/chat", { mensagem: enviado, historico: historicoParaApi() }, parar.signal);
       const resposta = r.resposta;
+      const docs = r.documentos || [];
+      const lacunaId = r.lacuna_id || null;
       indicador.remove();
-      adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", docs: r.documentos || [] });
-      estado.conversa.push({ role: "user", text: texto }, { role: "model", text: resposta });
+      adicionarMsg(caixa, { papel: "cerebro", texto: resposta, quem: "Cérebro", docs,
+        registrar: true, lacunaId, lacunaPergunta: texto });
+      estado.conversa.push({ role: "user", text: enviado, mostrar: texto, sobre }, { role: "model", text: resposta, docs, lacunaId });
+      salvarConversa();
       pulsarMascote();
     } catch (e) {
       indicador.remove();
-      adicionarMsg(caixa, { papel: "erro", texto: e.message, quem: "Não deu certo" });
-      if (!campo.value.trim()) { campo.value = texto; autoAltura(campo); }  // a pergunta volta ao campo, para tentar de novo
+      if (!campo.value.trim()) { campo.value = texto; autoAltura(campo); atualizarContadorMsg(); }  // a pergunta volta ao campo, para tentar de novo
+      if (e.status === -1) {  // parou de esperar: nada foi respondido
+        if (falaEu) falaEu.remove();
+      } else if (e.status === 422) {  // dado pessoal (ou texto inválido): nada foi ao modelo, e a mensagem não repete o dado
+        if (falaEu) falaEu.remove();
+        const aviso422 = $("#aviso-chat");  // a frase fica junto ao campo até a pessoa mexer no texto (a torrada some em 5 s)
+        aviso422.textContent = /dado pessoal/i.test(e.message)
+          ? "Essa mensagem tem um dado pessoal (e-mail, CPF, CNPJ ou telefone) e não foi enviada ao modelo. Tire o dado e envie de novo."
+          : e.message;
+        aviso422.hidden = false;
+        compor.classList.add("com-erro");
+        campo.addEventListener("input", () => { compor.classList.remove("com-erro"); aviso422.hidden = true; }, { once: true });
+      } else {
+        let linhaErro = null;
+        const extra = e.status === 502
+          ? el("div", { class: "botoes" }, el("button", { type: "button", class: "btn", onclick: () => {
+            linhaErro.remove();
+            if (campo.value.trim() === texto) { campo.value = ""; autoAltura(campo); atualizarContadorMsg(); }
+            perguntar(texto, { semFala: true });
+          } }, "Tentar de novo"))
+          : null;
+        linhaErro = adicionarMsg(caixa, { papel: "erro", texto: e.message, extra,
+          quem: e.status === 502 ? "Não consegui responder agora" : "Não deu certo" });
+      }
     } finally {
       estado.ocupado = false; $("#enviar-chat").disabled = false;
       campo.focus();
@@ -825,50 +976,408 @@
         el("p", { class: "t-p", text: "Ele responde com o que o time já aprovou e mostra de onde veio cada parte." })),
       pintarAtalhosChat());
   }
-  function iniciarConversa() {
+  // O histórico do chat fica só neste navegador (localStorage), por pessoa: não vai para o servidor, e a tela funciona
+  // sem ele. Guarda as últimas 30 falas, com os documentos e a lacuna de cada resposta, para reconstruir a conversa.
+  const chaveConversa = () => `cerebro.conversa:${estado.pessoa ? estado.pessoa.email : "dev"}`;
+  function salvarConversa() {
+    if (estado.conversa.length > 30) estado.conversa = estado.conversa.slice(-30);
+    guardar.escrever(chaveConversa(), JSON.stringify(estado.conversa.slice(-30)));
+  }
+  function lerConversaSalva() {
+    try {
+      const lida = JSON.parse(guardar.ler(chaveConversa()) || "[]");
+      return Array.isArray(lida)
+        ? lida.filter((m) => m && (m.role === "user" || m.role === "model") && typeof m.text === "string").slice(-30) : [];
+    } catch {
+      return [];  // o que estava guardado não é JSON: começa uma conversa nova
+    }
+  }
+  // Ao servidor vai só o papel e o texto (os documentos e a lacuna são da tela).
+  const historicoParaApi = () => estado.conversa.slice(-30).map(({ role, text }) => ({ role, text }));
+
+  // "Sobre INS-12": com um item aberto no centro, a pergunta leva o item como contexto. Não há rota para isso: o código
+  // escreve "Sobre o item INS-12 (título):" antes do texto, e o chip sai com o ×.
+  function codigoSobre() { return estado.sobreItem && !estado.sobreTirado ? estado.sobreItem : null; }
+  function comPrefixoDoItem(codigo, texto) {
+    const item = acharItem(codigo);
+    return `Sobre o item ${codigo}${item ? ` (${item.titulo.slice(0, 120)})` : ""}: ${texto}`.slice(0, 4000);  // o limite do servidor
+  }
+  function atualizarSobre() {
+    const [tela, arg] = (estado.telaHash || "").slice(1).split("/");
+    const codigo = tela === "item" && arg && acharItem(arg) ? arg : null;
+    if (codigo !== estado.sobreItem) { estado.sobreItem = codigo; estado.sobreTirado = false; }
+    const ativo = codigoSobre();
+    const chip = $("#sobre-chip");
+    chip.hidden = !ativo;
+    chip.replaceChildren(...(ativo ? [
+      el("span", { text: `Sobre ${ativo}` }),
+      el("button", { type: "button", "aria-label": "Tirar o item da pergunta", onclick: () => { estado.sobreTirado = true; atualizarSobre(); } }, icone("x", "ic p")),
+    ] : []));
+  }
+  // O contador só aparece perto do limite de 4.000 caracteres.
+  function atualizarContadorMsg() {
+    const n = $("#campo-chat").value.length;
+    const c = $("#contador-msg");
+    c.hidden = n < 3800;
+    c.classList.toggle("perto", n >= 3950);
+    c.textContent = `${n.toLocaleString("pt-BR")} / 4.000`;
+  }
+
+  function iniciarConversa({ restaurar = false } = {}) {
     const caixa = $("#mensagens");
     caixa.replaceChildren(conversaVazia());
     estado.conversa = [];
+    estado.ultimaResposta = null;
+    const salvas = restaurar ? lerConversaSalva() : [];
+    if (!restaurar) guardar.escrever(chaveConversa(), "[]");  // "Nova conversa" esquece a anterior
+    if (salvas.length) {  // reconstrói a conversa guardada
+      estado.conversa = salvas;
+      salvas.forEach((m, i) => {
+        if (m.role === "user") {
+          adicionarMsg(caixa, { papel: "eu", quem: nomeDoUsuario(), texto: m.mostrar || m.text, sobre: m.sobre || null });
+        } else {
+          const antes = salvas[i - 1];
+          adicionarMsg(caixa, { papel: "cerebro", quem: "Cérebro", texto: m.text, docs: m.docs || [], registrar: true,
+            lacunaId: m.lacunaId || null, lacunaPergunta: antes ? (antes.mostrar || antes.text) : null });
+        }
+      });
+    }
   }
 
-  // ---------------------------------------------------------------- registrar (curador)
-  function boasVindasRegistro() {
-    const caixa = $("#mensagens-reg");
-    caixa.replaceChildren();
-    adicionarMsg(caixa, {
-      papel: "cerebro", quem: "Curador",
-      texto: "Me conta o que aconteceu, do jeito que você contaria para um colega. Eu organizo em um item, aponto o que faltou e você revisa antes de ir para a Fila.",
-    });
+  // ---------------------------------------------------------------- anexar arquivo no chat
+  // O clipe manda o arquivo (docx, pdf, xlsx, csv, txt ou md, até 10 MB) para POST /fontes/anexo. O texto fica na busca do
+  // consultor (como [DOC-n], "ainda não revisado") e o curador propõe itens para a Fila em segundo plano: a tela
+  // acompanha por GET /fontes/{id}. Dado pessoal barra tudo, e a tela nunca o repete.
+  const EXTENSOES_ANEXO = [".docx", ".pdf", ".xlsx", ".csv", ".txt", ".md"];
+  const MAX_ANEXO = 10 * 1024 * 1024;
+  const quantosItens = (fonte) => Object.values(fonte.itens || {}).reduce((t, n) => t + n, 0);
+
+  // O nome do arquivo pode ter dado pessoal (o servidor já omite esse título): a tela não o repete.
+  const RE_PESSOAL = [
+    ["e-mail", /[\w.+-]+@[\w-]+\.[\w.-]+/],
+    ["telefone", /\(?\b\d{2}\)?[\s.-]?9?\d{4}[\s.-]?\d{4}\b/],
+    ["CPF ou CNPJ", /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b|\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/],
+  ];
+  function nomeDoAnexo(nome) {
+    return RE_PESSOAL.some(([, re]) => re.test(nome)) ? "arquivo com dado pessoal no nome" : nome;
+  }
+
+  // A linha do anexo no chat: o nome, o que está acontecendo e, se couber, uma ação.
+  function linhaDoAnexo(nome) {
+    const estadoTxt = el("p", { class: "anexo-estado t-p", role: "status", text: "Enviando…" });
+    const acoes = el("div", { class: "botoes" });
+    const nomeTxt = el("b", { text: nome });
+    const linha = el("div", { class: "fala-ele anexo" },
+      el("div", { class: "quem" }, icone("doc", "ic p"), el("span", { class: "t-rotulo", text: "Anexo" })),
+      el("p", { class: "anexo-nome t-p" }, nomeTxt), estadoTxt, acoes);
+    $("#mensagens").append(linha);
+    $("#mensagens").scrollTop = $("#mensagens").scrollHeight;
+    return {
+      linha,
+      nomear(titulo) { nomeTxt.textContent = titulo; },  // depois da resposta, vale o título que o servidor guardou
+      dizer(texto, { tom = "", nota = null, botoes = [] } = {}) {
+        estadoTxt.textContent = texto;
+        estadoTxt.className = `anexo-estado t-p${tom ? ` ${tom}` : ""}`;
+        acoes.replaceChildren(...botoes);
+        const velha = $(".nota-msg", linha);
+        if (velha) velha.remove();
+        if (nota) linha.append(el("p", { class: "nota-msg", text: nota }));
+        $("#mensagens").scrollTop = $("#mensagens").scrollHeight;
+      },
+    };
+  }
+  async function acompanharAnexo(id, painel) {
+    for (let tentativa = 0; tentativa < 90; tentativa++) {  // até uns 3 minutos
+      let fonte;
+      try { fonte = await chamar("GET", `/fontes/${id}`); } catch { fonte = null; }
+      if (fonte && fonte.status === "importada") {
+        await carregarItens();
+        const n = quantosItens(fonte);
+        painel.dizer(n ? `Virou ${n} ${n === 1 ? "item" : "itens"} na Fila.` : "O curador leu o arquivo e não propôs itens.", {
+          tom: "ok", botoes: n ? [el("a", { class: "btn", href: "#fila" }, "Ver na Fila")] : [] });
+        return;
+      }
+      if (fonte && fonte.status === "falha") {
+        painel.dizer("O curador falhou neste arquivo.", { tom: "risco", botoes: [
+          el("button", { type: "button", class: "btn", onclick: () => tentarAnexoDeNovo(id, painel) }, "Tentar de novo")] });
+        return;
+      }
+      await esperar(2000);
+    }
+    painel.dizer("O curador está demorando. O arquivo já está na busca; confira a Fila daqui a pouco.", { tom: "alerta" });
+  }
+  async function tentarAnexoDeNovo(id, painel) {
+    painel.dizer("Lendo e propondo itens…");
+    try {
+      await chamar("POST", `/fontes/${id}/curar`);
+      acompanharAnexo(id, painel);
+    } catch (e) {
+      painel.dizer(e.message, { tom: "risco" });
+    }
+  }
+  async function enviarArquivo(arquivo) {
+    if (!aoVivo() || !arquivo) return;
+    const painel = linhaDoAnexo(nomeDoAnexo(arquivo.name));
+    const ext = `.${arquivo.name.split(".").pop().toLowerCase()}`;
+    if (!EXTENSOES_ANEXO.includes(ext)) { painel.dizer(`Formato não suportado. Anexe ${EXTENSOES_ANEXO.join(", ")}.`, { tom: "risco" }); return; }
+    if (arquivo.size > MAX_ANEXO) { painel.dizer("O arquivo passa de 10 MB.", { tom: "risco" }); return; }
+    const corpo = new FormData();
+    corpo.append("arquivo", arquivo);
+    try {
+      const r = await chamar("POST", "/fontes/anexo", corpo);
+      const f = r.fonte;
+      if (f.titulo) painel.nomear(f.titulo);
+      const nota = r.ja_existia ? "Este arquivo já tinha sido anexado." : (r.aviso || null);
+      if (f.status === "pulada_dado_pessoal") {  // o tipo, nunca o dado
+        painel.dizer("Tem dado pessoal: não entra. Nada dele foi lido pelo modelo.", { tom: "risco", nota: "Troque o dado por algo genérico no arquivo e anexe de novo." });
+      } else if (f.status === "vazia") {
+        painel.dizer("Não achei texto para ler. Nada foi guardado.", { tom: "alerta" });
+      } else if (f.status === "so_busca") {
+        painel.dizer("O chat já acha trechos dele, mas ele não vira item.", { tom: "alerta", nota });
+      } else if (f.status === "importada") {
+        const n = quantosItens(f);
+        painel.dizer(n ? `Virou ${n} ${n === 1 ? "item" : "itens"} na Fila.` : "Já foi lido antes, sem itens novos.", {
+          tom: "ok", nota, botoes: n ? [el("a", { class: "btn", href: "#fila" }, "Ver na Fila")] : [] });
+      } else if (r.curando) {
+        painel.dizer("Lendo e propondo itens…", { nota });
+        acompanharAnexo(f.id, painel);
+      } else {  // a_curar sem curador rodando (o servidor reiniciou, por exemplo) ou falha: dá para pedir de novo
+        painel.dizer("Guardado, esperando o curador.", { tom: "alerta", nota, botoes: [
+          el("button", { type: "button", class: "btn", onclick: () => tentarAnexoDeNovo(f.id, painel) }, "Pedir ao curador")] });
+      }
+      await carregarItens();
+    } catch (e) {
+      painel.dizer(e.status === 413 ? "O arquivo passa de 10 MB." : e.message, { tom: "risco" });
+    }
+  }
+
+  // ---------------------------------------------------------------- lacunas (prancha 5)
+  // O que o time perguntou e a base não soube responder, as mais repetidas primeiro (GET /lacunas). Mostra quantas vezes
+  // e por quantas pessoas, nunca quem. "Registrar o que sabemos" leva ao rascunho (POST /chat/registrar com o lacuna_id);
+  // salvar o item resolve a lacuna. "Marcar como resolvida" (POST /lacunas/{id}/resolver) resolve o grupo inteiro.
+  function novoEstadoLacunas() {
+    return { abertas: [], resolvidas: [], aba: "abertas", foco: null, aviso: null, confirmando: false, erro: null };
+  }
+  const lerData = (iso) => {
+    if (!iso) return null;
+    const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`);  // o servidor manda em UTC, sem o "Z"
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  function intervaloDeDatas(a, b) {
+    const da = lerData(a), db = lerData(b);
+    if (!da || !db) return "";
+    const mes = (d) => d.toLocaleDateString("pt-BR", { month: "long" });
+    if (da.toDateString() === db.toDateString()) return `em ${da.getDate()} de ${mes(da)}`;
+    if (da.getMonth() === db.getMonth() && da.getFullYear() === db.getFullYear()) return `de ${da.getDate()} a ${db.getDate()} de ${mes(da)}`;
+    return `de ${da.getDate()} de ${mes(da)} a ${db.getDate()} de ${mes(db)}`;
+  }
+  async function carregarLacunas() {
+    const L = estado.lacunas;
+    try {
+      const [abertas, resolvidas] = await Promise.all([chamar("GET", "/lacunas?status=aberta&limit=200"), chamar("GET", "/lacunas?status=resolvida&limit=200")]);
+      L.abertas = abertas.itens;
+      L.resolvidas = resolvidas.itens;
+      L.erro = null;
+    } catch (e) {
+      L.erro = e.message;
+    }
+    const contador = $("#contador-lacunas");
+    contador.textContent = L.abertas.length;
+    contador.hidden = L.abertas.length === 0;
+    if (estado.tela === "hoje") seguro(pintarHoje, "hoje");
+  }
+  // As barras acendem de 1 a 4 conforme a repetição (a cor nunca vai sozinha: o texto diz o número).
+  function barrasDeRepeticao(vezes) {
+    const b = el("span", { class: "barras-vezes", "aria-hidden": "true" });
+    for (let i = 1; i <= 4; i++) b.append(el("i", { class: i <= vezes ? "on" : "" }));
+    return b;
+  }
+  const textoVezes = (l) => `${l.vezes} ${l.vezes === 1 ? "vez" : "vezes"}`;
+  const textoPessoas = (l) => `${l.pessoas} ${l.pessoas === 1 ? "pessoa" : "pessoas"}`;
+
+  function painelLacunas(abertas) {  // a coluna "O que mais perguntam" do Hoje
+    const sec = el("section", { class: "painel raso" }, el("div", { class: "cab-painel" },
+      el("h2", { class: "t-secao", text: "O que mais perguntam" }),
+      abertas.length ? el("a", { class: "btn", href: "#lacunas", text: "Ver lacunas" }) : null));
+    if (!abertas.length) {
+      sec.append(el("p", { class: "t-p suave", text: "O Cérebro respondeu tudo o que perguntaram." }));
+      return sec;
+    }
+    for (const l of abertas.slice(0, 3)) {
+      sec.append(el("a", { class: "linha-lista", href: "#lacunas", onclick: () => { estado.lacunas.foco = l.id; estado.lacunas.aba = "abertas"; } },
+        el("span", { class: "icone-bola alerta" }, icone("lacuna", "ic p")), el("span", { class: "txt", text: l.pergunta }),
+        el("span", { class: "t-dado suave", text: `${l.vezes}× · ${l.pessoas}` })));
+    }
+    sec.append(el("p", { class: "t-legenda", text: "vezes perguntada · pessoas diferentes" }));
+    return sec;
+  }
+  function linhaDeLacuna(l, { foco = false } = {}) {
+    const resolvida = l.status === "resolvida";
+    const item = resolvida && l.resolvida_por_insight_id ? estado.itens.find((i) => i.id === l.resolvida_por_insight_id) : null;
+    return el("div", { class: `linha-lista lacuna-linha${resolvida ? " resolvida" : ""}${foco ? " em-foco" : ""}` },
+      el("span", { class: `icone-bola ${resolvida ? "ok" : "alerta"}` }, icone(resolvida ? "check" : "lacuna", "ic p")),
+      el("span", { class: "txt", text: l.pergunta }),
+      resolvida
+        ? (l.resolvida_por_insight_id
+          ? el(item ? "a" : "span", { class: "selo ok", href: item ? `#item/${item.codigo}` : null, text: `Resolvida por INS-${l.resolvida_por_insight_id}` })
+          : el("span", { class: "selo ok", text: "Resolvida" }))
+        : el("span", { class: "t-dado suave", text: `${l.vezes}× · ${textoPessoas(l)}` }),
+      resolvida ? null : el("button", { type: "button", class: "btn fantasma", onclick: () => {
+        estado.lacunas.foco = l.id; estado.lacunas.confirmando = false; pintarLacunas();
+        const c = $("#lacuna-sabemos"); if (c) { c.focus(); c.scrollIntoView({ block: "center" }); }
+      } }, "Registrar"));
+  }
+  async function resolverLacuna(l) {
+    const L = estado.lacunas;
+    try {
+      await chamar("POST", `/lacunas/${l.id}/resolver`);
+      aviso("Lacuna marcada como resolvida.", "ok");
+    } catch (e) {
+      aviso(e.status === 404 ? "Essa lacuna não existe mais." : e.message, "erro");
+    }
+    L.confirmando = false;
+    await carregarLacunas();
+    pintarLacunas();
+  }
+  function pintarLacunas() {
+    const L = estado.lacunas;
+    const caixa = $("#lacunas-conteudo");
+    const lista = L.aba === "abertas" ? L.abertas : L.resolvidas;
+    if (L.aba === "abertas" && !L.abertas.some((l) => l.id === L.foco)) L.foco = L.abertas.length ? L.abertas[0].id : null;
+    const foco = L.abertas.find((l) => l.id === L.foco) || null;
+    const filhos = [];
+    if (L.aviso) {
+      filhos.push(el("div", { class: "cartao faixa-ok", role: "status" }, el("span", { class: "icone-bola ok" }, icone("check", "ic p")),
+        el("span", { class: "t-p" }, el("b", { class: "forte", text: "Enviado para a Fila. " }), L.aviso.texto),
+        el("a", { class: "btn", href: "#fila", text: "Ver na Fila" })));
+    }
+    if (L.erro) {
+      filhos.push(vazio("Não consegui carregar as lacunas", L.erro,
+        el("button", { type: "button", class: "btn primario", onclick: async () => { await carregarLacunas(); pintarLacunas(); } }, "Tentar de novo")));
+    } else if (L.aba === "abertas" && !L.abertas.length) {
+      filhos.push(vazio("O Cérebro respondeu tudo o que perguntaram.", "Quando ele não souber responder, a pergunta aparece aqui."));
+    } else if (L.aba === "abertas" && foco) {
+      const sabemos = el("textarea", { id: "lacuna-sabemos", rows: "3", maxlength: "8000",
+        placeholder: "Conte o que você sabe, mesmo que seja um caso só. O curador transforma em item e manda para a Fila." });
+      filhos.push(el("section", { class: "painel lacuna-foco" },
+        el("div", { class: "lacuna-cab" }, el("span", { class: "icone-bola alerta" }, icone("lacuna", "ic")),
+          el("div", {}, el("h2", { class: "t-secao", text: foco.pergunta }),
+            el("p", { class: "lacuna-meta t-legenda" },
+              barrasDeRepeticao(foco.vezes), `perguntada ${textoVezes(foco)}`, icone("usuarios", "ic p"), `por ${textoPessoas(foco)}`,
+              icone("relogio", "ic p"), intervaloDeDatas(foco.primeira_em, foco.ultima_em)))),
+        el("div", { class: "campo" }, el("label", { for: "lacuna-sabemos", text: "O que sabemos" }), sabemos),
+        L.confirmando
+          ? el("div", { class: "botoes", role: "group", "aria-label": "Confirmar" },
+            el("span", { class: "t-p", text: "Marcar como resolvida sem registrar nada?" }),
+            el("button", { type: "button", class: "btn primario", onclick: () => resolverLacuna(foco) }, "Sim, marcar"),
+            el("button", { type: "button", class: "btn fantasma", onclick: () => { L.confirmando = false; pintarLacunas(); } }, "Cancelar"))
+          : el("div", { class: "botoes" },
+            el("button", { type: "button", class: "btn primario", onclick: () => {
+              const texto = sabemos.value.trim();
+              if (!texto) { marcarErroCampo("lacuna-sabemos", "Conte o que você sabe, mesmo que seja um caso só."); sabemos.focus(); return; }
+              registrarDoChat({ texto, lacunaId: foco.id, lacunaPergunta: foco.pergunta });
+            } }, "Registrar o que sabemos"),
+            el("button", { type: "button", class: "btn", onclick: () => { L.confirmando = true; pintarLacunas(); } }, "Marcar como resolvida"),
+            el("span", { class: "t-legenda", text: "Marcar sem registrar pede confirmação" }))));
+    }
+    if (!L.erro && lista.length) {
+      const outras = L.aba === "abertas" ? lista.filter((l) => l.id !== L.foco) : lista;
+      if (outras.length) filhos.push(el("section", { class: "painel raso" }, ...outras.map((l) => linhaDeLacuna(l))));
+    } else if (!L.erro && L.aba === "resolvidas") {
+      filhos.push(vazio("Nenhuma lacuna resolvida ainda", "As que forem respondidas com um item da base aparecem aqui."));
+    }
+    const abas = el("div", { class: "pilulas-abas", role: "group", "aria-label": "Lacunas" },
+      chip(`Abertas ${L.abertas.length}`, L.aba === "abertas", () => { L.aba = "abertas"; L.confirmando = false; pintarLacunas(); }),
+      chip(`Resolvidas ${L.resolvidas.length}`, L.aba === "resolvidas", () => { L.aba = "resolvidas"; L.confirmando = false; pintarLacunas(); }));
+    caixa.replaceChildren(abas, ...filhos);
+  }
+
+  // ---------------------------------------------------------------- registrar (o rascunho do curador, prancha 3)
+  // Três caminhos levam à mesma tela: "Registrar isso" no chat (POST /chat/registrar), "Registrar o que você sabe" de
+  // uma lacuna (o mesmo, com o lacuna_id) e "Registrar um relato" (POST /registrar/propor). Nenhum grava nada: quem grava
+  // é o POST /insights, depois que a pessoa revisa o formulário. O item sempre nasce proposto.
+  const ORIGENS_REG = { relato: "Veio de um relato", chat: "Veio da conversa", lacuna: "Veio de uma lacuna" };
+  const FRASE_EVID = { 1: "sem caso que sustente", 2: "um único caso", 3: "vários casos", 4: "exige um número" };
+  // O campo do servidor (nos avisos de dado pessoal) -> o campo do formulário.
+  const CAMPO_PARA_ID = {
+    titulo: "r-titulo", descricao: "r-descricao", o_que_foi_feito: "r-feito", resultado: "r-resultado",
+    contexto_cliente: "r-contexto", segmento: "r-segmento", servico: "r-servico",
+  };
+  function novoReg() {
+    return { conversa: [], proposta: null, ocupado: false, origem: "relato", lacunaId: null, lacunaPergunta: null,
+      evidencia: 1, sugerida: null, perguntas: [], erro: null, enviado: null };
+  }
+  function propostaVazia() {
+    return { insight: { titulo: "", tipo: "aprendizado", secao: "reuniao_diagnostico", segmento: null, evidencia: 1, descricao: "",
+      o_que_foi_feito: null, resultado: null, contexto_cliente: null, data_evento: null, servico: null }, relacoes: [], perguntas: [], avisos: [] };
+  }
+  function novoRegistro() {
+    estado.reg = novoReg();
+    if (estado.tela === "registrar") pintarRegistrar();
+  }
+  // O relato que o servidor monta sozinho quando a pessoa não escreve um texto: as últimas falas dela no chat.
+  const relatoDaConversa = () => estado.conversa.filter((m) => m.role === "user").map((m) => m.text.trim()).filter(Boolean)
+    .slice(-3).join("\n\n").slice(0, 8000);
+  function aplicarProposta(proposta, relato) {
+    const r = estado.reg;
+    proposta.relacoes = proposta.relacoes || [];
+    r.proposta = proposta;
+    r.evidencia = Number(proposta.insight.evidencia) || 1;
+    r.sugerida = r.evidencia;
+    r.perguntas = proposta.perguntas || [];
+    r.conversa.push({ role: "user", text: relato }, { role: "model", text: r.perguntas.length ? r.perguntas.join("\n") : "Rascunho pronto para revisar." });
+    r.erro = null;
+  }
+  // O curador não respondeu (502 ou sem conexão): o formulário em branco continua, para preencher à mão. Dado pessoal
+  // no relato (422): sem rascunho, a pessoa tira o dado e tenta de novo; a mensagem do servidor não repete o dado.
+  function tratarErroCurador(e, relato = "") {
+    const r = estado.reg;
+    if (e.status === 502 || e.status === 0) {
+      r.erro = { msg: `${e.message} Preencha o formulário à mão${relato ? ": o seu relato está na descrição" : ""}.` };
+      if (!r.proposta) {
+        r.proposta = propostaVazia();
+        r.proposta.insight.descricao = relato.slice(0, 4000);  // o que a pessoa escreveu não se perde
+      }
+    } else {
+      r.erro = { msg: e.message };
+    }
+  }
+  async function registrarDoChat({ texto = null, lacunaId = null, lacunaPergunta = null } = {}) {
+    if (estado.reg.ocupado) return;
+    estado.reg = novoReg();
+    const r = estado.reg;
+    Object.assign(r, { origem: lacunaId ? "lacuna" : "chat", lacunaId, lacunaPergunta, ocupado: true });
+    if (location.hash === "#registrar") pintarRegistrar(); else location.hash = "#registrar";
+    const relato = (texto || relatoDaConversa()).slice(0, 8000);
+    try {
+      const corpo = { historico: historicoParaApi() };
+      if (texto) corpo.texto = texto;
+      if (lacunaId) corpo.lacuna_id = lacunaId;
+      const proposta = await chamar("POST", "/chat/registrar", corpo);
+      aplicarProposta(proposta, relato);
+      pulsarMascote();
+    } catch (e) {
+      tratarErroCurador(e, relato);
+    } finally {
+      r.ocupado = false;
+      if (estado.reg === r) pintarRegistrar();
+    }
   }
   async function relatar(texto) {
     texto = texto.trim();
-    if (!texto || estado.reg.ocupado) return;
-    const autor = exigirAutor();
-    if (!autor) return;
-    const caixa = $("#mensagens-reg");
-    const campo = $("#campo-reg");
-    adicionarMsg(caixa, { papel: "eu", texto, quem: autor });
-    campo.value = ""; autoAltura(campo);
-    estado.reg.ocupado = true; $("#enviar-reg").disabled = true;
-    const indicador = digitando(caixa);
+    const r = estado.reg;
+    if (!texto || r.ocupado) return;
+    r.ocupado = true; r.erro = null;
+    pintarRegistrar();
     try {
-      const proposta = await chamar("POST", "/registrar/propor", { texto, conversa: estado.reg.conversa.slice(-10) });
-      indicador.remove();
-      const perguntas = proposta.perguntas || [];
-      const resumo = perguntas.length
-        ? `Já montei um rascunho ao lado. Antes de fechar, ${perguntas.length === 1 ? "uma pergunta" : "duas perguntas"}:`
-        : "Pronto. O rascunho está ao lado: revise, ajuste o que quiser e envie para a Fila.";
-      const extra = perguntas.length ? el("ol", { class: "lista-perguntas" }, perguntas.map((p) => el("li", { text: p }))) : null;
-      adicionarMsg(caixa, { papel: "cerebro", quem: "Curador", texto: resumo, extra });
-      estado.reg.conversa.push({ role: "user", text: texto }, { role: "model", text: perguntas.length ? perguntas.join("\n") : resumo });
-      estado.reg.proposta = proposta;
-      pintarRascunho();
+      const proposta = await chamar("POST", "/registrar/propor", { texto, conversa: r.conversa.slice(-10) });
+      aplicarProposta(proposta, texto);
       pulsarMascote();
     } catch (e) {
-      indicador.remove();
-      adicionarMsg(caixa, { papel: "erro", texto: e.message, quem: "Não deu certo" });
+      tratarErroCurador(e, texto);
     } finally {
-      estado.reg.ocupado = false; $("#enviar-reg").disabled = false;
+      r.ocupado = false;
+      if (estado.reg === r) pintarRegistrar();
     }
   }
 
@@ -882,174 +1391,465 @@
     s.value = valor;
     return s;
   }
-  function pintarRascunho() {
-    const f = $("#rascunho");
-    f.replaceChildren();
-    const p = estado.reg.proposta;
-    if (!p) {
-      f.append(vazio("O rascunho aparece aqui",
-        "Conte o que aconteceu no campo ao lado. O curador preenche tipo, seção, segmento e evidência, e você ajusta antes de enviar para a Fila."));
-      return;
-    }
-    const it = p.insight;
-    const valor = (v) => (v == null ? "" : v);
-    const titulo = el("input", { class: "titulo-campo", maxlength: "200", value: valor(it.titulo) });
-    const escala = el("div", { class: "escala", role: "radiogroup", "aria-label": "Evidência" });
-    for (const n of [1, 2, 3, 4]) {
-      const id = `r-evid-${n}`;
-      const radio = el("input", { type: "radio", name: "r-evidencia", id, value: String(n) });
-      radio.checked = Number(it.evidencia) === n;
-      escala.append(radio, el("label", { for: id, style: `--n:${n}` }, el("b", { text: String(n) }), EVIDENCIA[n]));
-    }
-    const segmento = el("input", { list: "lista-segmentos", maxlength: "100", value: valor(it.segmento), placeholder: "Todos os segmentos" });
-    const lista = el("datalist", { id: "lista-segmentos" }, SEGMENTOS.map((s) => el("option", { value: s })));
-    const area = (v, linhas = 3, limite = 4000) => { const a = el("textarea", { rows: String(linhas), maxlength: String(limite) }); a.value = valor(v); return a; };
+
+  // O erro no campo, na hora: a mensagem fica embaixo do campo, ligada a ele por aria-describedby.
+  function marcarErroCampo(id, msg, comEscudo = false) {
+    const ctl = $(`#${id}`);
+    if (!ctl) return;
+    const caixa = ctl.closest(".campo");
+    caixa.classList.add("erro");
+    let ajuda = $(`#${id}-ajuda`, caixa);
+    if (!ajuda) { ajuda = el("p", { class: "ajuda", id: `${id}-ajuda` }); caixa.append(ajuda); }
+    ajuda.replaceChildren(...(comEscudo ? [icone("escudo", "ic p")] : []), msg);
+    ctl.setAttribute("aria-invalid", "true");
+    ctl.setAttribute("aria-describedby", ajuda.id);
+    ctl.addEventListener(ctl.matches("div") ? "click" : "input", () => limparErroCampo(id), { once: true });
+  }
+  function limparErroCampo(id) {
+    const ctl = $(`#${id}`);
+    if (!ctl) return;
+    const caixa = ctl.closest(".campo");
+    caixa.classList.remove("erro");
+    const ajuda = $(`#${id}-ajuda`, caixa);
+    if (ajuda) ajuda.remove();
+    ctl.removeAttribute("aria-invalid");
+    ctl.removeAttribute("aria-describedby");
+  }
+  function focarPrimeiroErro() {
+    const ctl = $("#rascunho [aria-invalid='true']");
+    if (!ctl) return;
+    (ctl.matches("div") ? $("button", ctl) : ctl).focus();
+  }
+  // O que a pessoa precisa corrigir antes de enviar (as regras do servidor, avisadas antes do envio).
+  function validarRascunho(d) {
+    const erros = {};
+    if (!d.titulo) erros["r-titulo"] = "Escreva um título.";
+    if (!d.descricao) erros["r-descricao"] = "Escreva a descrição.";
+    if (d.tipo === "regra" && d.evidencia < 3) erros["r-evid-grupo"] = "Para virar regra, a evidência precisa ser 3 ou 4.";
+    if (d.evidencia === 4 && !/\d/.test(d.resultado || "")) erros["r-resultado"] = "Evidência 4 exige um número no campo Resultado.";
+    return erros;
+  }
+  // "Encontrei possível dado pessoal: e-mail em 'contexto_cliente'; telefone em 'resultado'. Por LGPD..." -> o tipo e o
+  // campo de cada achado. O dado em si nunca vem na mensagem, e a tela nunca o repete.
+  function camposComDadoPessoal(msg) {
+    const trecho = (/dado pessoal:\s*(.+?)\.\s*Por LGPD/s.exec(msg) || [])[1];
+    if (!trecho) return [];
+    return trecho.split(";").map((x) => /^\s*(.+?)\s+em\s+'([^']+)'/.exec(x)).filter(Boolean).map((m) => [m[1], m[2]]);
+  }
+  function mostrarAvisoRegistro(erro) {
+    const caixa = $("#registrar-aviso");
+    caixa.hidden = !erro;
+    caixa.replaceChildren(...(erro ? [icone("escudo", "ic p"), el("span", { class: "t-p", text: erro.msg }),
+      erro.fila ? el("a", { class: "btn", href: "#fila", text: "Abrir a Fila" }) : null].filter(Boolean) : []));
+  }
+
+  function chipLigacao(rel, aoTirar) {
+    const alvo = itemPorId(rel.relacionado_id);
+    const codigo = alvo ? alvo.codigo : `INS-${rel.relacionado_id}`;
+    return el("span", { class: "rel", "data-tipo": rel.tipo },
+      icone("ligacao", "ic p"), el("b", { text: RELACOES[rel.tipo] || rel.tipo }), el("span", { class: "t-dado", text: codigo }),
+      alvo ? el("span", { class: "txt-ligacao", text: alvo.titulo }) : null,
+      el("button", { type: "button", "aria-label": `Tirar a ligação com ${codigo}`, onclick: aoTirar }, icone("x", "ic p")));
+  }
+  function cartaoPerguntas() {
+    const r = estado.reg;
+    const entrada = el("input", { id: "resposta-curador", placeholder: "Responda, ou deixe em branco", autocomplete: "off", maxlength: "4000" });
+    const responder = () => {
+      const t = entrada.value.trim();
+      if (t) relatar(t); else { r.perguntas = []; pintarRegistrar(); }
+    };
+    entrada.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); responder(); } });
+    return el("div", { class: "cartao pergunta-curador", role: "group", "aria-label": "Pergunta do curador" },
+      el("span", { class: "bola" }, icone("brilho", "ic p")),
+      el("div", { class: "pergunta-corpo" },
+        el("p", { class: "t-rotulo", text: "O curador perguntou" }),
+        r.perguntas.length === 1
+          ? el("p", { class: "t-corpo forte", text: r.perguntas[0] })
+          : el("ol", { class: "lista-perguntas" }, r.perguntas.map((p) => el("li", { text: p }))),
+        el("div", { class: "linha-resposta" },
+          el("label", { class: "sr", for: "resposta-curador", text: "Resposta ao curador" }), entrada,
+          el("button", { type: "button", class: "btn", onclick: responder }, "Responder"))));
+  }
+  function painelRelato() {
+    const area = el("textarea", { id: "campo-reg", rows: "5", maxlength: "8000", placeholder: "Conte o que aconteceu, do jeito que contaria para um colega…" });
+    const form = el("form", { class: "painel relato", novalidate: true },
+      el("div", { class: "campo" }, el("label", { for: "campo-reg", text: "O que aconteceu" }), area),
+      el("p", { class: "t-legenda", text: "O curador organiza em um item, aponta o que faltou e você revisa antes de ir para a Fila. Sem dado pessoal de cliente." }),
+      el("div", { class: "botoes" }, el("button", { type: "submit", class: "btn primario" }, "Enviar ao curador")));
+    form.addEventListener("submit", (e) => { e.preventDefault(); relatar(area.value); });
+    area.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); form.requestSubmit(); } });
+    return form;
+  }
+  function formularioRascunho() {
+    const r = estado.reg;
+    const it = r.proposta.insight;
+    const v = (x) => (x == null ? "" : x);
+    const area = (x, linhas, limite, dica) => {
+      const a = el("textarea", { rows: String(linhas), maxlength: String(limite), placeholder: dica || null });
+      a.value = v(x);
+      return a;
+    };
+    const opcoes = [1, 2, 3, 4].map((n) => {
+      const t = trilha(n, true);
+      t.removeAttribute("role"); t.removeAttribute("aria-label"); t.setAttribute("aria-hidden", "true");
+      return el("button", { type: "button", class: "cartao evidencia-op", role: "radio", "aria-checked": String(r.evidencia === n),
+        onclick: () => {
+          r.evidencia = n;
+          opcoes.forEach((b, i) => b.setAttribute("aria-checked", String(i === n - 1)));
+          limparErroCampo("r-evid-grupo");
+        } }, t, el("b", { text: EVIDENCIA[n] }), el("span", { class: "t-legenda", text: FRASE_EVID[n] }));
+    });
+    const grupo = el("div", { class: "evidencias", id: "r-evid-grupo", role: "radiogroup", "aria-labelledby": "rotulo-evid" }, ...opcoes);
 
     const relacoes = el("div", { class: "relacoes" });
     const pintarRelacoes = () => {
       relacoes.replaceChildren();
-      if (!p.relacoes.length) relacoes.append(el("span", { class: "evid", text: "Nenhuma relação com itens que já existem." }));
-      p.relacoes.forEach((r, i) => relacoes.append(relacaoChip(r, null, () => { p.relacoes.splice(i, 1); pintarRelacoes(); })));
+      if (!r.proposta.relacoes.length) relacoes.append(el("span", { class: "t-p suave", text: "Nenhuma ligação com itens que já existem." }));
+      r.proposta.relacoes.forEach((rel, i) => relacoes.append(chipLigacao(rel, () => { r.proposta.relacoes.splice(i, 1); pintarRelacoes(); })));
     };
-    p.relacoes = p.relacoes || [];
     pintarRelacoes();
 
-    f.append(
-      el("div", { class: "rascunho-topo" },
-        el("span", { class: "carimbo", text: "Rascunho · nada foi gravado" }),
-        el("span", { class: "evid" }, "Vai para a Fila como ", el("strong", { text: "proposto" }))),
-      el("div", { class: "campos" },
-        campo("Título", "r-titulo", titulo, true),
+    const form = el("form", { class: "painel rascunho", id: "rascunho", novalidate: true, "aria-label": "Rascunho do item" });
+    form.addEventListener("submit", enviarParaFila);
+    form.append(
+      campo("Título", "r-titulo", el("input", { class: "titulo-campo", maxlength: "200", value: v(it.titulo) })),
+      el("div", { class: "linha-campos" },
         campo("Tipo", "r-tipo", selecionar(Object.entries(TIPOS), it.tipo)),
-        campo("Seção", "r-secao", selecionar(SECOES, it.secao)),
-        el("div", { class: "campo inteiro" }, el("span", { class: "rotulo", id: "rotulo-evid", text: "Evidência" }), escala),
-        campo("Segmento", "r-segmento", segmento),
-        campo("Data do acontecido", "r-data", el("input", { type: "date", value: valor(it.data_evento) })),
-        campo("Descrição", "r-descricao", area(it.descricao, 4), true),
-        campo("O que foi feito", "r-feito", area(it.o_que_foi_feito, 2), true),
-        campo("Resultado", "r-resultado", area(it.resultado, 2, 2000), true),
-        campo("Contexto do cliente (sem dado pessoal)", "r-contexto", area(it.contexto_cliente, 2, 2000), true),
-        el("div", { class: "campo inteiro" }, el("span", { class: "rotulo", text: "Relações" }), relacoes)),
-      lista,
-    );
-    if (p.avisos && p.avisos.length) f.append(el("div", { class: "campo" }, el("span", { class: "rotulo", text: "Para o revisor" }), listaAvisos(p.avisos)));
-    f.append(el("div", { class: "botoes" },
-      el("button", { type: "submit", class: "btn primario", id: "enviar-fila" }, "Enviar para a Fila"),
-      el("button", { type: "button", class: "btn fantasma", onclick: descartarRascunho }, "Descartar")));
+        campo("Etapa", "r-secao", selecionar(SECOES, it.secao)),
+        campo("Segmento", "r-segmento", el("input", { list: "lista-segmentos", maxlength: "100", value: v(it.segmento), placeholder: "Todos os segmentos" })),
+        campo("Serviço", "r-servico", el("input", { maxlength: "100", value: v(it.servico), placeholder: "Opcional" })),
+        campo("Data do acontecido", "r-data", el("input", { type: "date", value: v(it.data_evento) }))),
+      campo("Descrição", "r-descricao", area(it.descricao, 4, 4000), true),
+      el("div", { class: "linha-campos" },
+        campo("O que foi feito", "r-feito", area(it.o_que_foi_feito, 2, 4000)),
+        campo("Resultado", "r-resultado", area(it.resultado, 2, 2000, "Um número, se houver: obrigatório na evidência 4"))),
+      el("div", { class: "campo inteiro" },
+        el("p", { class: "t-rotulo", id: "rotulo-evid", text: r.sugerida ? `Evidência · o curador sugeriu ${r.sugerida}` : "Evidência" }), grupo),
+      campo("Contexto do cliente (sem dado pessoal)", "r-contexto", area(it.contexto_cliente, 2, 2000), true),
+      el("div", { class: "campo inteiro" }, el("p", { class: "t-rotulo", text: "Ligações sugeridas" }), relacoes),
+      el("datalist", { id: "lista-segmentos" }, SEGMENTOS.map((s) => el("option", { value: s }))));
+    if (r.proposta.avisos && r.proposta.avisos.length) {
+      form.append(el("div", { class: "campo inteiro" }, el("p", { class: "t-rotulo", text: "Para o revisor" }), listaAvisos(r.proposta.avisos)));
+    }
+    form.append(el("div", { class: "barra-envio" },
+      el("span", { class: "t-p suave" }, "Nada é gravado até você enviar. O item entra como ", el("b", { class: "forte", text: "proposto" }), " e espera alguém do time aprovar."),
+      el("div", { class: "botoes" },
+        el("button", { type: "button", class: "btn", onclick: novoRegistro }, "Descartar"),
+        el("button", { type: "submit", class: "btn primario", id: "enviar-fila" }, icone("check", "ic p"), "Enviar para a Fila"))));
+    return form;
+  }
+  function painelEnviado(criado) {
+    const r = estado.reg;
+    return el("div", { class: "painel enviado", role: "status" },
+      mascoteEm("m", { humor: "padrao" }),
+      el("div", { class: "enviado-corpo" },
+        el("h2", { class: "t-secao", text: "Enviado para a Fila" }),
+        el("p", { class: "t-p suave", text: `O INS-${criado.id} entra como proposto e espera alguém do time aprovar.${r.lacunaId ? " A lacuna foi marcada como resolvida." : ""}` }),
+        el("div", { class: "botoes" },
+          el("a", { class: "btn primario", href: "#fila", text: "Ver na Fila" }),
+          el("a", { class: "btn", href: `#item/INS-${criado.id}`, text: `Abrir o INS-${criado.id}` }),
+          r.lacunaId ? el("a", { class: "btn", href: "#lacunas", text: "Ver as lacunas" }) : null,
+          el("button", { type: "button", class: "btn fantasma", onclick: novoRegistro }, "Registrar outro relato"))));
+  }
+  function carregandoCurador() {
+    return el("div", { class: "carregando", role: "status" }, mascoteEm("m", { humor: "pensando" }),
+      el("p", { class: "t-rotulo", text: "O curador está organizando o relato" }),
+      el("span", { class: "esqueleto" }), el("span", { class: "esqueleto" }), el("span", { class: "esqueleto curto" }));
+  }
+  // O que a pessoa já editou no formulário volta para o rascunho antes de qualquer repintura (ao sair da aba e voltar,
+  // por exemplo): senão o formulário recomeçaria da proposta do curador.
+  function guardarEdicoes() {
+    const r = estado.reg;
+    if (!r.proposta || !$("#rascunho")) return;
+    const d = lerRascunho();
+    Object.assign(r.proposta.insight, { titulo: d.titulo || "", tipo: d.tipo, secao: d.secao, segmento: d.segmento, servico: d.servico,
+      data_evento: d.data_evento, descricao: d.descricao || "", o_que_foi_feito: d.o_que_foi_feito, resultado: d.resultado,
+      contexto_cliente: d.contexto_cliente });
+  }
+  function pintarRegistrar() {
+    guardarEdicoes();
+    const r = estado.reg;
+    $("#registrar-titulo").textContent = r.proposta || r.ocupado || r.enviado ? "Revise antes de enviar para a Fila" : "Registrar um relato";
+    const origem = $("#registrar-origem");
+    origem.hidden = !(r.proposta || r.ocupado || r.enviado);
+    origem.textContent = ORIGENS_REG[r.origem];
+    const filhos = [];
+    if (r.lacunaPergunta) {
+      filhos.push(el("p", { class: "t-p suave" }, "Lacuna: ", el("b", { class: "forte", text: `“${r.lacunaPergunta}”` })));
+    }
+    if (r.enviado) filhos.push(painelEnviado(r.enviado));
+    else if (r.ocupado) filhos.push(carregandoCurador());
+    else if (!r.proposta) filhos.push(painelRelato());
+    else {
+      if (r.perguntas.length) filhos.push(cartaoPerguntas());
+      filhos.push(formularioRascunho());
+    }
+    $("#registrar-corpo").replaceChildren(...filhos);
+    mostrarAvisoRegistro(r.erro);
+    const area = $("#campo-reg");
+    if (area && estado.tela === "registrar") area.focus({ preventScroll: true });
   }
   function lerRascunho() {
     const v = (id) => { const x = $(`#${id}`).value.trim(); return x === "" ? null : x; };
-    const marcado = $("input[name='r-evidencia']:checked");
     return {
       titulo: v("r-titulo"), tipo: v("r-tipo"), secao: v("r-secao"),
-      descricao: v("r-descricao"), segmento: v("r-segmento"),
+      descricao: v("r-descricao"), segmento: v("r-segmento"), servico: v("r-servico"),
       o_que_foi_feito: v("r-feito"), resultado: v("r-resultado"), contexto_cliente: v("r-contexto"),
-      data_evento: v("r-data"), evidencia: marcado ? Number(marcado.value) : 1,
-      relacoes: (estado.reg.proposta.relacoes || []).map((r) => ({ relacionado_id: r.relacionado_id, tipo: r.tipo })),
+      data_evento: v("r-data"), evidencia: estado.reg.evidencia,
+      relacoes: (estado.reg.proposta.relacoes || []).map((rel) => ({ relacionado_id: rel.relacionado_id, tipo: rel.tipo })),
     };
-  }
-  function descartarRascunho() {
-    estado.reg = { conversa: [], proposta: null, ocupado: false };
-    boasVindasRegistro();
-    pintarRascunho();
   }
   async function enviarParaFila(ev) {
     ev.preventDefault();
-    if (!estado.reg.proposta) return;
-    const autor = exigirAutor();
-    if (!autor) return;
+    const r = estado.reg;
+    if (!r.proposta) return;
     const dados = lerRascunho();
-    if (!dados.titulo || !dados.descricao) { aviso("Preencha título e descrição antes de enviar.", "erro"); return; }
-    if (dados.tipo === "regra" && dados.evidencia < 3) { aviso("Para virar regra, a evidência precisa ser 3 ou 4.", "erro"); return; }
-    if (dados.evidencia === 4 && !/\d/.test(dados.resultado || "")) { aviso("Evidência 4 exige um número no campo Resultado.", "erro"); return; }
+    for (const id of ["r-titulo", "r-descricao", "r-resultado", "r-evid-grupo", ...Object.values(CAMPO_PARA_ID)]) limparErroCampo(id);
+    mostrarAvisoRegistro(null);
+    const erros = validarRascunho(dados);
+    if (Object.keys(erros).length) {
+      for (const [id, msg] of Object.entries(erros)) marcarErroCampo(id, msg);
+      focarPrimeiroErro();
+      return;
+    }
     const botao = $("#enviar-fila");
     botao.disabled = true;
     try {
-      const criado = await chamar("POST", "/insights", { ...dados, fonte: "chat" });
+      const corpo = { ...dados, fonte: "chat" };
+      if (r.lacunaId) corpo.lacuna_id = r.lacunaId;  // salvar o item resolve a lacuna de onde ele veio
+      const criado = await chamar("POST", "/insights", corpo);
       await carregarItens();
-      aviso(`Enviado para a Fila como proposto (INS-${criado.id}).`, "ok");
+      r.enviado = criado;
+      if (r.lacunaId) {  // o item resolve a lacuna de onde veio: a tela das lacunas mostra a faixa
+        estado.lacunas.aviso = { texto: `O INS-${criado.id} respondeu “${r.lacunaPergunta || "a pergunta"}”, que saiu das abertas.` };
+        carregarLacunas();
+      }
+      aviso("Enviado para a Fila.", "ok");
       pulsarMascote();
-      descartarRascunho();
       atualizarNumeros();
+      pintarRegistrar();
     } catch (e) {
-      aviso(e.message, "erro");
       botao.disabled = false;
+      const achados = e.status === 422 ? camposComDadoPessoal(e.message) : [];
+      if (achados.length) {  // o tipo e o campo, nunca o dado
+        for (const [tipo, campoServidor] of achados) {
+          const id = CAMPO_PARA_ID[campoServidor];
+          if (id) marcarErroCampo(id, `Possível ${tipo} neste campo. Troque por algo genérico e envie de novo. Nada foi gravado.`, true);
+        }
+        focarPrimeiroErro();
+        mostrarAvisoRegistro({ msg: "Encontrei dado pessoal no rascunho. Nada foi gravado." });
+        return;
+      }
+      mostrarAvisoRegistro({ msg: e.message, fila: e.status === 409 });  // 409 duplicado, relação que não existe, 502...
     }
   }
 
-  // ---------------------------------------------------------------- fila
+  // ---------------------------------------------------------------- fila (a triagem pelo teclado, prancha 4)
+  // A lista à esquerda, o item selecionado à direita. Teclado (fora de campo de texto): J e K movem, Enter abre, A aprova,
+  // R vai ao motivo (obrigatório), X marca, Shift+A aprova os marcados (com a confirmação) e ? mostra os atalhos. Nada é
+  // otimista: o cartão fica "aprovando…" até o servidor responder. O lote é um laço de POST /insights/{id}/aprovar.
   const ORIGEM_ITEM = { chat: "Chat", notion: "Notion", drive: "Drive", canva: "Canva", reuniao: "Reunião", upload: "Arquivo" };
   const POR_PAGINA_FILA = 30;
-  let barraLote = null;
+  const ATALHOS_FILA = [
+    ["J", "K", "mover"], ["A", null, "aprovar"], ["R", null, "rejeitar"], ["X", null, "marcar"],
+    ["⇧A", null, "aprovar marcados, sem ler um a um"], ["?", null, "todos os atalhos"],
+  ];
+
+  // "hoje", "ontem" ou o dia: a data de quando o item foi registrado (sem criado_em, nada).
+  function dataRelativa(iso) {
+    if (!iso) return "";
+    const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`);
+    if (Number.isNaN(d.getTime())) return "";
+    const dias = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+    if (dias <= 0) return "hoje";
+    if (dias === 1) return "ontem";
+    return d.toLocaleDateString("pt-BR", { day: "numeric", month: "short" }).replace(".", "");
+  }
+  const filaAtual = () => estado.itens.find((i) => i.id === estado.fila.atual) || null;
 
   function pintarFila() {
-    const box = $("#lista-fila");
-    box.replaceChildren();
     const f = estado.fila;
-    const itens = estado.itens.filter(estaNaFila);
+    const itens = estado.itens.filter(estaNaFila).sort((a, b) => b.id - a.id);
     for (const id of [...f.selecionados]) if (!itens.some((i) => i.id === id)) f.selecionados.delete(id);  // já decididos
-    if (!itens.length) {
-      box.append(el("div", { class: "embrulho" }, vazio("A Fila está vazia",
-        "Quando alguém registrar um relato, ele aparece aqui para ser aprovado ou rejeitado.",
-        el("a", { class: "btn primario", href: "#registrar", text: "Registrar um relato" }))));
+    $("#titulo-fila").textContent = itens.length ? `${itens.length} ${itens.length === 1 ? "item esperando" : "itens esperando"} a leitura do time` : "Nada para revisar";
+    $("#teclas-fila").hidden = !itens.length || CELULAR.matches;
+    const lista = $("#lista-fila");
+    if (!itens.length) {  // a Fila em dia
+      $("#filtros-fila").replaceChildren();
+      $("#lote-fila").replaceChildren();
+      lista.replaceChildren(vazio("Nada para revisar",
+        "Itens novos chegam pela conversa, pelo Registrar e pela sincronização das fontes.",
+        el("a", { class: "btn primario", href: "#registrar", text: "Registrar algo" })));
       return;
     }
     const origens = [...new Set(itens.map((i) => i.fonte))];
     if (f.origem && !origens.includes(f.origem)) f.origem = null;
     const visiveis = itens.filter((i) => !f.origem || i.fonte === f.origem);
     f.visiveis = visiveis;
-
-    box.append(el("p", { class: "resumo-lista", text: `${itens.length} ${itens.length === 1 ? "item esperando" : "itens esperando"} revisão` }));
-    if (origens.length > 1) {
-      box.append(el("div", { class: "filtros" },
-        chip(`Todas (${itens.length})`, !f.origem, () => { f.origem = null; f.mostrar = POR_PAGINA_FILA; pintarFila(); }),
-        ...origens.map((o) => chip(`${ORIGEM_ITEM[o] || o} (${itens.filter((i) => i.fonte === o).length})`, f.origem === o,
-          () => { f.origem = f.origem === o ? null : o; f.mostrar = POR_PAGINA_FILA; pintarFila(); }))));
-    }
-    barraLote = el("div", { class: "barra-lote", role: "region", "aria-label": "Aprovar vários de uma vez" });
-    box.append(barraLote);
-    atualizarBarraLote();
-
-    for (const it of visiveis.slice(0, f.mostrar)) box.append(cartaoFila(it));
+    if (!visiveis.some((i) => i.id === f.atual)) f.atual = visiveis.length ? visiveis[0].id : null;
+    const reiniciar = (origem) => () => { f.origem = origem; f.mostrar = POR_PAGINA_FILA; pintarFila(); };
+    $("#filtros-fila").replaceChildren(
+      chip(`Todas as origens (${itens.length})`, !f.origem, reiniciar(null)),
+      ...(origens.length > 1 ? origens.map((o) => chip(`${ORIGEM_ITEM[o] || o} (${itens.filter((i) => i.fonte === o).length})`, f.origem === o,
+        reiniciar(f.origem === o ? null : o))) : []));
+    pintarLote();
+    const coluna = el("div", { class: "fila-lista", role: "list", "aria-label": "Itens esperando" },
+      ...visiveis.slice(0, f.mostrar).map(itemDaFila));
     if (visiveis.length > f.mostrar) {
-      box.append(el("button", { type: "button", class: "btn fantasma",
+      coluna.append(el("button", { type: "button", class: "btn fantasma",
         onclick: () => { f.mostrar += POR_PAGINA_FILA; pintarFila(); } },
-        `Mostrar mais ${Math.min(POR_PAGINA_FILA, visiveis.length - f.mostrar)} (restam ${visiveis.length - f.mostrar})`));
+      `Mostrar mais ${Math.min(POR_PAGINA_FILA, visiveis.length - f.mostrar)} (restam ${visiveis.length - f.mostrar})`));
     }
+    lista.replaceChildren(coluna, el("aside", { class: "fila-detalhe", id: "fila-detalhe", "aria-label": "Item selecionado" }));
+    pintarDetalhe();
+    pintarTeclasFila();
   }
-  function atualizarBarraLote() {
-    if (!barraLote) return;
+  function itemDaFila(it) {
     const f = estado.fila;
+    const marcado = f.selecionados.has(it.id);
+    const atual = f.atual === it.id;
+    const caixa = el("input", { type: "checkbox", class: "marcar", checked: marcado ? "" : null, "aria-label": `Marcar ${it.codigo}: ${it.titulo}` });
+    caixa.addEventListener("change", () => alternarMarca(it.id, caixa.checked));
+    const corpo = el("button", { type: "button", class: "fila-corpo", "aria-current": atual ? "true" : null,
+      onclick: () => { if (CELULAR.matches) abrirItem(it.codigo); else selecionarNaFila(it.id); } },
+    el("span", { class: "linha-topo" }, el("span", { class: "t-dado", text: it.codigo }),
+      el("span", { class: "t-rotulo", text: TIPOS[it.tipo] || it.tipo }), seloDaFila(it)),
+    el("b", { class: "titulo", text: it.titulo }),
+    el("span", { class: "evid" }, trilha(it.evidencia),
+      [EVIDENCIA[it.evidencia], ORIGEM_ITEM[it.fonte] || it.fonte, dataRelativa(it.criado_em)].filter(Boolean).join(" · ")));
+    const processando = f.processando === it.id;
+    return el("article", { class: `fila-item${atual ? " selecionado" : ""}${marcado ? " marcado" : ""}${processando ? " aprovando" : ""}`,
+      "data-id": String(it.id), role: "listitem", "aria-busy": processando ? "true" : null }, caixa, corpo);
+  }
+  function selecionarNaFila(id, { foco = false } = {}) {
+    const f = estado.fila;
+    f.atual = id;
+    f.erro = null;
+    for (const cartao of $$("#lista-fila .fila-item")) {
+      const dele = Number(cartao.dataset.id) === id;
+      cartao.classList.toggle("selecionado", dele);
+      const corpo = $(".fila-corpo", cartao);
+      if (dele) corpo.setAttribute("aria-current", "true"); else corpo.removeAttribute("aria-current");
+      if (dele && foco) { corpo.focus(); cartao.scrollIntoView({ block: "nearest" }); }
+    }
+    pintarDetalhe();
+  }
+  function moverNaFila(delta) {
+    const f = estado.fila;
+    if (!f.visiveis.length) return;
+    const i = f.visiveis.findIndex((x) => x.id === f.atual);
+    const novo = f.visiveis[Math.min(f.visiveis.length - 1, Math.max(0, (i < 0 ? 0 : i) + delta))];
+    selecionarNaFila(novo.id, { foco: true });
+  }
+  function alternarMarca(id, marcado) {
+    const f = estado.fila;
+    if (marcado) f.selecionados.add(id); else f.selecionados.delete(id);
+    f.confirmando = false;
+    const cartao = $(`#lista-fila .fila-item[data-id="${id}"]`);
+    if (cartao) { cartao.classList.toggle("marcado", marcado); $("input.marcar", cartao).checked = marcado; }
+    pintarLote();
+  }
+
+  // O item selecionado: o texto, a contradição com um item já aprovado, o motivo e as ações.
+  function pintarDetalhe() {
+    const f = estado.fila;
+    const caixa = $("#fila-detalhe");
+    const it = filaAtual();
+    if (!caixa) return;
+    if (!it) { caixa.replaceChildren(); return; }
+    const ocupado = f.processando === it.id;
+    const contradiz = (it.relacoes || []).filter((r) => r.tipo === "contradiz")
+      .map((r) => estado.itens.find((o) => o.id === r.relacionado_id)).filter((o) => o && !estaNaFila(o) && o.status !== "obsoleto");
+    const avs = avisosDeEvidencia(it);
+    const motivo = el("textarea", { id: "motivo-fila", rows: "2", maxlength: "1000", placeholder: "Por exemplo: um caso só, e vai contra o que já está aprovado" });
+    motivo.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); rejeitarAtual(); }
+      if (e.key === "Escape") { e.stopPropagation(); motivo.blur(); }
+    });
+    caixa.replaceChildren(...[
+      el("p", { class: "t-rotulo marca", text: `${it.codigo} · ${TIPOS[it.tipo] || it.tipo} · ${(STATUS[it.status] || it.status).toLowerCase()}` }),
+      el("div", { class: "meta" },
+        el("span", { class: "selo", text: [ORIGEM_ITEM[it.fonte] || it.fonte, it.autor, dataRelativa(it.criado_em)].filter(Boolean).join(" · ") })),
+      el("h2", { class: "t-titulo", text: it.titulo }),
+      el("p", { class: "desc", text: it.descricao }),
+      el("div", { class: "meta" },
+        el("span", { class: "etiqueta", text: NOME_SECAO[it.secao] || it.secao }),
+        el("span", { class: "etiqueta", text: it.segmento ? capital(it.segmento) : "Todos os segmentos" }),
+        el("span", { class: "evid" }, trilha(it.evidencia), EVIDENCIA[it.evidencia]),
+        linkOrigem(it)),
+      ...contradiz.map((o) => el("div", { class: "contradiz-aprovado", role: "note" },
+        el("p", { class: "t-rotulo" }, icone("alerta", "ic p"), "Contradiz um item aprovado"),
+        el("div", { class: "contradiz-duplo" },
+          el("div", { class: "cartao" }, el("span", { class: "t-legenda", text: "Este item" }), el("b", { text: it.titulo })),
+          el("a", { class: "cartao", href: `#item/${o.codigo}` }, el("span", { class: "t-legenda", text: `${o.codigo} · ${STATUS[o.status] || o.status}` }), el("b", { text: o.titulo }))),
+        el("p", { class: "t-p suave", text: `Aprovar não muda o ${o.codigo}: os dois ficam na base, ligados por “contradiz”, e o mapa mostra a linha entre eles.` }))),
+      avs.length ? listaAvisos(avs) : null,
+      f.erro && f.erro.id === it.id ? el("div", { class: "aviso-registro", role: "alert" }, icone("alerta", "ic p"), el("span", { class: "t-p", text: f.erro.msg }),
+        f.erro.recarregar ? el("button", { type: "button", class: "btn", onclick: async () => { f.erro = null; await carregarItens(); atualizarNumeros(); pintarFila(); } }, "Recarregar a Fila") : null) : null,
+      el("div", { class: "campo" }, el("label", { for: "motivo-fila", text: "Motivo para rejeitar (obrigatório)" }), motivo),
+      el("div", { class: "botoes" },
+        el("button", { type: "button", class: "btn primario", disabled: ocupado || null, onclick: aprovarAtual },
+          icone("check", "ic p"), ocupado ? "Aprovando…" : "Aprovar", ocupado ? null : tecla("A")),
+        el("button", { type: "button", class: "btn perigo", disabled: ocupado || null, onclick: rejeitarAtual }, "Rejeitar", tecla("R")),
+        el("button", { type: "button", class: "btn fantasma", onclick: () => moverNaFila(1) }, "Próximo", tecla("J")),
+        el("a", { class: "btn fantasma", href: `#item/${it.codigo}` }, "Abrir", tecla("↵"))),
+    ].filter(Boolean));
+  }
+  async function aprovarAtual() {
+    const f = estado.fila;
+    const it = filaAtual();
+    if (!it || f.processando) return;
+    const r = await decidir(it, "aprovar");
+    if (!r.ok) { f.erro = { id: it.id, msg: r.msg, recarregar: r.recarregar }; pintarDetalhe(); }
+  }
+  async function rejeitarAtual() {
+    const f = estado.fila;
+    const it = filaAtual();
+    if (!it || f.processando) return;
+    const campo = $("#motivo-fila");
+    if (!campo.value.trim()) { marcarErroCampo("motivo-fila", "Para rejeitar, escreva o motivo."); campo.focus(); return; }
+    const r = await decidir(it, "rejeitar", campo.value);
+    if (!r.ok) { f.erro = { id: it.id, msg: r.msg, recarregar: r.recarregar }; pintarDetalhe(); }
+  }
+
+  // A barra do lote: quantos estão marcados, "Aprovar os marcados (⇧A)", a confirmação e o progresso "7 de 12".
+  function pintarLote() {
+    const f = estado.fila;
+    const caixa = $("#lote-fila");
     const n = f.selecionados.size;
-    const todosMarcados = f.visiveis.length > 0 && f.visiveis.every((i) => f.selecionados.has(i.id));
     if (f.aprovando) {
-      barraLote.replaceChildren(el("span", { class: "lote-info", role: "status",
-        text: `Aprovando ${f.aprovando.feitos} de ${f.aprovando.total}…` }));
+      caixa.replaceChildren(el("div", { class: "barra-lote" }, el("span", { class: "lote-info", role: "status",
+        text: `Aprovando ${f.aprovando.feitos} de ${f.aprovando.total}…` })));
       return;
     }
-    barraLote.replaceChildren(...[  // replaceChildren(null) escreveria o texto "null": só entra o que existe
+    const todosMarcados = f.visiveis.length > 0 && f.visiveis.every((i) => f.selecionados.has(i.id));
+    const codigos = [...f.selecionados].map((id) => estado.itens.find((i) => i.id === id)).filter(Boolean).map((i) => i.codigo);
+    const resumo = codigos.length <= 3 ? codigos.join(", ").replace(/, ([^,]*)$/, " e $1") : `${codigos.slice(0, 2).join(", ")} e mais ${codigos.length - 2}`;
+    caixa.replaceChildren(el("div", { class: "barra-lote", role: "region", "aria-label": "Aprovar vários de uma vez" }, ...[
       el("button", { type: "button", class: "btn fantasma",
         onclick: () => {
-          if (todosMarcados) for (const i of f.visiveis) f.selecionados.delete(i.id);
-          else for (const i of f.visiveis) f.selecionados.add(i.id);
+          for (const i of f.visiveis) { if (todosMarcados) f.selecionados.delete(i.id); else f.selecionados.add(i.id); }
           f.confirmando = false;
-          for (const c of $$("#lista-fila .sel input")) c.checked = f.selecionados.has(Number(c.dataset.id));
-          for (const c of $$("#lista-fila .item")) c.classList.toggle("selecionado", f.selecionados.has(Number(c.dataset.id)));
-          atualizarBarraLote();
+          pintarFila();
         } }, todosMarcados ? "Desmarcar todos" : `Selecionar todos (${f.visiveis.length})`),
-      el("span", { class: "lote-info", text: n ? `${n} ${n === 1 ? "selecionado" : "selecionados"}` : "Marque os itens que quer aprovar de uma vez" }),
+      n ? el("span", { class: "selo marca", text: `${n} ${n === 1 ? "marcado" : "marcados"}` }) : null,
+      el("span", { class: "lote-info", text: n ? resumo : "Marque com X os itens que quer aprovar de uma vez" }),
       n && !f.confirmando
-        ? el("button", { type: "button", class: "btn primario",
-            onclick: () => { f.confirmando = true; atualizarBarraLote(); } }, n === 1 ? "Aprovar o item selecionado" : `Aprovar ${n} selecionados`)
+        ? el("button", { type: "button", class: "btn", onclick: pedirLote },
+          n === 1 ? "Aprovar o item marcado" : "Aprovar os marcados", tecla("⇧A"))
         : null,
       n && f.confirmando
-        ? el("button", { type: "button", class: "btn primario", onclick: aprovarSelecionados },
-            `Confirmar: aprovar ${n} sem ler um a um`)
+        ? el("button", { type: "button", class: "btn primario", id: "confirmar-lote", onclick: aprovarSelecionados },
+          `Confirmar: aprovar ${n} sem ler um a um`)
         : null,
       n && f.confirmando
-        ? el("button", { type: "button", class: "btn fantasma",
-            onclick: () => { f.confirmando = false; atualizarBarraLote(); } }, "Cancelar")
-        : null].filter(Boolean));
+        ? el("button", { type: "button", class: "btn fantasma", onclick: () => { f.confirmando = false; pintarLote(); } }, "Cancelar")
+        : null].filter(Boolean)));
+  }
+  function pedirLote() {  // o primeiro Shift+A pede a confirmação; o segundo a confirma
+    const f = estado.fila;
+    if (!f.selecionados.size || f.aprovando) return;
+    if (!f.confirmando) { f.confirmando = true; pintarLote(); const b = $("#confirmar-lote"); if (b) b.focus(); } else aprovarSelecionados();
   }
   async function aprovarSelecionados() {
     const autor = exigirAutor();
@@ -1058,11 +1858,11 @@
     const ids = [...f.selecionados];
     f.confirmando = false;
     f.aprovando = { feitos: 0, total: ids.length };
-    atualizarBarraLote();
+    pintarLote();
     let aprovados = 0;
     const falhas = [];
     let semServidor = false;
-    for (const id of ids) {
+    for (const id of ids) {  // um por um: quando um falha, a fila segue e diz qual falhou
       try {
         await chamar("POST", `/insights/${id}/aprovar`);
         aprovados += 1;
@@ -1072,11 +1872,11 @@
         if (e.status === 0) { semServidor = true; break; }  // sem servidor: não adianta tentar os outros
       }
       f.aprovando.feitos += 1;
-      atualizarBarraLote();
+      pintarLote();
     }
     f.aprovando = null;
     await carregarItens();
-    if (aprovados) { pulsarMascote(); }
+    if (aprovados) pulsarMascote();
     const restantes = semServidor ? ids.length - aprovados : falhas.length;
     aviso(restantes
       ? `${aprovados} aprovados. ${restantes} não foram aprovados${semServidor ? " (o servidor parou de responder)" : `: ${falhas.slice(0, 5).join(", ")}${falhas.length > 5 ? "…" : ""}`}. Continuam marcados.`
@@ -1084,60 +1884,67 @@
     atualizarNumeros();
     pintarFila();
   }
-  function cartaoFila(it) {
-    const idMotivo = `motivo-${it.id}`;
-    const motivo = el("div", { class: "motivo", hidden: true },
-      el("label", { class: "rotulo", for: idMotivo, text: "Motivo da rejeição" }),
-      el("textarea", { id: idMotivo, rows: "2", maxlength: "1000", placeholder: "Ex.: duplica outro item e não traz nada novo" }),
-      el("div", { class: "botoes" },
-        el("button", { type: "button", class: "btn perigo", onclick: () => decidir(it, "rejeitar", $(`#${idMotivo}`).value) }, "Confirmar rejeição"),
-        el("button", { type: "button", class: "btn fantasma", onclick: () => { motivo.hidden = true; } }, "Cancelar")));
-    const marcado = estado.fila.selecionados.has(it.id);
-    const caixa = el("input", { type: "checkbox", "data-id": String(it.id), checked: marcado ? "" : null,
-      "aria-label": `Selecionar ${it.codigo}: ${it.titulo}` });
-    caixa.addEventListener("change", () => {
-      const f = estado.fila;
-      if (caixa.checked) f.selecionados.add(it.id); else f.selecionados.delete(it.id);
-      f.confirmando = false;
-      card.classList.toggle("selecionado", caixa.checked);
-      atualizarBarraLote();
-    });
-    const card = el("article", { class: marcado ? "item selecionado" : "item", "data-id": String(it.id) },
-      el("label", { class: "sel" }, caixa, el("span", { text: "Selecionar" })),
-      metaItem(it),
-      el("h3", { text: it.titulo }),
-      el("p", { class: "desc", text: it.descricao }),
-      el("div", { class: "linha-evid" },
-        el("span", { class: "evid" }, trilha(it.evidencia), `Evidência ${it.evidencia} · ${EVIDENCIA[it.evidencia]}`),
-        el("span", { text: [it.autor, dataBr(it.data_evento), it.codigo].filter(Boolean).join(" · ") }),
-        linkOrigem(it)));
-    if (it.relacoes && it.relacoes.length) card.append(el("div", { class: "relacoes" }, it.relacoes.map((r) => relacaoChip(r, it))));
-    const avs = avisosDeEvidencia(it);
-    if (avs.length) card.append(listaAvisos(avs));
-    card.append(
-      el("div", { class: "botoes" },
-        el("button", { type: "button", class: "btn primario", onclick: () => decidir(it, "aprovar") }, "Aprovar"),
-        el("button", { type: "button", class: "btn perigo", onclick: () => { motivo.hidden = false; $(`#${idMotivo}`).focus(); } }, "Rejeitar"),
-        el("button", { type: "button", class: "btn fantasma", onclick: () => abrirItem(it.codigo) }, "Ver detalhes")),
-      motivo);
-    return card;
+
+  // A legenda fixa no rodapé e o painel de "todos os atalhos" (a tecla ?).
+  function pintarTeclasFila() {
+    const f = estado.fila;
+    const caixa = $("#teclas-fila");
+    caixa.replaceChildren(...[
+      ...ATALHOS_FILA.map(([a, b, texto]) => el("span", { class: "t-legenda" }, tecla(a), b ? tecla(b) : null, texto)),
+      f.ajuda ? el("div", { class: "atalhos-todos", role: "dialog", "aria-label": "Atalhos da Fila" },
+        el("p", { class: "t-rotulo", text: "Todos os atalhos da Fila" }),
+        el("ul", {},
+          [["J ou ↓", "próximo item"], ["K ou ↑", "item anterior"], ["Enter", "abrir o item"], ["A", "aprovar o item"],
+            ["R", "ir ao motivo para rejeitar (⌘↵ confirma)"], ["X", "marcar ou desmarcar"],
+            ["⇧A", "aprovar os marcados, com confirmação"], ["?", "mostrar ou esconder esta lista"]]
+            .map(([k, t]) => el("li", {}, tecla(k), ` ${t}`)))) : null].filter(Boolean));
   }
-  async function decidir(it, acao, motivo) {
-    const autor = exigirAutor();
-    if (!autor) return;
-    if (acao === "rejeitar" && !(motivo && motivo.trim())) { aviso("Para rejeitar, escreva o motivo.", "erro"); return; }
-    try {
-      await chamar("POST", `/insights/${it.id}/${acao}`, acao === "aprovar" ? undefined : { motivo: motivo.trim() });
-      await carregarItens();
-      aviso(acao === "aprovar" ? `${it.codigo} aprovado. Já está na base.` : `${it.codigo} rejeitado e marcado como obsoleto.`, "ok");
-      pulsarMascote();
-      atualizarNumeros();
-      pintarFila();
-    } catch (e) {
-      aviso(e.message, "erro");
+  function teclasDaFila(e) {
+    if (estado.tela !== "fila" || paleta.aberta || e.metaKey || e.ctrlKey || e.altKey) return;
+    const alvo = e.target;
+    if (alvo.matches("textarea, select, [contenteditable]") || (alvo.matches("input") && !["checkbox", "button"].includes(alvo.type))) return;  // digitando
+    const f = estado.fila;
+    if (e.key === "?") { e.preventDefault(); f.ajuda = !f.ajuda; pintarTeclasFila(); return; }
+    if (e.key === "Escape" && f.ajuda) { f.ajuda = false; pintarTeclasFila(); return; }
+    if (e.shiftKey && e.key.toLowerCase() === "a") { e.preventDefault(); pedirLote(); return; }
+    if (e.shiftKey) return;
+    const k = e.key.toLowerCase();
+    if (k === "j" || k === "arrowdown") { e.preventDefault(); moverNaFila(1); }
+    else if (k === "k" || k === "arrowup") { e.preventDefault(); moverNaFila(-1); }
+    else if (k === "a") { e.preventDefault(); aprovarAtual(); }
+    else if (k === "r") { e.preventDefault(); const c = $("#motivo-fila"); if (c) c.focus(); }
+    else if (k === "x") { e.preventDefault(); if (f.atual != null) alternarMarca(f.atual, !f.selecionados.has(f.atual)); }
+    else if (k === "enter" && (alvo === document.body || alvo.matches(".fila-corpo, .marcar"))) {  // Enter abre o item selecionado
+      const it = filaAtual();
+      if (it) { e.preventDefault(); abrirItem(it.codigo); }
     }
   }
 
+  // Aprovar ou rejeitar um item: o servidor decide, e a tela só reflete (nada de atualização otimista). Devolve
+  // { ok } ou { ok: false, msg, recarregar }: quem chamou mostra o erro onde faz sentido.
+  async function decidir(it, acao, motivo) {
+    const f = estado.fila;
+    if (acao === "rejeitar" && !(motivo && motivo.trim())) return { ok: false, msg: "Para rejeitar, escreva o motivo." };
+    f.processando = it.id;
+    f.erro = null;
+    if (estado.tela === "fila") pintarFila();
+    try {
+      await chamar("POST", `/insights/${it.id}/${acao}`, acao === "aprovar" ? undefined : { motivo: motivo.trim() });
+      await carregarItens();
+      const i = f.visiveis.findIndex((x) => x.id === it.id);  // o próximo da lista ganha o foco
+      const proximo = f.visiveis[i + 1] || f.visiveis[i - 1];
+      f.atual = proximo ? proximo.id : null;
+      aviso(acao === "aprovar" ? `${it.codigo} aprovado. Já está na base.` : `${it.codigo} rejeitado e marcado como obsoleto.`, "ok");
+      pulsarMascote();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, msg: e.message, recarregar: e.status === 422 && /outra pessoa/.test(e.message) };
+    } finally {
+      f.processando = null;
+      atualizarNumeros();
+      if (estado.tela === "fila") pintarFila();
+    }
+  }
 
   // ---------------------------------------------------------------- fontes
   const ORIGEM = { notion: "Notion", drive: "Drive", upload: "Arquivo" };
@@ -1167,7 +1974,8 @@
   const PULADAS = ["vazia", "pulada_dado_pessoal", "pulada_longa", "pulada_duplicata"];
   const ROTULO_ITEM = { historico_a_validar: "na Fila", proposto: "na Fila", validado: "aprovado", consolidado: "consolidado", obsoleto: "obsoleto" };
 
-  function linkSeguro(url) { return typeof url === "string" && /^https:\/\//.test(url) ? url : null; }
+  // Só https, ou o texto de um anexo (/fontes/<id>/texto), que o próprio servidor entrega: nunca um endereço qualquer.
+  function linkSeguro(url) { return typeof url === "string" && /^(https:\/\/|\/fontes\/\d+\/texto$)/.test(url) ? url : null; }
   function dataHora(iso) {
     if (!iso) return "";
     const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`);  // o servidor manda em UTC, sem o "Z"
@@ -1505,10 +2313,51 @@
   }
 
   // ---------------------------------------------------------------- página do item
-  // O item abre numa aba do centro (no lugar da gaveta). O PR 2 completa a página com as ligações.
+  // O item abre numa aba do centro (no lugar da gaveta), no modelo da "Estação da conta": o rótulo, o título, a faixa de
+  // propriedades, o texto, a evidência, de onde veio e as ligações. Tudo sai do que o GET /insights já trouxe. Não há
+  // "editar": a API não tem rota de edição.
+  const FRASE_NIVEL = { 1: "Opinião, sem caso que sustente.", 2: "Observação única: se apoia em um único caso.",
+    3: "Padrão repetido: visto em vários casos.", 4: "Resultado medido: exige um número, e ele está no item." };
+  const ORDEM_LIGACAO = ["contradiz", "substitui", "reforca", "duplica"];
   function abrirItem(codigo) {
     if (!acharItem(codigo)) { aviso(`${codigo} não está na base carregada.`, "erro"); return; }
     location.hash = `#item/${codigo}`;
+  }
+  // As ligações do item: as que saem dele (relacoes) e as que chegam nele (calculadas dos itens carregados).
+  function ligacoesDoItem(it) {
+    const saem = (it.relacoes || []).map((r) => ({ tipo: r.tipo, id: r.relacionado_id, chega: false }));
+    const chegam = estado.itens.filter((o) => o.id !== it.id)
+      .flatMap((o) => (o.relacoes || []).filter((r) => r.relacionado_id === it.id).map((r) => ({ tipo: r.tipo, id: o.id, chega: true })));
+    return [...saem, ...chegam].sort((a, b) => ORDEM_LIGACAO.indexOf(a.tipo) - ORDEM_LIGACAO.indexOf(b.tipo));
+  }
+  function linhaLigacao(l) {
+    const outro = estado.itens.find((i) => i.id === l.id);
+    const rotulo = `${l.chega ? "← " : ""}${capital(RELACOES[l.tipo] || l.tipo)}`;
+    const filhos = outro
+      ? [pontoEv(outro.evidencia), el("span", { class: "t-dado", text: outro.codigo }), el("span", { class: "txt", text: outro.titulo }),
+        estaNaFila(outro) ? el("span", { class: "selo alerta", text: "na Fila" }) : null,
+        outro.status === "obsoleto" ? el("span", { class: "selo risco", text: "obsoleto" }) : null]
+      : [el("span", { class: "txt suave", text: `INS-${l.id} · fora da base atual` })];  // um item que não está carregado
+    return el(outro ? "a" : "div", { class: `ligacao ${l.tipo}`, href: outro ? `#item/${outro.codigo}` : null },
+      el("span", { class: "tipo", text: rotulo }), ...filhos.filter(Boolean));
+  }
+  function faixa(pares) {
+    return el("dl", { class: "faixa" }, pares.filter(([, v]) => v).map(([k, v]) =>
+      el("div", {}, el("dt", { text: k }), el("dd", {}, v))));
+  }
+  function textoDoItem(titulo, texto, destaque = false) {
+    return texto ? el("section", { class: `texto-item${destaque ? " destaque" : ""}` },
+      el("h2", { class: "t-rotulo", text: titulo }), el("p", { class: "t-corpo", text: texto })) : null;
+  }
+  async function decidirNoItem(it, acao, motivo) {
+    const r = await decidir(it, acao, motivo);
+    if (!r.ok) aviso(r.msg, "erro");
+    if (estado.telaHash === `#item/${it.codigo}`) pintarItem(it.codigo);
+  }
+  function perguntarSobre() {
+    estado.sobreTirado = false;
+    atualizarSobre();
+    if (CELULAR.matches) location.hash = "#cerebro"; else mostrarCerebro();
   }
   function pintarItem(codigo) {
     const corpo = $("#item-conteudo");
@@ -1518,100 +2367,269 @@
         "Ele pode ter sido rejeitado ou ainda não ter sido carregado.", el("a", { class: "btn", href: "#hoje", text: "Voltar ao Hoje" })));
       return;
     }
-    const linhas = [
-      ["Etapa", NOME_SECAO[it.secao]],
-      ["Segmento", it.segmento ? capital(it.segmento) : "Todos os segmentos"],
-      ["Evidência", el("span", { class: "evid" }, trilha(it.evidencia), `${it.evidencia} · ${EVIDENCIA[it.evidencia]}`)],
-      ["Status", STATUS[it.status] || it.status],
-      ["O que foi feito", it.o_que_foi_feito],
-      ["Resultado", it.resultado],
-      ["Contexto", it.contexto_cliente],
-      ["Quem registrou", it.autor],
-      ["Quando", dataBr(it.data_evento)],
-      ["Origem", ORIGEM_ITEM[it.fonte] || it.fonte],
-      ["Motivo", it.motivo_obsolescencia],
-    ].filter(([, v]) => v);
-    corpo.replaceChildren(
+    const ligacoes = ligacoesDoItem(it);
+    const origem = linkOrigem(it);
+    const motivo = el("div", { class: "motivo", hidden: true },
+      el("label", { class: "t-rotulo", for: "motivo-item", text: "Motivo da rejeição (obrigatório)" }),
+      el("textarea", { id: "motivo-item", rows: "2", maxlength: "1000", placeholder: "Ex.: duplica outro item e não traz nada novo" }),
+      el("div", { class: "botoes" },
+        el("button", { type: "button", class: "btn perigo", onclick: () => decidirNoItem(it, "rejeitar", $("#motivo-item").value) }, "Confirmar rejeição"),
+        el("button", { type: "button", class: "btn fantasma", onclick: () => { motivo.hidden = true; } }, "Cancelar")));
+    const avs = avisosDeEvidencia(it);
+
+    corpo.replaceChildren(...[  // replaceChildren(null) escreveria o texto "null": só entra o que existe
       el("header", { class: "cab-tela" },
         el("p", { class: "t-rotulo marca", text: `${it.codigo} · ${TIPOS[it.tipo] || it.tipo}` }),
-        el("h1", { class: "t-titulo", text: it.titulo })),
-      metaItem(it),
+        el("h1", { class: "t-display", text: it.titulo })),
+      // no celular, a evidência vira o quadro grande do topo (prancha 2b)
+      el("div", { class: `evidencia-topo c${it.evidencia}` },
+        el("div", { class: "evidencia-quadro", role: "img", "aria-label": `Evidência ${it.evidencia} de 4, ${EVIDENCIA[it.evidencia].toLowerCase()}` },
+          el("span", { class: "numero", text: String(it.evidencia) }), el("span", { class: "t-rotulo", text: "de 4" })),
+        el("div", {}, el("p", { class: "evid" }, EVIDENCIA[it.evidencia]), el("p", { class: "t-legenda", text: FRASE_NIVEL[it.evidencia] }))),
+      it.status === "obsoleto"
+        ? el("div", { class: "aviso-obsoleto", role: "note" }, el("b", { text: "Obsoleto." }), ` ${it.motivo_obsolescencia || "Foi rejeitado ou substituído."}`)
+        : null,
+      faixa([
+        ["Etapa", NOME_SECAO[it.secao]],
+        ["Segmento", it.segmento ? capital(it.segmento) : "Todos os segmentos"],
+        ["Serviço", it.servico],
+        ["Evidência", el("span", { class: "evid" }, trilha(it.evidencia), EVIDENCIA[it.evidencia])],
+        ["Status", STATUS[it.status] || it.status],
+        ["Autor", it.autor],
+        ["Data do evento", dataBr(it.data_evento)],
+        ["Criado em", it.criado_em ? dataHora(it.criado_em).split(",")[0] : null],
+      ]),
       el("p", { class: "desc", text: it.descricao }),
-      el("dl", {}, linhas.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", {}, v)])));
-    if (it.relacoes && it.relacoes.length) {
-      corpo.append(el("h2", { class: "t-secao", text: "Ligações" }), el("div", { class: "relacoes" }, it.relacoes.map((r) => relacaoChip(r, it))));
-    }
-    const avs = avisosDeEvidencia(it);
-    if (avs.length) corpo.append(listaAvisos(avs));
+      textoDoItem("O que foi feito", it.o_que_foi_feito),
+      textoDoItem(it.evidencia === 4 ? "Resultado medido" : "Resultado", it.resultado, it.evidencia === 4),
+      textoDoItem("Contexto do cliente", it.contexto_cliente),
+      el("section", { class: "evidencia-secao" },
+        el("h2", { class: "t-secao", text: "Evidência" }),
+        el("div", { class: "evid" }, trilha(it.evidencia, true), el("b", { text: EVIDENCIA[it.evidencia] })),
+        el("p", { class: "t-p suave", text: FRASE_NIVEL[it.evidencia] })),
+      avs.length ? listaAvisos(avs) : null,
+      el("section", { class: "de-onde-veio" },
+        el("h2", { class: "t-secao", text: "De onde veio" }),
+        el("div", { class: "meta" },
+          el("span", { class: "selo", text: ORIGEM_ITEM[it.fonte] || it.fonte }),
+          origem, !origem && it.fonte_ref && it.fonte !== "chat" ? el("span", { class: "t-p suave", text: it.fonte_ref }) : null,
+          el("span", { class: "t-p suave", text: `Registrado por ${it.autor}` }))),
+      el("section", { class: "ligacoes-secao" },
+        el("h2", { class: "t-secao", text: "Ligações" }),
+        ligacoes.length ? el("div", { class: "ligacoes" }, ligacoes.map(linhaLigacao))
+          : el("p", { class: "t-p suave", text: "Este item não tem ligações com outros itens." })),
+      el("div", { class: "botoes acoes-item" },
+        el("button", { type: "button", class: "btn primario", onclick: perguntarSobre }, icone("chat", "ic p"), "Perguntar sobre este item"),
+        el("button", { type: "button", class: "btn", onclick: () => {
+          const copiar = navigator.clipboard ? navigator.clipboard.writeText(it.codigo) : Promise.reject(new Error("sem área de transferência"));
+          copiar.then(() => aviso(`${it.codigo} copiado.`, "ok"), () => aviso("Não consegui copiar. Selecione o código na tela.", "erro"));
+        } }, icone("copiar", "ic p"), "Copiar código"),
+        estaNaFila(it) ? el("button", { type: "button", class: "btn", onclick: () => decidirNoItem(it, "aprovar") }, icone("check", "ic p"), "Aprovar") : null,
+        estaNaFila(it) ? el("button", { type: "button", class: "btn perigo", onclick: () => { motivo.hidden = false; $("#motivo-item").focus(); } }, "Rejeitar") : null),
+      estaNaFila(it) ? motivo : null].filter(Boolean));
     pintarAbas();  // o título da aba pode ter chegado agora
   }
 
-  // ---------------------------------------------------------------- briefing (POST /briefing)
-  // O servidor escolhe os itens aprovados e confere as fontes de cada ponto; aqui só se mostra o que ele devolveu.
-  const SECOES_BRIEFING = {
-    cases: ["var(--ambar)", "A base não tem case para esta reunião."],
-    perfil: ["#93a6ff", "A base não tem o perfil deste segmento."],
-    roteiro: ["var(--ciano)", "A base não tem material para conduzir esta reunião."],
-    objecoes: ["var(--risco)", "A base não tem objeções registradas para este segmento."],
-    proposta: ["var(--ok)", "A base não tem estrutura de proposta testada para este segmento."],
-  };
-  function pintarSegmentosBriefing() {
-    const s = $("#b-segmento");
-    if (s.options.length) return;
-    for (const seg of SEGMENTOS) s.append(el("option", { value: seg, text: capital(seg) }));
+  // ---------------------------------------------------------------- preparar reunião (o briefing, prancha 1b)
+  // O briefing vem do servidor (POST /briefing): só com a base aprovada, cada ponto com as fontes que o sustentam, a menor
+  // evidência entre elas e o selo "Não revisado" quando cita documento. Não grava nada. Com a base vazia (usou_modelo
+  // falso) não existe roteiro: o texto diz isso e leva a alimentar a base. Os 5 últimos ficam só neste navegador.
+  const TIPOS_REUNIAO = [["diagnostico", "Diagnóstico"], ["proposta", "Proposta"], ["negociacao", "Negociação"]];
+  const NOME_REUNIAO = { diagnostico: "diagnóstico", proposta: "proposta", negociacao: "negociação" };
+  function novoBriefing() {
+    return { rascunho: { segmento: "", tipo: "diagnostico", contexto: "" }, pedido: null, resultado: null, gerando: false, erro: null };
   }
-  function itemLista(ponto, docs) {
-    const fontes = ponto.fontes.map((f) => `[${f.codigo}]`).join(" ");
-    const li = el("li", {}, inline(`${ponto.texto} ${fontes}`, docs));
-    if (ponto.evidencia_minima != null && ponto.evidencia_minima <= 2) {
-      li.append(el("span", { class: "marca-evid", text: ponto.evidencia_minima === 1 ? "opinião" : "caso único" }));
-    }
-    if (ponto.nao_revisado) li.append(el("span", { class: "marca-evid", text: "documento não revisado" }));
-    return li;
-  }
-  function bloco(titulo, cor, conteudo, classes = "") {
-    return el("article", { class: `bloco ${classes}`, style: `--c:${cor}` }, el("h3", { text: titulo }), conteudo);
-  }
-  const semBase = (t) => el("p", { class: "sem-base", text: t });
-
-  async function montarBriefing(ev) {
-    if (ev) ev.preventDefault();
-    pintarSegmentosBriefing();
-    const seg = $("#b-segmento").value;
-    const tipo = $("#b-tipo").value;
-    const contexto = $("#b-contexto").value.trim();
-    const botao = $("#form-briefing button[type=submit]");
-    const saida = $("#briefing-saida");
-    if (botao.disabled) return;
-    botao.disabled = true;
-    saida.replaceChildren(el("p", { class: "contexto-briefing", role: "status", text: "Montando o briefing com o que a base tem…" }));
-    let b;
+  const chaveBriefings = () => `cerebro.briefings:${estado.pessoa ? estado.pessoa.email : "dev"}`;
+  function lerBriefingsSalvos() {
     try {
-      b = await chamar("POST", "/briefing", { segmento: seg, tipo_reuniao: tipo, contexto: contexto || null });
-    } catch (e) {
-      saida.replaceChildren(el("p", { class: "contexto-briefing", role: "alert", text: e.message }));
+      const lidos = JSON.parse(guardar.ler(chaveBriefings()) || "[]");
+      return Array.isArray(lidos) ? lidos.filter((b) => b && b.pedido && b.resultado && Array.isArray(b.resultado.secoes)).slice(0, 5) : [];
+    } catch {
+      return [];
+    }
+  }
+  function guardarBriefing(pedido, resultado) {
+    const antes = lerBriefingsSalvos();
+    guardar.escrever(chaveBriefings(), JSON.stringify([{ quando: new Date().toISOString(), pedido, resultado }, ...antes].slice(0, 5)));
+  }
+
+  function pintarPreparar() {
+    const B = estado.briefing;
+    const caixa = $("#preparar-conteudo");
+    if (B.gerando) {
+      const n = itensDaBase().length;
+      caixa.replaceChildren(el("div", { class: "carregando", role: "status" }, mascoteEm("m", { humor: "pensando" }),
+        el("p", { class: "t-rotulo", text: `Montando a partir de ${n} ${n === 1 ? "item" : "itens"} da base` }),
+        el("span", { class: "esqueleto" }), el("span", { class: "esqueleto" }), el("span", { class: "esqueleto curto" })));
       return;
+    }
+    if (B.resultado) { caixa.replaceChildren(...documentoDoBriefing(B.resultado, B.pedido)); return; }
+    const salvos = lerBriefingsSalvos();
+    caixa.replaceChildren(...[
+      B.erro && !B.erro.campo ? el("div", { class: "aviso-registro", role: "alert" }, icone("alerta", "ic p"), el("span", { class: "t-p", text: B.erro.msg })) : null,
+      formularioDoBriefing(),
+      salvos.length ? el("section", { class: "briefings-salvos" },
+        el("h2", { class: "t-secao", text: "Os últimos briefings" }),
+        el("p", { class: "t-legenda", text: "Só neste computador: não ficam guardados no servidor." }),
+        ...salvos.map((b) => el("div", { class: "linha-lista" },
+          el("span", { class: "selo marca", text: capital(b.pedido.segmento) }),
+          el("span", { class: "txt", text: `Reunião de ${NOME_REUNIAO[b.pedido.tipo] || b.pedido.tipo}` }),
+          el("span", { class: "t-legenda", text: dataRelativa(b.quando) }),
+          el("button", { type: "button", class: "btn fantasma", onclick: () => { B.pedido = b.pedido; B.resultado = b.resultado; pintarPreparar(); } }, "Abrir")))) : null,
+    ].filter(Boolean));
+    if (B.erro && B.erro.campo) marcarErroCampo(B.erro.campo, B.erro.msg, true);
+  }
+  function formularioDoBriefing() {
+    const B = estado.briefing;
+    const d = B.rascunho;
+    const segmento = el("input", { id: "b-segmento", list: "lista-segmentos-b", maxlength: "100", autocomplete: "off", value: d.segmento,
+      placeholder: "Ex.: hotelaria" });
+    const contexto = el("textarea", { id: "b-contexto", rows: "4", maxlength: "1500", placeholder: "O que você já sabe da reunião (opcional)" });
+    contexto.value = d.contexto;
+    const contador = el("span", { class: "t-dado contador-msg", "aria-live": "polite", hidden: true });
+    const contar = () => { const n = contexto.value.length; contador.hidden = n < 1300; contador.textContent = `${n.toLocaleString("pt-BR")} / 1.500`; };
+    contexto.addEventListener("input", contar);
+    contar();
+    const tipos = el("div", { class: "pilulas-abas", role: "group", "aria-label": "Tipo de reunião" });
+    const pintarTipos = () => tipos.replaceChildren(...TIPOS_REUNIAO.map(([v, nome]) => chip(nome, d.tipo === v, () => { d.tipo = v; pintarTipos(); })));
+    pintarTipos();
+    const form = el("form", { class: "painel briefing-form", novalidate: true },
+      el("div", { class: "campo" }, el("label", { for: "b-segmento", text: "Segmento" }), segmento,
+        el("datalist", { id: "lista-segmentos-b" }, SEGMENTOS.map((s) => el("option", { value: s })))),
+      el("div", { class: "campo" }, el("p", { class: "t-rotulo", text: "Tipo de reunião" }), tipos),
+      el("div", { class: "campo inteiro" }, el("label", { for: "b-contexto", text: "Contexto" }), contexto, contador),
+      el("p", { class: "t-legenda", text: "Sem dado pessoal de cliente (e-mail, telefone, CPF ou CNPJ): ele não vai ao modelo." }),
+      el("div", { class: "botoes" }, el("button", { type: "submit", class: "btn primario", id: "montar-briefing" }, "Montar briefing")));
+    form.addEventListener("submit", (e) => { e.preventDefault(); gerarBriefing(); });
+    return form;
+  }
+  async function gerarBriefing() {
+    const B = estado.briefing;
+    const d = B.rascunho;
+    d.segmento = $("#b-segmento").value.trim();
+    d.contexto = $("#b-contexto").value.trim();
+    limparErroCampo("b-segmento");
+    limparErroCampo("b-contexto");
+    if (!d.segmento) { marcarErroCampo("b-segmento", "Diga o segmento da reunião."); $("#b-segmento").focus(); return; }
+    B.gerando = true; B.erro = null; B.pedido = { ...d };
+    pintarPreparar();
+    try {
+      const r = await chamar("POST", "/briefing", { segmento: d.segmento, tipo_reuniao: d.tipo, ...(d.contexto ? { contexto: d.contexto } : {}) });
+      B.resultado = r;
+      guardarBriefing(B.pedido, r);
+    } catch (e) {
+      B.pedido = null;
+      const achados = e.status === 422 ? camposComDadoPessoal(e.message) : [];
+      B.erro = achados.length
+        ? { campo: "b-contexto", msg: `Possível ${achados[0][0]} neste campo. Troque por algo genérico (“o cliente”) e monte de novo. Nada foi ao modelo.` }
+        : { msg: e.message };
     } finally {
-      botao.disabled = false;
+      B.gerando = false;
+      pintarPreparar();
     }
+  }
 
-    saida.replaceChildren();
-    const nomeTipo = { diagnostico: "diagnóstico", proposta: "proposta", negociacao: "negociação" }[b.tipo_reuniao];
-    saida.append(el("div", { class: "cab-briefing" }, el("h2", { text: `Reunião de ${nomeTipo} · ${capital(b.segmento)}` })));
-    if (b.resumo) saida.append(el("p", { class: "contexto-briefing", text: b.resumo }));
-    if (b.avisos.length) saida.append(listaAvisos(b.avisos));
-
-    const grade = el("div", { class: "briefing-saida" });
-    for (const secao of b.secoes) {
-      const [cor, vazioTxt] = SECOES_BRIEFING[secao.chave];
-      grade.append(bloco(secao.titulo, cor, secao.pontos.length
-        ? el(secao.chave === "roteiro" ? "ol" : "ul", {}, secao.pontos.map((p) => itemLista(p, b.documentos)))
-        : semBase(vazioTxt), secao.chave === "roteiro" ? "largo" : ""));
+  // A fonte de um ponto: o código com o ponto de evidência (no documento do briefing não há nota numerada). O [DOC-n]
+  // é tracejado e abre fora; o item abre numa aba.
+  function chipFonteBriefing(f, porCodigo) {
+    const meta = porCodigo.get(f.codigo);
+    if (f.tipo === "documento") {
+      const url = linkSeguro(f.url);
+      const chip = el(url ? "a" : "span", { class: "cita doc", href: url, target: url ? "_blank" : null, rel: url ? "noopener noreferrer" : null }, f.codigo);
+      ligarPrevia(chip, () => [
+        el("span", { class: "t-rotulo", text: `${f.codigo} · Documento` }), el("strong", { text: f.titulo }),
+        el("span", {}, el("span", { class: "selo alerta", text: "Não revisado" })),
+        el("span", { class: "t-legenda", text: url ? (url.startsWith("/") ? "Abre o texto" : "Abre no Drive") : "Sem endereço" })]);
+      return chip;
     }
-    if (b.lacunas.length) {
-      grade.append(bloco("O que a base não cobre", "var(--ambar)", el("ul", {}, b.lacunas.map((l) => el("li", { text: l }))), "lacuna largo"));
+    const chip = el("button", { type: "button", class: "cita", "aria-label": `${f.codigo}, ${f.titulo}`, onclick: () => abrirItem(f.codigo) },
+      meta ? pontoEv(meta.evidencia) : null, f.codigo);
+    ligarPrevia(chip, () => [
+      el("span", { class: "t-rotulo", text: meta ? `${f.codigo} · ${TIPOS[meta.tipo] || meta.tipo} · ${NOME_SECAO[meta.secao] || meta.secao}` : f.codigo }),
+      el("strong", { text: f.titulo }),
+      meta ? el("span", { class: "evid" }, trilha(meta.evidencia), EVIDENCIA[meta.evidencia]) : null,
+      el("span", { class: "t-legenda", text: "clique para abrir" })].filter(Boolean));
+    return chip;
+  }
+  function pontoDoBriefing(p, porCodigo) {
+    const outro = p.fontes.map((f) => porCodigo.get(f.codigo)).find((i) => i && i.de_outro_segmento);
+    const doOutro = outro ? estado.itens.find((i) => i.id === outro.id) : null;
+    return el("li", { class: "ponto" },
+      el("span", { class: "ponto-texto", text: p.texto }),
+      el("span", { class: "ponto-meta" },
+        ...p.fontes.map((f) => chipFonteBriefing(f, porCodigo)),
+        p.evidencia_minima ? el("span", { class: "evid" }, trilha(p.evidencia_minima), EVIDENCIA[p.evidencia_minima]) : el("span", { class: "t-legenda", text: "só documento: sem evidência da base" }),
+        outro ? el("span", { class: "selo", text: `De outro segmento${doOutro && doOutro.segmento ? `: ${doOutro.segmento}` : ""}` }) : null,
+        p.nao_revisado ? el("span", { class: "selo alerta", text: "Não revisado" }) : null));
+  }
+  function textoDoBriefing(r, pedido) {
+    const linhas = [`Briefing · reunião de ${NOME_REUNIAO[pedido.tipo] || pedido.tipo} · ${capital(r.segmento)}`, "", r.resumo, ""];
+    for (const s of r.secoes) {
+      linhas.push(s.titulo.toUpperCase());
+      for (const p of s.pontos) linhas.push(`- ${p.texto} [${p.fontes.map((f) => f.codigo).join(", ")}]`);
+      linhas.push("");
     }
-    saida.append(grade);
+    if (r.lacunas.length) linhas.push("O QUE A BASE NÃO COBRE", ...r.lacunas.map((l) => `- ${l}`));
+    return linhas.join("\n");
+  }
+  function abrirRelatoSobre(frase) {  // "Registrar o que sabemos" de uma lacuna do briefing: não há lacuna_id, só a frase
+    estado.reg = novoReg();
+    estado.reg.lacunaPergunta = frase;
+    if (location.hash === "#registrar") pintarRegistrar(); else location.hash = "#registrar";
+  }
+  function documentoDoBriefing(r, pedido) {
+    const B = estado.briefing;
+    const porCodigo = new Map(r.itens.map((i) => [i.codigo, i]));
+    const naoRevisados = r.secoes.reduce((t, s) => t + s.pontos.filter((p) => p.nao_revisado).length, 0);
+    const cartaoPedido = el("div", { class: "cartao pedido" },
+      el("span", { class: "t-rotulo", text: "Pedido" }),
+      el("span", { class: "selo marca", text: capital(r.segmento) }),
+      el("span", { class: "selo", text: capital(NOME_REUNIAO[pedido.tipo] || pedido.tipo) }),
+      pedido.contexto ? el("span", { class: "pedido-contexto t-p suave", text: pedido.contexto }) : null,
+      el("button", { type: "button", class: "btn", onclick: () => { B.resultado = null; pintarPreparar(); } }, icone("refazer", "ic p"), "Refazer"));
+    const lacunas = r.lacunas.length ? el("section", { class: "bloco lacuna" },
+      el("h3", { text: "O que a base não cobre para esta reunião" }),
+      el("ul", {}, r.lacunas.map((l) => el("li", {}, el("span", { text: l }), " ",
+        el("button", { type: "button", class: "btn fantasma", onclick: () => abrirRelatoSobre(l) }, "Registrar o que sabemos"))))) : null;
+    const avisos = r.avisos.length ? listaAvisos(r.avisos) : null;
+    if (!r.usou_modelo) {  // a base vazia: nenhum roteiro inventado
+      const aviso0 = vazio("A base ainda está vazia", "Sem itens validados eu não monto roteiro: prefiro não inventar.",
+          el("div", { class: "botoes" },
+            el("a", { class: "btn primario", href: "#fontes", text: "Sincronizar o Notion" }),
+            el("a", { class: "btn", href: "#registrar", text: "Registrar o primeiro" })));
+      $(".mascote", aviso0).replaceWith(mascoteEm("m mascote-vazio", { humor: "nota-em-branco" }));  // a nota em branco: nada a citar
+      return [cartaoPedido, aviso0, avisos, lacunas].filter(Boolean);
+    }
+    const docs = r.documentos.length ? el("section", { class: "bloco" }, el("h3", { text: "Documentos usados" }),
+      el("ul", {}, r.documentos.map((d) => el("li", {}, linkSeguro(d.url) ? el("a", { href: d.url, target: "_blank", rel: "noopener noreferrer", text: d.titulo }) : d.titulo,
+        d.categoria ? el("span", { class: "pasta-doc", text: ` · ${d.categoria}` }) : null)))) : null;
+    return [
+      cartaoPedido,
+      el("article", { class: "documento-briefing" },
+        el("header", { class: "cab-briefing" },
+          el("p", { class: "t-rotulo marca", text: `Briefing · reunião de ${NOME_REUNIAO[pedido.tipo] || pedido.tipo}` }),
+          el("button", { type: "button", class: "btn fantasma", onclick: () => {
+            const copiar = navigator.clipboard ? navigator.clipboard.writeText(textoDoBriefing(r, pedido)) : Promise.reject(new Error("sem área de transferência"));
+            copiar.then(() => aviso("Briefing copiado.", "ok"), () => aviso("Não consegui copiar. Selecione o texto na tela.", "erro"));
+          } }, icone("copiar", "ic p"), "Copiar")),
+        el("h1", { class: "t-titulo", text: `${capital(NOME_REUNIAO[pedido.tipo] || pedido.tipo)} · ${capital(r.segmento)}` }),
+        el("p", { class: "t-corpo", text: r.resumo }),
+        el("p", { class: "t-legenda" }, `Montado a partir de ${r.itens.length} ${r.itens.length === 1 ? "item aprovado" : "itens aprovados"} e ${r.documentos.length} ${r.documentos.length === 1 ? "documento" : "documentos"} `,
+          naoRevisados ? el("span", { class: "selo alerta", text: `${naoRevisados} não ${naoRevisados === 1 ? "revisado" : "revisados"}` }) : null)),
+      ...r.secoes.map((s) => el("section", { class: "bloco secao-briefing", "data-chave": s.chave },
+        el("h3", { text: s.titulo }),
+        s.pontos.length
+          ? el(s.chave === "roteiro" ? "ol" : "ul", {}, s.pontos.map((p) => pontoDoBriefing(p, porCodigo)))
+          : el("p", { class: "sem-base", text: "A base não tem pontos para esta parte." }))),
+      lacunas,
+      r.itens.length ? el("section", { class: "bloco" }, el("h3", { text: "Itens usados" }),
+        ...r.itens.map((i) => {
+          const completo = estado.itens.find((x) => x.id === i.id);
+          return el("a", { class: "linha-lista", href: `#item/${i.codigo}` }, pontoEv(i.evidencia), el("span", { class: "t-dado suave", text: i.codigo }),
+            el("span", { class: "txt", text: i.titulo }),
+            i.de_outro_segmento ? el("span", { class: "selo", text: `De outro segmento${completo && completo.segmento ? `: ${completo.segmento}` : ""}` }) : null);
+        })) : null,
+      docs, avisos].filter(Boolean);
   }
 
   // ---------------------------------------------------------------- paleta Cmd+K: buscar ou agir
@@ -1619,7 +2637,7 @@
   // Teclado: setas movem, Enter abre, Cmd+Enter pergunta ao Cérebro, Tab troca o filtro e Esc fecha.
   const paleta = { aberta: false, termo: "", filtro: "tudo", sel: 0, opcoes: [], fontes: [], pedido: 0, espera: null, focoAntes: null };
   const FILTROS_PALETA = [["tudo", "Tudo"], ["itens", "Itens"], ["fontes", "Fontes"], ["acoes", "Ações"]];
-  const TELAS_PALETA = [["#hoje", "hoje", "Hoje"], ["#fila", "fila", "Fila"], ["#preparar", "preparar", "Preparar reunião"], ["#fontes", "fontes", "Fontes"]];
+  const TELAS_PALETA = [["#hoje", "hoje", "Hoje"], ["#fila", "fila", "Fila"], ["#lacunas", "lacuna", "Lacunas"], ["#preparar", "preparar", "Preparar reunião"], ["#fontes", "fontes", "Fontes"]];
   const MAX_ITENS_PALETA = 8;
 
   // O trecho que bate com o termo vai num <mark> (a comparação ignora acento e maiúscula).
@@ -1669,7 +2687,7 @@
       sub: seg ? "Abre o briefing com o segmento já escolhido" : "Um briefing com a prova de cada ponto",
       agir: () => prepararDaPaleta(seg) });
     grupos.acoes.push({ icone: "registrar", titulo: "Registrar o que aconteceu", sub: "Conta ao curador; o item entra na Fila antes da base",
-      agir: () => { location.hash = "#registrar"; setTimeout(() => $("#campo-reg").focus(), 0); } });
+      agir: () => { novoRegistro(); location.hash = "#registrar"; } });
     const nTermo = normalizar(termo);
     for (const [hash, icon, nome] of TELAS_PALETA) {
       if (hash === "#fontes" && !aoVivo()) continue;
@@ -1747,10 +2765,10 @@
     perguntar(texto);
   }
   function prepararDaPaleta(seg) {
-    pintarSegmentosBriefing();
-    if (seg) $("#b-segmento").value = seg;
-    if (location.hash === "#preparar") montarBriefing();
-    else location.hash = "#preparar";
+    const B = estado.briefing;
+    B.resultado = null;  // volta ao formulário, com o segmento já escolhido
+    if (seg) B.rascunho.segmento = seg;
+    if (location.hash === "#preparar") { pintarPreparar(); $("#b-contexto").focus(); } else location.hash = "#preparar";
   }
   function buscarFontesDaPaleta() {
     clearTimeout(paleta.espera);
@@ -1854,15 +2872,20 @@
     ligarCampo($("#campo-chat"), formChat);
     formChat.addEventListener("submit", (e) => { e.preventDefault(); perguntar($("#campo-chat").value); });
 
-    const formReg = $("#form-reg");
-    ligarCampo($("#campo-reg"), formReg);
-    formReg.addEventListener("submit", (e) => { e.preventDefault(); relatar($("#campo-reg").value); });
-    $("#rascunho").addEventListener("submit", enviarParaFila);
 
-    $("#form-briefing").addEventListener("submit", montarBriefing);
     $("#nova-conversa").addEventListener("click", () => {
-      if (!estado.ocupado) iniciarConversa();
+      if (!estado.ocupado) iniciarConversa();  // "Nova conversa" limpa também o que ficou guardado neste navegador
       $("#campo-chat").focus();
+    });
+    $("#campo-chat").addEventListener("input", atualizarContadorMsg);
+    document.addEventListener("keydown", teclasDaFila);
+    const anexar = $("#anexar");
+    const arquivo = $("#arquivo-anexo");
+    anexar.addEventListener("click", () => arquivo.click());
+    arquivo.addEventListener("change", () => {
+      const escolhido = arquivo.files && arquivo.files[0];
+      arquivo.value = "";
+      if (escolhido) enviarArquivo(escolhido);
     });
 
     // A barra lateral recolhe num trilho só de ícones; o navegador lembra a escolha (se o localStorage deixar).
@@ -1878,6 +2901,7 @@
 
     // A gaveta do Cérebro (de 861 a 1279 px): o botão no topo do centro ou Cmd+J; Esc e o fundo fecham.
     $("#abrir-cerebro").addEventListener("click", abrirGavetaCerebro);
+    $("#trilho-cerebro").addEventListener("click", abrirGavetaCerebro);
     $("#fechar-cerebro").addEventListener("click", fecharGavetaCerebro);
     $("#fundo-cerebro").addEventListener("click", fecharGavetaCerebro);
     $("#nav-mascote").addEventListener("click", () => { if (!fecharNavCelular()) abrirNavCelular(); });
@@ -1895,10 +2919,11 @@
       if (paleta.aberta) return;  // com a paleta aberta, o teclado é dela
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
         e.preventDefault();
-        if (ehGaveta() && fecharGavetaCerebro()) return;
+        if ((ehGaveta() || trilhoDaFila()) && fecharGavetaCerebro()) return;
         mostrarCerebro();
         return;
       }
+      if (e.key === "Escape") esconderPrevia();
       if (e.key === "Escape" && (fecharNavCelular() || fecharGavetaCerebro())) e.preventDefault();
     });
     ESTREITO.addEventListener?.("change", () => { if (!ehGaveta()) fecharGavetaCerebro(); });
@@ -1925,10 +2950,10 @@
     const rascunho = guardar.ler("cerebro.rascunho-chat");
     if (rascunho) { $("#campo-chat").value = rascunho; guardar.escrever("cerebro.rascunho-chat", ""); }
     await carregarItens();
+    await carregarLacunas();
     atualizarNumeros();
-    iniciarConversa();
-    boasVindasRegistro();
-    pintarRascunho();
+    iniciarConversa({ restaurar: true });
+    atualizarContadorMsg();
     rotear();
   }
 
